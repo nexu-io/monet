@@ -11,6 +11,7 @@ import { registerProviderRoutes } from "./routes/providers";
 import { registerRunRoutes } from "./routes/runs";
 import { registerSessionRoutes } from "./routes/sessions";
 import { createRunRegistry } from "./run-registry";
+import { createToolRegistry } from "./tools/registry";
 import type { AgentRuntimeConfig, OpenAIProviderConfig } from "./config";
 
 export interface CreateControllerAppOptions {
@@ -72,6 +73,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     openai: options.openai
   });
   const runRegistry = createRunRegistry();
+  const toolRegistry = createToolRegistry();
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
 
   function getChatStorage() {
@@ -183,7 +185,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   registerHealthRoutes(app);
-  registerChatRoutes(app, { getChatStorage, providerRuntime, runRegistry, runtime: options.agentRuntime });
+  registerChatRoutes(app, { getChatStorage, providerRuntime, runRegistry, toolRegistry, runtime: options.agentRuntime });
   registerRunRoutes(app, { getChatStorage, runRegistry });
   registerSessionRoutes(app, { getChatStorage });
   registerProviderRoutes(app, { getChatStorage, providerRuntime });

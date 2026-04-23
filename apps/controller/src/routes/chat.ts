@@ -17,6 +17,7 @@ import { createLogger } from "../logger";
 import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
 import { getRequestId } from "../request-context";
 import type { RunRegistry } from "../run-registry";
+import type { ToolRegistry } from "../tools/registry";
 
 interface ChatRequestBody {
   readonly messages?: unknown;
@@ -42,6 +43,7 @@ export function registerChatRoutes(
     getChatStorage: () => ChatStorage;
     providerRuntime: ProviderRuntime;
     runRegistry: RunRegistry;
+    toolRegistry: ToolRegistry;
     runtime: AgentRuntimeConfig;
   }
 ) {
@@ -151,6 +153,11 @@ export function registerChatRoutes(
       modelId: resolvedChatRequest.modelId,
       runtimeArea: "tool-runtime"
     });
+    const runtimeTools = options.toolRegistry.createRuntimeTools({
+      runId: resolvedChatRequest.runId,
+      chatStorage: options.getChatStorage(),
+      logger: runtimeLogger
+    });
 
     const startedAt = Date.now();
     const abortController = new AbortController();
@@ -185,6 +192,7 @@ export function registerChatRoutes(
       maxSteps: resolvedChatRequest.maxSteps,
       maxTokensPerRun: resolvedChatRequest.maxTokensPerRun,
       maxToolCallsPerRun: options.runtime.maxToolCallsPerRun,
+      availableToolCount: Object.keys(runtimeTools).length,
       messageCount: messages.length,
       wallClockDeadlineAt: resolvedChatRequest.wallClockDeadlineAt
     });
@@ -341,6 +349,7 @@ export function registerChatRoutes(
         model,
         abortSignal: abortController.signal,
         messages: await toModelMessages(messages),
+        tools: runtimeTools as NonNullable<Parameters<typeof streamText>[0]["tools"]>,
         stopWhen: [stepCountIs(resolvedChatRequest.maxSteps)],
         onStepFinish: ({ stepNumber, toolCalls, usage }) => {
           const currentStep = stepNumber + 1;

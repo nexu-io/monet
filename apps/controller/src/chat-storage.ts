@@ -224,6 +224,15 @@ export interface ChatStorage {
   }): void;
   prepareChatRequest(input: ChatRequestPersistenceInput): ResolvedChatRequest;
   recoverUnfinishedRuns(): RecoverUnfinishedRunsResult;
+  startToolCall(options: { toolCallId?: string; runId: string; toolName: string; input: unknown }): string;
+  completeToolCall(options: {
+    toolCallId: string;
+    output: unknown;
+  }): {
+    outputSizeBytes: number;
+    outputTruncated: boolean;
+  };
+  failToolCall(options: { toolCallId: string; errorMessage: string }): void;
   updateRunProgress(options: { runId: string; currentStep: number }): void;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
@@ -673,6 +682,77 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         interruptedRunIds,
         failedRunIds
       };
+    },
+
+    startToolCall({ toolCallId, runId, toolName, input }) {
+      const startedAt = new Date().toISOString();
+      const persistedToolCallId = toolCallId?.trim() || createPrefixedId("tcl");
+
+      connection
+        .prepare(
+          `INSERT INTO tool_calls (
+             id,
+             run_id,
+             tool_name,
+             input_json,
+             output_json,
+             output_truncated,
+             output_size_bytes,
+             approval_decision,
+             approval_decided_at,
+             confirmation_token_hash,
+             status,
+             error_message,
+             started_at,
+             ended_at
+           ) VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, 'running', NULL, ?, NULL)`
+        )
+        .run(persistedToolCallId, runId, toolName, serializeToolCallPayload(input), startedAt);
+
+      return persistedToolCallId;
+    },
+
+    completeToolCall({ toolCallId, output }) {
+      const endedAt = new Date().toISOString();
+      const serializedOutput = serializeToolCallOutput(output);
+
+      connection
+        .prepare(
+          `UPDATE tool_calls
+           SET status = 'completed',
+               output_json = ?,
+               output_truncated = ?,
+               output_size_bytes = ?,
+               error_message = NULL,
+               ended_at = ?
+           WHERE id = ?`
+        )
+        .run(
+          serializedOutput.value,
+          serializedOutput.outputTruncated ? 1 : 0,
+          serializedOutput.outputSizeBytes,
+          endedAt,
+          toolCallId
+        );
+
+      return {
+        outputSizeBytes: serializedOutput.outputSizeBytes,
+        outputTruncated: serializedOutput.outputTruncated
+      };
+    },
+
+    failToolCall({ toolCallId, errorMessage }) {
+      const endedAt = new Date().toISOString();
+
+      connection
+        .prepare(
+          `UPDATE tool_calls
+           SET status = 'failed',
+               error_message = ?,
+               ended_at = ?
+           WHERE id = ?`
+        )
+        .run(errorMessage, endedAt, toolCallId);
     },
 
     updateRunProgress({ runId, currentStep }) {
@@ -1518,6 +1598,21 @@ function hasIdPrefix(value: string, prefix: string) {
 
 function createPrefixedId(prefix: string) {
   return `${prefix}_${createCuid2()}`;
+}
+
+function serializeToolCallPayload(value: unknown) {
+  return JSON.stringify(value ?? null);
+}
+
+function serializeToolCallOutput(value: unknown) {
+  const serialized = serializeToolCallPayload(value);
+  const outputSizeBytes = Buffer.byteLength(serialized, "utf8");
+
+  return {
+    value: serialized,
+    outputSizeBytes,
+    outputTruncated: false
+  };
 }
 
 function isReasoningModelName(modelName: string) {
