@@ -158,7 +158,7 @@ function SessionChatSurface({
 
   async function handleToolApproval(input: PendingContinuationRequest) {
     if (isBusy || isArchived) {
-      return;
+      throw new Error("Tool confirmation is unavailable right now.");
     }
 
     setApprovalErrorText(undefined);
@@ -189,7 +189,7 @@ function SessionChatSurface({
       }
 
       setApprovalErrorText(errorMessage);
-      return;
+      throw new Error(errorMessage);
     }
 
     pendingContinuationRef.current = input;
@@ -241,7 +241,7 @@ function SessionChatSurface({
           status={status}
           errorText={approvalErrorText ?? error?.message}
           isArchived={isArchived}
-          onToolApproval={(request) => void handleToolApproval(request)}
+          onToolApproval={handleToolApproval}
         />
       </div>
     </PageFrame>

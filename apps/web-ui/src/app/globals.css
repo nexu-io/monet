@@ -425,6 +425,25 @@ textarea {
   background: hsl(var(--background) / 0.5);
 }
 
+.tool-card[data-tool-phase="awaiting-confirm"] {
+  border-color: hsl(var(--accent) / 0.35);
+  background: hsl(var(--accent) / 0.08);
+}
+
+.tool-card[data-tool-phase="running"],
+.tool-card[data-tool-phase="preparing"] {
+  border-color: hsl(var(--warning) / 0.28);
+}
+
+.tool-card[data-tool-phase="completed"] {
+  border-color: hsl(var(--success) / 0.28);
+}
+
+.tool-card[data-tool-phase="failed"] {
+  border-color: hsl(var(--destructive) / 0.3);
+  background: hsl(var(--destructive) / 0.05);
+}
+
 .source-card {
   color: inherit;
 }
@@ -459,6 +478,16 @@ textarea {
 .tool-card-section {
   display: grid;
   gap: calc(var(--spacing) * 1.5);
+}
+
+.tool-card-path {
+  overflow: auto;
+  border-radius: var(--radius-lg);
+  padding: calc(var(--spacing) * 3);
+  background: hsl(var(--background) / 0.78);
+  color: var(--color-text-heading);
+  font-size: var(--text-size-sm);
+  overflow-wrap: anywhere;
 }
 
 .tool-card pre,

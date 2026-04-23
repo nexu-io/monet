@@ -5,6 +5,8 @@ import type { UIMessage } from "ai";
 import { Badge, Button, Card } from "@nexu-design/ui-web";
 
 type ChatMessage = UIMessage;
+const WRITE_FILE_PREVIEW_MAX_LINES = 24;
+const WRITE_FILE_PREVIEW_MAX_CHARS = 1_200;
 
 type TextPart = { readonly type: "text"; readonly text: string };
 type ReasoningPart = { readonly type: "reasoning"; readonly text: string; readonly label?: string };
@@ -37,21 +39,39 @@ type ChatMessagePart = TextPart | ReasoningPart | StepStartPart | FilePart | Sou
 
 function formatToolState(state: string) {
   switch (state) {
-    case "approval-requested":
-      return "Needs approval";
     case "input-available":
-      return "Input available";
     case "input-streaming":
       return "Preparing";
+    case "approval-requested":
+      return "Awaiting confirm";
     case "output-available":
       return "Completed";
     case "running":
       return "Running";
     case "output-error":
     case "error":
-      return "Error";
+      return "Failed";
     default:
       return state;
+  }
+}
+
+function getToolStateMeta(state: string) {
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return { label: "Preparing", badgeVariant: "warning" as const, phase: "preparing" as const };
+    case "approval-requested":
+      return { label: "Awaiting confirm", badgeVariant: "accent" as const, phase: "awaiting-confirm" as const };
+    case "running":
+      return { label: "Running", badgeVariant: "secondary" as const, phase: "running" as const };
+    case "output-available":
+      return { label: "Completed", badgeVariant: "success" as const, phase: "completed" as const };
+    case "output-error":
+    case "error":
+      return { label: "Failed", badgeVariant: "destructive" as const, phase: "failed" as const };
+    default:
+      return { label: formatToolState(state), badgeVariant: "secondary" as const, phase: "unknown" as const };
   }
 }
 
@@ -114,6 +134,31 @@ function getMessageRunId(message: ChatMessage) {
   return typeof (metadata as { runId?: unknown }).runId === "string" ? (metadata as { runId: string }).runId : null;
 }
 
+function isWriteFileInput(value: unknown): value is { readonly path: string; readonly content: string } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return typeof (value as { path?: unknown }).path === "string" && typeof (value as { content?: unknown }).content === "string";
+}
+
+function getWriteFilePreview(content: string) {
+  const lines = content.split("\n");
+  const limitedLines = lines.slice(0, WRITE_FILE_PREVIEW_MAX_LINES).join("\n");
+  const limitedContent = limitedLines.length > WRITE_FILE_PREVIEW_MAX_CHARS
+    ? `${limitedLines.slice(0, WRITE_FILE_PREVIEW_MAX_CHARS)}…`
+    : limitedLines;
+  const wasLineTruncated = lines.length > WRITE_FILE_PREVIEW_MAX_LINES;
+  const wasCharTruncated = limitedLines.length > WRITE_FILE_PREVIEW_MAX_CHARS || content.length > WRITE_FILE_PREVIEW_MAX_CHARS;
+
+  return {
+    content: limitedContent,
+    wasTruncated: wasLineTruncated || wasCharTruncated,
+    lineCount: lines.length,
+    charCount: content.length
+  };
+}
+
 function renderPart(
   message: ChatMessage,
   part: ChatMessagePart,
@@ -121,6 +166,7 @@ function renderPart(
   options: {
     readonly status: "submitted" | "streaming" | "ready" | "error";
     readonly isArchived: boolean;
+    readonly pendingToolApprovalIds: ReadonlySet<string>;
     readonly onToolApproval?: (input: {
       runId: string;
       toolCallId: string;
@@ -188,40 +234,75 @@ function renderPart(
 
   if (isToolPart(part)) {
     const runId = getMessageRunId(message);
+    const toolStateMeta = getToolStateMeta(part.state);
     const canApprove =
       part.state === "approval-requested" &&
       typeof part.toolCallId === "string" &&
       typeof part.approval?.id === "string" &&
       typeof runId === "string" &&
       typeof options.onToolApproval === "function";
-    const toolStateBadgeVariant = part.state === "approval-requested" ? "accent" : "secondary";
+    const isPendingApproval = typeof part.toolCallId === "string" && options.pendingToolApprovalIds.has(part.toolCallId);
+    const isWriteFileCall = part.toolName === "write_file" && isWriteFileInput(part.input);
+    const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
 
     return (
-      <div key={`${part.type}-${index}`} className="tool-card">
+      <div key={`${part.type}-${index}`} className="tool-card" data-tool-phase={toolStateMeta.phase}>
         <div className="tool-card-header">
           <div className="stack-tight">
             <span className="attachment-label">Tool call</span>
             <strong>{part.toolName}</strong>
           </div>
-          <Badge variant={toolStateBadgeVariant} size="sm" radius="full">{formatToolState(part.state)}</Badge>
+          <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
         </div>
 
-        {part.input !== undefined ? (
+        {isWriteFileCall ? (
+          <>
+            <div className="tool-card-section">
+              <span className="attachment-label">Target path</span>
+              <div className="tool-card-path mono">{part.input.path}</div>
+            </div>
+
+            <div className="tool-card-section">
+              <span className="attachment-label">Content preview</span>
+              <pre>{writeFilePreview?.content}</pre>
+              {writeFilePreview?.wasTruncated ? (
+                <p className="muted">
+                  Showing the first {Math.min(writeFilePreview.lineCount, WRITE_FILE_PREVIEW_MAX_LINES)} lines and up to {WRITE_FILE_PREVIEW_MAX_CHARS} characters.
+                </p>
+              ) : (
+                <p className="muted">{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
+              )}
+            </div>
+          </>
+        ) : null}
+
+        {part.input !== undefined && !isWriteFileCall ? (
           <div className="tool-card-section">
             <span className="attachment-label">Input</span>
             <pre>{formatPartPayload(part.input)}</pre>
           </div>
         ) : null}
 
+        {part.state === "approval-requested" && isWriteFileCall ? (
+          <div className="tool-card-section">
+            <span className="attachment-label">Risk</span>
+            <p className="muted">This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
+          </div>
+        ) : null}
+
         {part.state === "approval-requested" && canApprove ? (
           <div className="tool-card-section">
             <span className="attachment-label">Confirmation</span>
-            <p className="muted">Review the tool input, then approve or deny execution.</p>
+            <p className="muted">
+              {isWriteFileCall
+                ? "This action can create or overwrite a file inside an authorized directory. Review the path and content preview before continuing."
+                : "Review the tool input, then approve or reject execution."}
+            </p>
             <div className="chat-thread-jump" style={{ justifyContent: "flex-start", marginTop: 12 }}>
               <Button
                 type="button"
                 variant="primary"
-                disabled={options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
                 onClick={() => {
                   void options.onToolApproval?.({
                     runId,
@@ -231,12 +312,12 @@ function renderPart(
                   });
                 }}
               >
-                Approve
+                {isPendingApproval ? "Submitting..." : "Approve"}
               </Button>
               <Button
                 type="button"
                 variant="secondary"
-                disabled={options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
                 onClick={() => {
                   void options.onToolApproval?.({
                     runId,
@@ -246,9 +327,10 @@ function renderPart(
                   });
                 }}
               >
-                Deny
+                {isPendingApproval ? "Submitting..." : "Reject"}
               </Button>
             </div>
+            {isPendingApproval ? <p className="muted">Confirmation submitted. Waiting for the run to continue…</p> : null}
           </div>
         ) : null}
 
@@ -295,6 +377,27 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
   const rootRef = useRef<HTMLElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [pendingToolApprovalIds, setPendingToolApprovalIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const activeApprovalIds = new Set(
+      messages.flatMap((message) =>
+        message.parts.flatMap((part) =>
+          isToolPart(part) && part.state === "approval-requested" && typeof part.toolCallId === "string" ? [part.toolCallId] : []
+        )
+      )
+    );
+
+    setPendingToolApprovalIds((current) => {
+      const next = new Set(Array.from(current).filter((toolCallId) => activeApprovalIds.has(toolCallId)));
+
+      if (next.size === current.size && Array.from(next).every((toolCallId) => current.has(toolCallId))) {
+        return current;
+      }
+
+      return next;
+    });
+  }, [messages]);
 
   useEffect(() => {
     const scrollContainer = rootRef.current?.closest(".canvas-body");
@@ -344,6 +447,29 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
     scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: "smooth" });
   }
 
+  async function handleToolApproval(input: {
+    runId: string;
+    toolCallId: string;
+    confirmationToken: string;
+    decision: "approved" | "rejected";
+  }) {
+    if (!onToolApproval) {
+      return;
+    }
+
+    setPendingToolApprovalIds((current) => new Set(current).add(input.toolCallId));
+
+    try {
+      await onToolApproval(input);
+    } catch {
+      setPendingToolApprovalIds((current) => {
+        const next = new Set(current);
+        next.delete(input.toolCallId);
+        return next;
+      });
+    }
+  }
+
   return (
     <section ref={rootRef} className="chat-thread" aria-label="Conversation transcript">
       {messages.length === 0 ? (
@@ -374,7 +500,8 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
                   renderPart(message, part, index, {
                     status,
                     isArchived,
-                    onToolApproval
+                    pendingToolApprovalIds,
+                    onToolApproval: handleToolApproval
                   })
                 )}
               </div>
