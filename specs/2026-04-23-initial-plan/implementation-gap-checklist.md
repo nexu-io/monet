@@ -232,9 +232,9 @@
 - [x] 已建立 `apps/controller/src/openapi.ts`
 - [x] 已建立 `@hono/zod-openapi` schema 定义
 - [x] 已建立 `apps/controller/openapi.json` 生成脚本
-- [ ] 已建立 `openapi-ts.config.ts`
-- [ ] 已建立 hey-api 生成目录
-- [ ] 已启用 TanStack Query options / keys generation
+- [x] 已建立 `openapi-ts.config.ts`
+- [x] 已建立 hey-api 生成目录
+- [x] 已启用 TanStack Query options / keys generation
 - [ ] 已建立 CI freshness check（`openapi.json` 过期即失败）
 
 ---

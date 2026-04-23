@@ -6,6 +6,7 @@
     "jsx": "preserve",
     "allowJs": false,
     "noEmit": true,
+    "exactOptionalPropertyTypes": false,
     "incremental": true,
     "plugins": [
       {
