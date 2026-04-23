@@ -58,7 +58,7 @@
 - [x] 已有 settings 页面骨架
 - [x] 已优先接入 `@nexu-design/tokens`
 - [x] 已优先接入 `@nexu-design/ui-web`
-- [ ] 已建立 UI 实现优先复用 Nexu 设计系统的约束
+- [x] 已建立 UI 实现优先复用 Nexu 设计系统的约束
 - [ ] 已落地三段式 App Shell（Sidebar / Main Canvas / Composer）
 - [ ] 已实现真实 chat UI
 - [ ] 已实现真实 session 数据渲染
@@ -85,6 +85,7 @@
 - `apps/web-ui/src/components/app-shell.tsx`
 - `apps/web-ui/src/components/page-frame.tsx`
 - `apps/web-ui/src/components/controller-status-card.tsx`
+- `apps/web-ui/README.md`
 - `apps/web-ui/package.json`
 
 ### 2.4 Hono Controller
