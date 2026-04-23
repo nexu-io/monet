@@ -1,0 +1,71 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Monet Controller API",
+    "version": "0.1.0",
+    "description": "Local Hono controller API for the Monet desktop application."
+  },
+  "tags": [
+    {
+      "name": "System",
+      "description": "Health and controller metadata endpoints."
+    }
+  ],
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ],
+            "example": "ok"
+          },
+          "service": {
+            "type": "string",
+            "enum": [
+              "controller"
+            ],
+            "example": "controller"
+          },
+          "version": {
+            "type": "string",
+            "example": "0.1.0"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "version"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Report controller health",
+        "description": "Returns a readiness payload for local controller orchestration.",
+        "responses": {
+          "200": {
+            "description": "Controller is ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}
