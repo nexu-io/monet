@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-import { BrowserWindow, app, dialog, ipcMain, safeStorage, screen, shell, utilityProcess } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen, shell, utilityProcess } from "electron";
 
 import { createLogger } from "./logger";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
@@ -37,6 +38,9 @@ interface WindowStateSnapshot {
 }
 
 const controllerHost = "127.0.0.1";
+const desktopRendererScheme = "app";
+const desktopRendererHost = "monet";
+const desktopRendererOrigin = `${desktopRendererScheme}://${desktopRendererHost}`;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 const logger = createLogger("desktop", {
   component: "main"
@@ -57,6 +61,18 @@ let providerSecretStore:
   | null = null;
 const intentionallyStoppedControllerPids = new Set<number>();
 let pendingWindowStateSave: NodeJS.Timeout | null = null;
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: desktopRendererScheme,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true
+    }
+  }
+]);
 
 if (!gotSingleInstanceLock) {
   logger.warn("desktop.single_instance_denied");
@@ -224,6 +240,7 @@ ipcMain.handle("monet:clear-provider-secret", (_event, payload: { providerType: 
 
 async function bootstrap() {
   logger.info("desktop.bootstrap_started");
+  await registerDesktopRendererProtocol();
   controllerRuntime = await resolveControllerRuntime();
   mainWindow = await createMainWindow(controllerRuntime);
   logger.info("desktop.bootstrap_completed", {
@@ -255,6 +272,8 @@ async function createMainWindow(runtime: ControllerRuntime) {
     }
   });
 
+  mainWindow = window;
+
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
 
@@ -265,6 +284,10 @@ async function createMainWindow(runtime: ControllerRuntime) {
     const rendererUrl = process.env.MONET_DESKTOP_RENDERER_URL?.trim();
 
     if (rendererUrl?.startsWith("http") && url.startsWith(rendererUrl)) {
+      return;
+    }
+
+    if (url.startsWith(desktopRendererOrigin)) {
       return;
     }
 
@@ -361,9 +384,91 @@ async function loadRenderer(window: BrowserWindow) {
   await assertFileExists(rendererEntry, "exported web-ui entrypoint");
   logger.info("desktop.renderer_wait_started", {
     mode: "prod",
-    rendererEntry
+    rendererEntry,
+    rendererUrl: createDesktopRendererUrl("/")
   });
-  await window.loadFile(rendererEntry);
+  await window.loadURL(createDesktopRendererUrl("/"));
+}
+
+async function registerDesktopRendererProtocol() {
+  if (process.env.MONET_DESKTOP_RENDERER_URL?.trim()) {
+    return;
+  }
+
+  const rendererOutputDirectory = getRendererOutputDirectory();
+  await access(rendererOutputDirectory, fsConstants.R_OK);
+
+  if (protocol.isProtocolHandled(desktopRendererScheme)) {
+    return;
+  }
+
+  protocol.handle(desktopRendererScheme, async (request) => {
+    const filePath = await resolveDesktopRendererAssetPath(request.url, rendererOutputDirectory);
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+
+  logger.info("desktop.renderer_protocol_registered", {
+    origin: desktopRendererOrigin,
+    rendererOutputDirectory
+  });
+}
+
+function createDesktopRendererUrl(pathname: string) {
+  return new URL(pathname, `${desktopRendererOrigin}/`).toString();
+}
+
+function getRendererOutputDirectory() {
+  return path.resolve(__dirname, "../../web-ui/out");
+}
+
+async function resolveDesktopRendererAssetPath(requestUrl: string, rendererOutputDirectory: string) {
+  const request = new URL(requestUrl);
+
+  if (request.hostname !== desktopRendererHost) {
+    throw new Error(`Unsupported renderer host: ${request.hostname}`);
+  }
+
+  const decodedPathname = decodeURIComponent(request.pathname);
+  const relativePath = decodedPathname.replace(/^\/+/, "");
+  const normalizedTarget = path.normalize(relativePath);
+
+  if (normalizedTarget.startsWith("..") || path.isAbsolute(normalizedTarget)) {
+    throw new Error(`Blocked renderer asset path outside export directory: ${decodedPathname}`);
+  }
+
+  const candidates = buildRendererAssetCandidates(normalizedTarget, rendererOutputDirectory);
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`Renderer asset not found for ${requestUrl}`);
+}
+
+function buildRendererAssetCandidates(normalizedTarget: string, rendererOutputDirectory: string) {
+  if (!normalizedTarget || normalizedTarget === ".") {
+    return [path.join(rendererOutputDirectory, "index.html")];
+  }
+
+  const directCandidate = path.join(rendererOutputDirectory, normalizedTarget);
+  const nestedIndexCandidate = path.join(rendererOutputDirectory, normalizedTarget, "index.html");
+
+  if (path.extname(normalizedTarget)) {
+    return [directCandidate];
+  }
+
+  return [directCandidate, nestedIndexCandidate];
+}
+
+async function fileExists(filePath: string) {
+  try {
+    const metadata = await stat(filePath);
+    return metadata.isFile();
+  } catch {
+    return false;
+  }
 }
 
 async function waitForRendererReady(rendererUrl: string) {
