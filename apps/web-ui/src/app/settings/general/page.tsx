@@ -1,3 +1,7 @@
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@nexu-design/ui-web";
+
 import { PageFrame } from "../../../components/page-frame";
 
 const runtimeSettings = [
@@ -22,21 +26,27 @@ export default function GeneralSettingsPage() {
       title="General Settings"
       description="Runtime configuration boundaries for the renderer, preload bridge, and local API access."
     >
-      <section className="card stack">
-        <div>
-          <span className="eyebrow">Desktop integration</span>
-          <h3>Renderer runtime settings</h3>
-        </div>
+      <Card className="card stack">
+        <CardHeader>
+          <div className="stack-tight">
+            <span className="eyebrow">Desktop integration</span>
+            <CardTitle>Renderer runtime settings</CardTitle>
+          </div>
+        </CardHeader>
 
-        <ul className="kv-list">
-          {runtimeSettings.map((item) => (
-            <li key={item.title}>
-              <strong>{item.title}</strong>
-              <div className="muted">{item.detail}</div>
-            </li>
-          ))}
-        </ul>
-      </section>
+        <CardContent>
+          <ul className="kv-list">
+            {runtimeSettings.map((item) => (
+              <li key={item.title}>
+                <Card variant="muted" padding="sm" className="card card-muted stack-tight">
+                  <strong>{item.title}</strong>
+                  <div className="muted">{item.detail}</div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
     </PageFrame>
   );
 }

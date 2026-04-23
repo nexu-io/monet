@@ -57,7 +57,7 @@
 - [x] 已有 sessions 页面骨架
 - [x] 已有 settings 页面骨架
 - [x] 已优先接入 `@nexu-design/tokens`
-- [ ] 已优先接入 `@nexu-design/ui-web`
+- [x] 已优先接入 `@nexu-design/ui-web`
 - [ ] 已建立 UI 实现优先复用 Nexu 设计系统的约束
 - [ ] 已落地三段式 App Shell（Sidebar / Main Canvas / Composer）
 - [ ] 已实现真实 chat UI
@@ -82,6 +82,10 @@
 - `apps/web-ui/src/app/settings/general/page.tsx`
 - `apps/web-ui/src/app/layout.tsx`
 - `apps/web-ui/src/app/globals.css`
+- `apps/web-ui/src/components/app-shell.tsx`
+- `apps/web-ui/src/components/page-frame.tsx`
+- `apps/web-ui/src/components/controller-status-card.tsx`
+- `apps/web-ui/package.json`
 
 ### 2.4 Hono Controller
 
@@ -241,7 +245,7 @@
 - [x] 建立 SQLite / Drizzle 基础设施
 - [x] 接入 shadcn/ui 基础骨架
 - [x] 接入 `@nexu-design/tokens`
-- [ ] 接入 `@nexu-design/ui-web`
+- [x] 接入 `@nexu-design/ui-web`
 - [ ] 打通完整 dev/prod 启动链路
 - [ ] controller 启动时自动执行 migration 并完整验证
 
@@ -281,7 +285,7 @@
 建议优先做：
 
 - [ ] 实现 `/api/chat` + `useChat` 最小对话闭环
-- [ ] 先接入 `@nexu-design/tokens` / `@nexu-design/ui-web`
+- [x] 先接入 `@nexu-design/tokens` / `@nexu-design/ui-web`
 - [ ] 落地 App Shell（Sidebar / Main Canvas / Composer）
 - [ ] 补 Session API
 - [ ] 接入 OpenAI provider

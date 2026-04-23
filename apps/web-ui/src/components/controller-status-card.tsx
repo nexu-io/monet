@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, StatusDot } from "@nexu-design/ui-web";
 
 import { getMonetClientConfig, type ControllerHealthResponse, type MonetClientConfig } from "../lib/monet-client";
 
@@ -59,44 +60,51 @@ export function ControllerStatusCard() {
 
   const tone = state.loading ? "unknown" : state.data ? "healthy" : "offline";
   const label = state.loading ? "Checking controller" : state.data ? "Controller ready" : "Controller unavailable";
+  const badgeVariant = state.loading ? "warning" : state.data ? "success" : "destructive";
+  const dotStatus = state.loading ? "warning" : state.data ? "success" : "error";
 
   return (
-    <section className="card stack">
-      <div>
-        <span className="eyebrow">Controller connectivity</span>
-        <h3>Renderer-to-controller handshake</h3>
-        <p className="muted">
-          The web UI resolves its API base from preload first, then falls back to public Next.js env vars for local
-          development.
-        </p>
-      </div>
+    <Card className="card stack">
+      <CardHeader>
+        <div className="stack-tight">
+          <span className="eyebrow">Controller connectivity</span>
+          <CardTitle>Renderer-to-controller handshake</CardTitle>
+          <CardDescription className="muted">
+            The web UI resolves its API base from preload first, then falls back to public Next.js env vars for local
+            development.
+          </CardDescription>
+        </div>
+      </CardHeader>
 
-      <div className="status" data-tone={tone}>
-        <span>{label}</span>
-      </div>
+      <CardContent className="stack">
+        <Badge variant={badgeVariant} size="sm" radius="full" className="status-badge" data-tone={tone}>
+          <StatusDot status={dotStatus} size="xs" pulse={state.loading} />
+          <span>{label}</span>
+        </Badge>
 
-      <ul className="status-list">
-        <li>
-          <strong>API base</strong>
-          <div className="muted mono">{config?.apiBase ?? "Resolving..."}</div>
-        </li>
-        <li>
-          <strong>Auth source</strong>
-          <div className="muted">{config?.source ?? "Resolving..."}</div>
-        </li>
-        <li>
-          <strong>Bearer token</strong>
-          <div className="muted">{config?.bearerToken ? "Configured" : "Not configured"}</div>
-        </li>
-        <li>
-          <strong>Health response</strong>
-          <div className="muted mono">{state.data ? JSON.stringify(state.data) : state.error ?? "Waiting for response..."}</div>
-        </li>
-      </ul>
+        <ul className="status-list">
+          <li>
+            <strong>API base</strong>
+            <div className="muted mono">{config?.apiBase ?? "Resolving..."}</div>
+          </li>
+          <li>
+            <strong>Auth source</strong>
+            <div className="muted">{config?.source ?? "Resolving..."}</div>
+          </li>
+          <li>
+            <strong>Bearer token</strong>
+            <div className="muted">{config?.bearerToken ? "Configured" : "Not configured"}</div>
+          </li>
+          <li>
+            <strong>Health response</strong>
+            <div className="muted mono">{state.data ? JSON.stringify(state.data) : state.error ?? "Waiting for response..."}</div>
+          </li>
+        </ul>
 
-      <button type="button" className="button" onClick={() => void loadHealth()} disabled={state.loading}>
-        {state.loading ? "Refreshing..." : "Retry health check"}
-      </button>
-    </section>
+        <Button type="button" variant="primary" onClick={() => void loadHealth()} disabled={state.loading}>
+          {state.loading ? "Refreshing..." : "Retry health check"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

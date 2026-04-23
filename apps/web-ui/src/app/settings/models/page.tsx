@@ -1,3 +1,7 @@
+"use client";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@nexu-design/ui-web";
+
 import { PageFrame } from "../../../components/page-frame";
 
 const modelSettings = [
@@ -13,18 +17,26 @@ export default function ModelSettingsPage() {
       title="Model Settings"
       description="Provider and model configuration surfaces for the desktop-first local runtime."
     >
-      <section className="card stack">
-        <div>
-          <span className="eyebrow">Provider configuration</span>
-          <h3>Model routing and defaults</h3>
-        </div>
+      <Card className="card stack">
+        <CardHeader>
+          <div className="stack-tight">
+            <span className="eyebrow">Provider configuration</span>
+            <CardTitle>Model routing and defaults</CardTitle>
+          </div>
+        </CardHeader>
 
-        <ul className="settings-list">
-          {modelSettings.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </section>
+        <CardContent>
+          <ul className="settings-list">
+            {modelSettings.map((item) => (
+              <li key={item}>
+                <Card variant="muted" padding="sm" className="card card-muted">
+                  {item}
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
     </PageFrame>
   );
 }

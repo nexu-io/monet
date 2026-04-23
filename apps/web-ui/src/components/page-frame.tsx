@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { PageHeader } from "@nexu-design/ui-web";
 
 import { AppShell } from "./app-shell";
 
@@ -15,10 +18,7 @@ export function PageFrame({
 }) {
   return (
     <AppShell pathname={pathname}>
-      <header className="page-intro">
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </header>
+      <PageHeader title={title} description={description} density="shell" className="page-intro" />
       {children}
     </AppShell>
   );
