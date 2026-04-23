@@ -67,7 +67,11 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
-  packages/agent-core: {}
+  packages/agent-core:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
   packages/database:
     dependencies:
@@ -87,18 +91,37 @@ importers:
       drizzle-kit:
         specifier: ^0.31.1
         version: 0.31.10
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
-  packages/providers: {}
+  packages/providers:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
   packages/shared:
     dependencies:
       '@paralleldrive/cuid2':
         specifier: ^2.2.2
         version: 2.3.1
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
-  packages/tools: {}
+  packages/tools:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
-  packages/ui: {}
+  packages/ui:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
 
 packages:
 
