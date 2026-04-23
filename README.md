@@ -42,6 +42,7 @@ From the repository root:
 
 - `pnpm install`: install all workspace dependencies.
 - `pnpm install:check`: verify the lockfile-backed install path with `--frozen-lockfile`.
+- `pnpm check:openapi`: regenerate `apps/controller/openapi.json` and fail if the committed artifact is stale.
 - `pnpm build`: build the controller, web UI export, and desktop bundles needed by the current scaffold.
 - `pnpm typecheck`: run TypeScript checks across every workspace package that currently has sources.
 - `pnpm dev`: start the controller, Next.js dev server, and Electron desktop app using the shared local dev token `monet-dev-token`.

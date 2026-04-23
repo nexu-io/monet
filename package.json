@@ -15,6 +15,7 @@
     "dev:controller": "MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/controller dev",
     "dev:desktop": "pnpm run build:desktop && MONET_DESKTOP_RENDERER_URL=http://127.0.0.1:3000 MONET_DESKTOP_CONTROLLER_URL=http://127.0.0.1:3030 MONET_DESKTOP_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/desktop dev",
     "dev:web": "NEXT_PUBLIC_MONET_CONTROLLER_URL=http://127.0.0.1:3030 NEXT_PUBLIC_MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/web-ui dev",
+    "check:openapi": "pnpm generate:openapi && git diff --exit-code -- apps/controller/openapi.json",
     "generate:openapi": "pnpm --filter @monet/controller generate:openapi",
     "generate:api": "pnpm generate:openapi && pnpm exec openapi-ts --file openapi-ts.config.ts",
     "install:check": "pnpm install --frozen-lockfile",
