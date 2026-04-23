@@ -2,9 +2,10 @@
   "name": "@monet/controller",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "main": "src/index.ts",
+  "type": "commonjs",
+  "main": "dist/index.js",
   "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit false --outDir dist",
     "dev": "tsx watch src/index.ts",
     "generate:openapi": "tsx scripts/generate-openapi.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
