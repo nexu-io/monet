@@ -18,7 +18,7 @@
 - Web UI: Next.js
 - Controller: Node.js + Hono
 - Database: SQLite
-- UI 组件库: shadcn/ui
+- UI 组件库: 优先 `@nexu-design/ui-web`，辅以 `@nexu-design/tokens`
 - Agent / Chat 基础能力: **Vercel AI SDK v5**（重点采用 AI SDK UI）
 
 首期模型供应商范围：
@@ -297,6 +297,13 @@ Monorepo 约定：
 - 展示工具执行状态、审批状态、错误状态
 - 管理 provider / model 配置
 - 提供本地服务异常提示
+
+设计系统约束：
+
+- UI 优先使用 `@nexu-design/tokens` 管理设计 token
+- 组件优先使用 `@nexu-design/ui-web`
+- 仅在组件库无法覆盖时，再补充本地封装组件
+- Nexu Design 源码仓库位于：`~/Projects/nexu-io/design`
 
 关键实现：
 
@@ -931,6 +938,7 @@ token 约束：
 - 接入 Electron + Next.js + Hono + TypeScript
 - 建立 SQLite schema（Drizzle）与 drizzle-kit migration 流程
 - 接入 shadcn/ui
+- 优先接入 `@nexu-design/tokens` / `@nexu-design/ui-web`
 - 打通 Electron 启动本地 controller + 静态导出的 web-ui
 - 明确 dev 使用 `next dev`、prod 使用静态导出产物
 - 完成 single-instance lock
