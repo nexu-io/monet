@@ -42,6 +42,7 @@ function SessionChatSurface({
     () =>
       new DefaultChatTransport({
         api: `${controllerConfig.apiBase}/api/chat`,
+        credentials: "omit",
         headers: () => {
           if (!controllerConfig.bearerToken) {
             return {};

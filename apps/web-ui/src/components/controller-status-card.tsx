@@ -28,7 +28,8 @@ export function ControllerStatusCard() {
 
     try {
       const requestOptions: RequestInit = {
-        cache: "no-store"
+        cache: "no-store",
+        credentials: "omit"
       };
 
       if (nextConfig.bearerToken) {

@@ -8,8 +8,10 @@ import { registerProviderRoutes } from "./routes/providers";
 import { registerSessionRoutes } from "./routes/sessions";
 
 export interface CreateControllerAppOptions {
+  readonly allowedOrigins: readonly string[];
   readonly bearerToken: string;
   readonly databasePath: string;
+  readonly port: number;
 }
 
 export type ControllerApp = OpenAPIHono;
@@ -36,7 +38,14 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     return chatStorage;
   }
 
-  app.use("/api/*", createLocalAuthMiddleware({ bearerToken: options.bearerToken }));
+  app.use(
+    "/api/*",
+    createLocalAuthMiddleware({
+      allowedOrigins: options.allowedOrigins,
+      bearerToken: options.bearerToken,
+      port: options.port
+    })
+  );
 
   app.doc("/api/openapi.json", {
     openapi: "3.0.0",

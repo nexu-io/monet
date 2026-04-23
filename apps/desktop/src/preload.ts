@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("monetDesktop", {
 
     const response = await fetch(new URL(normalizeRequestPath(input), apiBase).toString(), {
       ...init,
+      credentials: "omit",
       headers
     });
 

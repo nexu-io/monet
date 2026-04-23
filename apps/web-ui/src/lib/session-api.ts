@@ -53,6 +53,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(`${config.apiBase}${path}`, {
     ...init,
+    credentials: "omit",
     headers
   });
 

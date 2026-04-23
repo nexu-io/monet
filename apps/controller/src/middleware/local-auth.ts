@@ -3,11 +3,40 @@ import type { Context, MiddlewareHandler, Next } from "hono";
 import { createErrorResponse } from "../openapi";
 
 export interface LocalAuthOptions {
+  readonly allowedOrigins: readonly string[];
   readonly bearerToken: string;
+  readonly port: number;
 }
 
 export function createLocalAuthMiddleware(options: LocalAuthOptions): MiddlewareHandler {
   return async function localAuthMiddleware(context: Context, next: Next) {
+    if (!hasAllowedHost(context.req.header("host"), options.port)) {
+      return context.json(
+        createErrorResponse("invalid_host", "Host header must target 127.0.0.1 or localhost on the configured controller port."),
+        403
+      );
+    }
+
+    if (isCorsPreflight(context)) {
+      return context.json(
+        createErrorResponse("cors_not_supported", "CORS preflight requests are not supported by the local controller."),
+        403
+      );
+    }
+
+    const origin = context.req.header("origin");
+
+    if (origin && !isAllowedOrigin(origin, options.allowedOrigins)) {
+      return context.json(createErrorResponse("invalid_origin", "Origin is not allowed to access the local controller."), 403);
+    }
+
+    if (context.req.header("cookie")) {
+      return context.json(
+        createErrorResponse("cookie_auth_not_supported", "Cookie-based authentication is not supported by the local controller."),
+        400
+      );
+    }
+
     const header = context.req.header("authorization");
     const token = extractBearerToken(header);
 
@@ -17,6 +46,48 @@ export function createLocalAuthMiddleware(options: LocalAuthOptions): Middleware
 
     await next();
   };
+}
+
+function hasAllowedHost(header: string | undefined, port: number): boolean {
+  if (!header) {
+    return false;
+  }
+
+  const host = stripPort(header.trim().toLowerCase());
+  const requestPort = extractPort(header);
+
+  return requestPort === port && (host === "127.0.0.1" || host === "localhost");
+}
+
+function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boolean {
+  if (origin === "null") {
+    return allowedOrigins.includes("null");
+  }
+
+  try {
+    return allowedOrigins.includes(new URL(origin).origin);
+  } catch {
+    return false;
+  }
+}
+
+function isCorsPreflight(context: Context): boolean {
+  return context.req.method === "OPTIONS" && context.req.header("access-control-request-method") != null;
+}
+
+function stripPort(host: string): string {
+  return host.replace(/:\d+$/, "");
+}
+
+function extractPort(host: string): number | null {
+  const match = host.trim().match(/:(\d+)$/);
+  const port = match?.[1];
+
+  if (!port) {
+    return null;
+  }
+
+  return Number.parseInt(port, 10);
 }
 
 function extractBearerToken(header: string | undefined): string | null {

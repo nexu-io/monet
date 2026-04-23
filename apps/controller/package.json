@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json --noEmit false --outDir dist",
     "dev": "tsx watch src/index.ts",
     "generate:openapi": "tsx scripts/generate-openapi.ts",
+    "test": "node --import tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
