@@ -19,6 +19,8 @@ export function createSqliteConnection(options: CreateDatabaseOptions): Database
   });
 
   connection.pragma("journal_mode = WAL");
+  connection.pragma("synchronous = NORMAL");
+  connection.pragma("busy_timeout = 5000");
   connection.pragma("foreign_keys = ON");
 
   return connection;

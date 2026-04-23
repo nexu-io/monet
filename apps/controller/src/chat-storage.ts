@@ -12,7 +12,16 @@ const DEFAULT_PROVIDER_TYPE = "openai";
 const DEFAULT_PROVIDER_DISPLAY_NAME = "Local Stub Provider";
 const DEFAULT_MODEL_NAME = "controller-echo";
 const DEFAULT_MODEL_DISPLAY_NAME = "Controller Echo";
-const DEFAULT_UI_MESSAGE_SCHEMA_VERSION = "v1";
+const CURRENT_UI_MESSAGE_SCHEMA_VERSION = "v1";
+const KNOWN_UI_MESSAGE_PART_TYPES = new Set([
+  "text",
+  "reasoning",
+  "step-start",
+  "file",
+  "source-url",
+  "source-document",
+  "dynamic-tool"
+]);
 
 type ProviderType = "openai" | "openrouter";
 
@@ -61,6 +70,7 @@ interface MessageRow {
   readonly run_id: string | null;
   readonly role: string;
   readonly ui_message_json: string;
+  readonly ui_message_schema_version: string;
   readonly created_at: string;
 }
 
@@ -182,6 +192,8 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   const connection = new DatabaseSync(options.databasePath);
 
   connection.exec("PRAGMA journal_mode = WAL");
+  connection.exec("PRAGMA synchronous = NORMAL");
+  connection.exec("PRAGMA busy_timeout = 5000");
   connection.exec("PRAGMA foreign_keys = ON");
 
   bootstrapSchema(connection);
@@ -889,7 +901,7 @@ function persistMessages(
       options.runId,
       persistedMessage.message.role,
       JSON.stringify(persistedMessage.message),
-      DEFAULT_UI_MESSAGE_SCHEMA_VERSION,
+      CURRENT_UI_MESSAGE_SCHEMA_VERSION,
       persistedMessage.idempotencyKey,
       options.createdAt
     );
@@ -901,7 +913,7 @@ function persistMessages(
 function listSessionMessages(connection: DatabaseSync, sessionId: string) {
   const rows = connection
     .prepare(
-      `SELECT id, session_id, run_id, role, ui_message_json, created_at
+      `SELECT id, session_id, run_id, role, ui_message_json, ui_message_schema_version, created_at
        FROM messages
        WHERE session_id = ?
        ORDER BY created_at ASC, rowid ASC`
@@ -914,7 +926,10 @@ function listSessionMessages(connection: DatabaseSync, sessionId: string) {
     runId: row.run_id,
     role: row.role,
     createdAt: row.created_at,
-    uiMessage: parseStoredUiMessage(row.ui_message_json)
+    uiMessage: parseStoredUiMessage(row.ui_message_json, row.ui_message_schema_version, {
+      id: row.id,
+      role: row.role
+    })
   }));
 }
 
@@ -959,15 +974,173 @@ function mapProviderModelRow(row: ProviderModelRow): StoredProviderModel {
   };
 }
 
-function parseStoredUiMessage(uiMessageJson: string) {
-  try {
-    return JSON.parse(uiMessageJson) as unknown;
-  } catch {
-    return {
-      invalid: true,
-      raw: uiMessageJson
-    };
+function parseStoredUiMessage(
+  uiMessageJson: string,
+  schemaVersion: string,
+  fallback: {
+    id: string;
+    role: string;
   }
+) {
+  try {
+    const parsed = JSON.parse(uiMessageJson) as unknown;
+
+    return upcastStoredUiMessage(parsed, schemaVersion, fallback);
+  } catch {
+    return createFallbackUiMessage({
+      fallback,
+      schemaVersion,
+      raw: uiMessageJson,
+      reason: "invalid-json"
+    });
+  }
+}
+
+function upcastStoredUiMessage(
+  message: unknown,
+  schemaVersion: string,
+  fallback: {
+    id: string;
+    role: string;
+  }
+) {
+  if (!isObjectRecord(message)) {
+    return createFallbackUiMessage({
+      fallback,
+      schemaVersion,
+      raw: message,
+      reason: "invalid-message-shape"
+    });
+  }
+
+  const normalizedParts = Array.isArray(message.parts)
+    ? message.parts.map((part) => normalizeStoredUiMessagePart(part, schemaVersion))
+    : "parts" in message
+      ? [
+          createUnknownUiMessagePart({
+            raw: message.parts,
+            schemaVersion,
+            reason: "invalid-parts-array"
+          })
+        ]
+      : [];
+
+  return {
+    ...message,
+    id: typeof message.id === "string" && message.id.trim().length > 0 ? message.id : fallback.id,
+    role: normalizeStoredMessageRole(message.role, fallback.role),
+    parts: normalizedParts
+  };
+}
+
+function normalizeStoredUiMessagePart(part: unknown, schemaVersion: string) {
+  if (!isObjectRecord(part) || typeof part.type !== "string") {
+    return createUnknownUiMessagePart({
+      raw: part,
+      schemaVersion,
+      reason: "invalid-part-shape"
+    });
+  }
+
+  if (!isKnownUiMessagePart(part)) {
+    return createUnknownUiMessagePart({
+      raw: part,
+      schemaVersion,
+      originalType: part.type,
+      reason: schemaVersion === CURRENT_UI_MESSAGE_SCHEMA_VERSION ? "unsupported-part" : "upcast-required"
+    });
+  }
+
+  return part;
+}
+
+function isKnownUiMessagePart(part: Record<string, unknown>) {
+  const type = typeof part.type === "string" ? part.type : null;
+
+  if (!type) {
+    return false;
+  }
+
+  if (type.startsWith("tool-")) {
+    return typeof part.toolName === "string" && typeof part.state === "string";
+  }
+
+  if (!KNOWN_UI_MESSAGE_PART_TYPES.has(type)) {
+    return false;
+  }
+
+  switch (type) {
+    case "text":
+    case "reasoning":
+      return typeof part.text === "string";
+    case "step-start":
+      return typeof part.title === "string";
+    case "file":
+      return typeof part.filename === "string";
+    case "source-url":
+      return typeof part.title === "string" && typeof part.url === "string";
+    case "source-document":
+      return typeof part.title === "string";
+    case "dynamic-tool":
+      return typeof part.toolName === "string" && typeof part.state === "string";
+    default:
+      return false;
+  }
+}
+
+function createUnknownUiMessagePart(options: {
+  raw: unknown;
+  schemaVersion: string;
+  originalType?: string;
+  reason: string;
+}) {
+  return {
+    type: "unknown",
+    schemaVersion: options.schemaVersion,
+    reason: options.reason,
+    ...(options.originalType ? { originalType: options.originalType } : {}),
+    raw: options.raw
+  };
+}
+
+function createFallbackUiMessage(options: {
+  fallback: {
+    id: string;
+    role: string;
+  };
+  schemaVersion: string;
+  raw: unknown;
+  reason: string;
+}) {
+  return {
+    id: options.fallback.id,
+    role: normalizeStoredMessageRole(undefined, options.fallback.role),
+    parts: [
+      createUnknownUiMessagePart({
+        raw: options.raw,
+        schemaVersion: options.schemaVersion,
+        reason: options.reason
+      })
+    ]
+  };
+}
+
+function normalizeStoredMessageRole(role: unknown, fallbackRole: string) {
+  const candidate = typeof role === "string" ? role : fallbackRole;
+
+  switch (candidate) {
+    case "system":
+    case "user":
+    case "assistant":
+    case "tool":
+      return candidate;
+    default:
+      return "assistant";
+  }
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizePersistedMessage(message: UIMessage) {
