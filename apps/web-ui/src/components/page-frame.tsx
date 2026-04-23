@@ -9,16 +9,23 @@ export function PageFrame({
   pathname,
   title,
   description,
+  header,
+  composer,
   children
 }: {
   pathname: string;
   title: string;
   description: string;
+  header?: ReactNode;
+  composer?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <AppShell pathname={pathname}>
-      <PageHeader title={title} description={description} density="shell" className="page-intro" />
+    <AppShell
+      pathname={pathname}
+      header={header ?? <PageHeader title={title} description={description} density="shell" className="page-intro" />}
+      composer={composer}
+    >
       {children}
     </AppShell>
   );

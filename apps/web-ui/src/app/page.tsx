@@ -2,6 +2,8 @@
 
 import { Badge, Card, CardContent, CardHeader, CardTitle } from "@nexu-design/ui-web";
 
+import { Composer } from "../components/composer";
+import { ConversationHeader } from "../components/conversation-header";
 import { ControllerStatusCard } from "../components/controller-status-card";
 import { PageFrame } from "../components/page-frame";
 
@@ -11,36 +13,38 @@ export default function HomePage() {
       pathname="/"
       title="Agent Chat"
       description="Desktop-first chat shell wired for a local Hono controller and static-export-safe routing."
+      header={<ConversationHeader />}
+      composer={<Composer />}
     >
-      <Card className="card hero">
+      <Card className="card hero chat-surface-card">
         <CardHeader className="hero-copy">
           <div className="stack-tight">
-            <span className="eyebrow">Iteration 4</span>
-            <CardTitle>Web UI scaffolding for the Electron renderer</CardTitle>
+            <span className="eyebrow">Main canvas</span>
+            <CardTitle>Chat canvas is now isolated from the sidebar and bottom composer</CardTitle>
           </div>
           <p>
-            This scaffold keeps runtime behavior out of Next.js server features so the renderer can ship as static
-            assets while still talking to the local controller over HTTP and SSE.
+            The center column now behaves like the eventual conversation surface: lightweight session header on top,
+            scrollable content in the middle, and a dedicated composer rail pinned to the bottom.
           </p>
         </CardHeader>
 
         <CardContent>
           <div className="pill-row">
-            <Badge variant="secondary" className="pill">App Router structure</Badge>
+            <Badge variant="secondary" className="pill">Sidebar session rail</Badge>
+            <Badge variant="secondary" className="pill">Scroll-safe main canvas</Badge>
+            <Badge variant="secondary" className="pill">Pinned composer zone</Badge>
             <Badge variant="secondary" className="pill">Static export compatible</Badge>
-            <Badge variant="secondary" className="pill">Preload-aware API config</Badge>
-            <Badge variant="secondary" className="pill">Health check plumbing</Badge>
           </div>
         </CardContent>
       </Card>
 
-      <div className="split">
+      <div className="split chat-support-grid">
         <ControllerStatusCard />
 
         <Card className="card stack">
           <CardHeader>
             <div className="stack-tight">
-              <span className="eyebrow">Planned chat runtime</span>
+              <span className="eyebrow">Next up</span>
               <CardTitle>AI SDK UI integration points</CardTitle>
             </div>
           </CardHeader>
