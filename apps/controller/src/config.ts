@@ -1,10 +1,14 @@
+import { resolve } from "node:path";
+
 const defaultControllerPort = 3030;
 const defaultControllerHost = "127.0.0.1";
+const defaultDatabasePath = resolve(process.cwd(), "sqlite", "monet.db");
 
 export interface ControllerConfig {
   readonly bearerToken: string;
   readonly host: string;
   readonly port: number;
+  readonly databasePath: string;
 }
 
 export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): ControllerConfig {
@@ -17,7 +21,8 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
   return {
     bearerToken,
     host: env.MONET_CONTROLLER_HOST?.trim() || defaultControllerHost,
-    port: parsePort(env.MONET_CONTROLLER_PORT)
+    port: parsePort(env.MONET_CONTROLLER_PORT),
+    databasePath: env.MONET_DATABASE_PATH?.trim() || defaultDatabasePath
   };
 }
 

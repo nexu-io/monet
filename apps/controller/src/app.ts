@@ -1,11 +1,13 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
+import { createChatStorage, type ChatStorage } from "./chat-storage";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
 import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
 
 export interface CreateControllerAppOptions {
   readonly bearerToken: string;
+  readonly databasePath: string;
 }
 
 export type ControllerApp = OpenAPIHono;
@@ -26,6 +28,13 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       );
     }
   });
+  let chatStorage: ChatStorage | undefined;
+
+  function getChatStorage() {
+    chatStorage ??= createChatStorage({ databasePath: options.databasePath });
+
+    return chatStorage;
+  }
 
   app.use("/api/*", createLocalAuthMiddleware({ bearerToken: options.bearerToken }));
 
@@ -45,7 +54,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   registerHealthRoutes(app);
-  registerChatRoutes(app);
+  registerChatRoutes(app, { getChatStorage });
 
   return app;
 }

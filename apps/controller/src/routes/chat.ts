@@ -1,6 +1,7 @@
 import { simulateReadableStream, streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
 
 import type { ControllerApp } from "../app";
+import { ChatStorageResolutionError, type ChatStorage, type ResolvedChatRequest } from "../chat-storage";
 
 interface ChatRequestBody {
   readonly messages?: unknown;
@@ -39,12 +40,12 @@ function getLatestUserText(prompt: Array<{ role: string; content: unknown }>) {
   return "";
 }
 
-function buildStubReply(body: ChatRequestBody, prompt: string) {
+function buildStubReply(body: ChatRequestBody, prompt: string, resolved: ResolvedChatRequest) {
   return [
     "The controller chat route is now streaming through `streamText(...).toUIMessageStreamResponse()`.",
-    `Session: ${body.sessionId ?? "ses_local-shell"}`,
-    `Provider: ${body.providerId ?? "pro_local-stub"}`,
-    `Model: ${body.modelId ?? "mod_controller-echo"}`,
+    `Session: ${resolved.sessionId}`,
+    `Provider: ${resolved.providerId}`,
+    `Model: ${resolved.modelId}`,
     body.runtimeOptions?.maxSteps != null ? `Max steps: ${body.runtimeOptions.maxSteps}` : null,
     prompt ? `\nEchoing your last prompt:\n${prompt}` : "\nNo user text was found in the submitted UI messages."
   ]
@@ -74,17 +75,17 @@ function createUsage(prompt: Array<{ role: string; content: unknown }>, reply: s
   };
 }
 
-function createLocalChatModel(body: ChatRequestBody): Parameters<typeof streamText>[0]["model"] {
-  const responseModelId = body.modelId ?? "mod_controller-echo";
+function createLocalChatModel(body: ChatRequestBody, resolved: ResolvedChatRequest): Parameters<typeof streamText>[0]["model"] {
+  const responseModelId = resolved.modelId;
   const responseId = `resp_${Date.now()}`;
 
   return {
     specificationVersion: "v3",
-    provider: body.providerId ?? "pro_local-stub",
+    provider: resolved.providerId,
     modelId: responseModelId,
     supportedUrls: {},
     async doGenerate(options) {
-      const reply = buildStubReply(body, getLatestUserText(options.prompt));
+      const reply = buildStubReply(body, getLatestUserText(options.prompt), resolved);
 
       return {
         content: [{ type: "text", text: reply }],
@@ -102,7 +103,7 @@ function createLocalChatModel(body: ChatRequestBody): Parameters<typeof streamTe
       };
     },
     async doStream(options) {
-      const reply = buildStubReply(body, getLatestUserText(options.prompt));
+      const reply = buildStubReply(body, getLatestUserText(options.prompt), resolved);
       const textId = `txt_${Date.now()}`;
 
       return {
@@ -143,7 +144,7 @@ function toModelMessages(messages: UIMessage[]) {
   return convertToModelMessages(messages.map(({ id: _id, ...message }) => message));
 }
 
-export function registerChatRoutes(app: ControllerApp) {
+export function registerChatRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
   app.post("/api/chat", async (context) => {
     let body: ChatRequestBody;
 
@@ -175,13 +176,85 @@ export function registerChatRoutes(app: ControllerApp) {
       );
     }
 
+    let resolvedChatRequest: ResolvedChatRequest;
+
+    try {
+      resolvedChatRequest = options.getChatStorage().prepareChatRequest({
+        ...(body.sessionId ? { sessionId: body.sessionId } : {}),
+        ...(body.providerId ? { providerId: body.providerId } : {}),
+        ...(body.modelId ? { modelId: body.modelId } : {}),
+        messages,
+        ...(body.runtimeOptions?.maxSteps != null ? { maxSteps: body.runtimeOptions.maxSteps } : {})
+      });
+    } catch (error) {
+      if (error instanceof ChatStorageResolutionError) {
+        const status = error.statusCode === 422 ? 422 : 400;
+
+        return context.json(
+          {
+            error: error.errorCode,
+            message: error.message
+          },
+          status
+        );
+      }
+
+      console.error("Failed to prepare chat request persistence.", error);
+
+      return context.json(
+        {
+          error: "internal_error",
+          message: "Failed to persist the chat request."
+        },
+        500
+      );
+    }
+
     const result = streamText({
-      model: createLocalChatModel(body),
-      messages: await toModelMessages(messages)
+      model: createLocalChatModel(body, resolvedChatRequest),
+      messages: await toModelMessages(messages),
+      onFinish: ({ finishReason }) => {
+        try {
+          options.getChatStorage().completeRun({
+            runId: resolvedChatRequest.runId,
+            finishReason: finishReason ?? null
+          });
+        } catch (error) {
+          console.error("Failed to finalize chat run.", error);
+        }
+      }
     });
 
+    result.consumeStream();
+
     return result.toUIMessageStreamResponse({
-      originalMessages: messages
+      originalMessages: messages,
+      generateMessageId: () => `msg_${Date.now()}${Math.random().toString(16).slice(2, 10)}`,
+      onFinish: ({ responseMessage }) => {
+        try {
+          options.getChatStorage().persistAssistantMessage({
+            sessionId: resolvedChatRequest.sessionId,
+            runId: resolvedChatRequest.runId,
+            providerId: resolvedChatRequest.providerId,
+            modelId: resolvedChatRequest.modelId,
+            message: responseMessage
+          });
+        } catch (error) {
+          console.error("Failed to persist assistant message.", error);
+        }
+      },
+      onError: (error) => {
+        try {
+          options.getChatStorage().failRun({
+            runId: resolvedChatRequest.runId,
+            finishReason: error instanceof Error ? error.message : "stream_error"
+          });
+        } catch (persistError) {
+          console.error("Failed to mark chat run as failed.", persistError);
+        }
+
+        return "An error occurred.";
+      }
     });
   });
 }

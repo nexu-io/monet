@@ -21,7 +21,10 @@ export * from "./openapi";
 
 export function startControllerServer(options: StartControllerServerOptions = {}) {
   const config = createControllerConfig(options.env);
-  const app = createControllerApp({ bearerToken: config.bearerToken });
+  const app = createControllerApp({
+    bearerToken: config.bearerToken,
+    databasePath: config.databasePath
+  });
 
   return serve(
     {
