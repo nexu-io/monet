@@ -13,6 +13,7 @@ import { ControllerStatusCard } from "../components/controller-status-card";
 import { PageFrame } from "../components/page-frame";
 import { getSettingsHref } from "../components/settings-panel-content";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
+import { useControllerState } from "../lib/controller-state";
 import { getMonetClientConfig } from "../lib/monet-client";
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
@@ -257,6 +258,7 @@ function SessionChatSurface({
 }
 
 export default function HomePage() {
+  const { controllerState, isDesktop, restartController, restartPending } = useControllerState();
   const {
     createSession,
     currentSessionDetail,
@@ -273,6 +275,7 @@ export default function HomePage() {
   const hasActiveSessions = sessions.some((session) => session.archivedAt === null);
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const blankStateHref = getSettingsHref("/", new URLSearchParams(), "models");
+  const controllerStateLabel = controllerState?.state;
 
   async function handleRenameSession(sessionId: string, title: string) {
     try {
@@ -284,18 +287,30 @@ export default function HomePage() {
 
   if (!currentSessionDetail) {
     const isStartupLoading = isSessionsLoading || isCurrentSessionLoading || providerReadiness.loading;
-    const title = isSessionsLoading || isCurrentSessionLoading || providerReadiness.loading
-      ? "Loading startup state..."
-      : providerSetupRequired
-        ? "Finish provider setup before starting chat"
-        : !hasActiveSessions
-          ? "Start your first chat"
-          : "No active session selected.";
-    const description = providerSetupRequired
-      ? "Monet opens Model Settings first when no validated provider can resolve a default model for new chats."
-      : !hasActiveSessions
-        ? "There are no active sessions yet. Create one to land in the blank conversation state."
-        : sessionsError ?? "Select a recent session from the sidebar or create a fresh one.";
+    const title = controllerStateLabel === "starting"
+      ? "Starting local controller..."
+      : controllerStateLabel === "restarting"
+        ? "Restarting local controller..."
+        : controllerStateLabel === "failed"
+          ? "Local controller failed to start"
+          : controllerStateLabel === "stopped"
+            ? "Local controller stopped unexpectedly"
+            : isStartupLoading
+              ? "Loading startup state..."
+              : providerSetupRequired
+                ? "Finish provider setup before starting chat"
+                : !hasActiveSessions
+                  ? "Start your first chat"
+                  : "No active session selected.";
+    const description = controllerStateLabel === "starting" || controllerStateLabel === "restarting"
+      ? controllerState?.message ?? "Waiting for the desktop shell to finish wiring the local controller and renderer."
+      : controllerStateLabel === "failed" || controllerStateLabel === "stopped"
+        ? controllerState?.message ?? "Restart the local controller to recover chat, sessions, and settings requests."
+        : providerSetupRequired
+          ? "Monet opens Model Settings first when no validated provider can resolve a default model for new chats."
+          : !hasActiveSessions
+            ? "There are no active sessions yet. Create one to land in the blank conversation state."
+            : sessionsError ?? "Select a recent session from the sidebar or create a fresh one.";
 
     return (
       <PageFrame
@@ -308,9 +323,13 @@ export default function HomePage() {
           <strong>{title}</strong>
           <p className="muted">{description}</p>
           {sessionsError ? <p className="muted mono">{sessionsError}</p> : null}
-          {!isStartupLoading ? (
+          {!isStartupLoading && controllerStateLabel !== "starting" && controllerStateLabel !== "restarting" ? (
             <div className="session-browser-actions">
-              {providerSetupRequired ? (
+              {isDesktop && (controllerStateLabel === "failed" || controllerStateLabel === "stopped") ? (
+                <button type="button" className="session-action-button session-action-button-primary" onClick={() => void restartController()} disabled={restartPending}>
+                  {restartPending ? "Restarting controller..." : "Restart controller"}
+                </button>
+              ) : providerSetupRequired ? (
                 <Link href={blankStateHref} className="session-action-button session-action-button-primary">
                   Open model settings
                 </Link>

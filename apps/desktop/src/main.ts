@@ -19,9 +19,11 @@ interface ControllerRuntime {
 }
 
 interface ControllerStatePayload {
-  readonly state: "starting" | "ready" | "stopped";
+  readonly state: "starting" | "ready" | "restarting" | "stopped" | "failed";
   readonly apiBase?: string;
   readonly bearerToken?: string | null;
+  readonly message?: string;
+  readonly restartAvailable?: boolean;
 }
 
 const controllerHost = "127.0.0.1";
@@ -105,6 +107,12 @@ ipcMain.handle("monet:restart-controller", async () => {
   });
 
   if (process.env.MONET_DESKTOP_CONTROLLER_URL?.trim()) {
+    broadcastControllerState({
+      state: "ready",
+      message: "This desktop session is connected to an external controller. Restart it outside the app.",
+      restartAvailable: false
+    });
+
     return {
       restarted: false,
       reason: "external-controller"
@@ -112,11 +120,18 @@ ipcMain.handle("monet:restart-controller", async () => {
   }
 
   try {
-    controllerRuntime = await startManagedController();
+    broadcastControllerState({
+      state: "restarting",
+      message: "Restarting the local Monet controller…",
+      restartAvailable: true
+    });
+    controllerRuntime = await startManagedController("restart");
     broadcastControllerState({
       state: "ready",
       apiBase: controllerRuntime.apiBase,
-      bearerToken: controllerRuntime.bearerToken
+      bearerToken: controllerRuntime.bearerToken,
+      message: "Local controller ready.",
+      restartAvailable: controllerRuntime.managed
     });
 
     logger.info("desktop.controller_restart_completed", {
@@ -129,6 +144,11 @@ ipcMain.handle("monet:restart-controller", async () => {
     };
   } catch (error) {
     logger.error("desktop.controller_restart_failed", error);
+    broadcastControllerState({
+      state: "failed",
+      message: error instanceof Error ? error.message : "The local controller could not restart.",
+      restartAvailable: true
+    });
     throw error;
   }
 });
@@ -219,7 +239,9 @@ async function createMainWindow(runtime: ControllerRuntime) {
   broadcastControllerState({
     state: "ready",
     apiBase: runtime.apiBase,
-    bearerToken: runtime.bearerToken
+    bearerToken: runtime.bearerToken,
+    message: runtime.managed ? "Local controller ready." : "Connected to the configured controller endpoint.",
+    restartAvailable: runtime.managed
   });
 
   window.on("closed", () => {
@@ -416,7 +438,7 @@ async function resolveControllerRuntime(): Promise<ControllerRuntime> {
   return startManagedController();
 }
 
-async function startManagedController(): Promise<ControllerRuntime> {
+async function startManagedController(mode: "startup" | "restart" = "startup"): Promise<ControllerRuntime> {
   if (controllerRuntime?.child) {
     logger.warn("desktop.controller_existing_child_replaced");
 
@@ -462,7 +484,11 @@ async function startManagedController(): Promise<ControllerRuntime> {
     }
 
     logger.error("desktop.controller_exited_unexpectedly");
-    broadcastControllerState({ state: "stopped" });
+    broadcastControllerState({
+      state: "stopped",
+      message: "The local controller exited unexpectedly. Restart it to resume chat and settings requests.",
+      restartAvailable: true
+    });
     void dialog.showMessageBox({
       type: "error",
       title: "Local controller stopped",
@@ -471,8 +497,27 @@ async function startManagedController(): Promise<ControllerRuntime> {
     });
   });
 
-  broadcastControllerState({ state: "starting" });
-  await waitForControllerReady(apiBase, bearerToken);
+  broadcastControllerState({
+    state: mode === "restart" ? "restarting" : "starting",
+    message: mode === "restart" ? "Restarting the local Monet controller…" : "Starting the local Monet controller…",
+    restartAvailable: true
+  });
+
+  try {
+    await waitForControllerReady(apiBase, bearerToken);
+  } catch (error) {
+    if (typeof child.pid === "number") {
+      intentionallyStoppedControllerPids.add(child.pid);
+    }
+
+    child.kill();
+    broadcastControllerState({
+      state: "failed",
+      message: error instanceof Error ? error.message : `The local controller failed to ${mode}.`,
+      restartAvailable: true
+    });
+    throw error;
+  }
 
   logger.info("desktop.controller_ready", {
     apiBase,
@@ -488,7 +533,7 @@ async function startManagedController(): Promise<ControllerRuntime> {
 }
 
 function buildPreloadArguments(runtime: ControllerRuntime) {
-  const args = [`--monet-api-base=${runtime.apiBase}`];
+  const args = [`--monet-api-base=${runtime.apiBase}`, `--monet-controller-managed=${runtime.managed ? "true" : "false"}`];
 
   if (runtime.bearerToken) {
     args.push(`--monet-bearer-token=${runtime.bearerToken}`);

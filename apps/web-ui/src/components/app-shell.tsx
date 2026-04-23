@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Badge, Button, Card, NavItem, StatusDot } from "@nexu-design/ui-web";
 
+import { useControllerState } from "../lib/controller-state";
 import { getSettingsHref, isSettingsPanelId, type SettingsPanelId } from "./settings-panel-content";
 import { SettingsSheet } from "./settings-sheet";
 import { useSessions } from "./session-provider";
@@ -66,6 +67,16 @@ export function AppShell({
   const activeSettingsPanel = isSettingsPanelId(requestedPanel) ? requestedPanel : null;
   const isProviderReadinessLoading = providerReadiness.loading;
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
+  const { controllerState, isDesktop } = useControllerState();
+  const controllerBadge = controllerState?.state === "ready"
+    ? { variant: "success" as const, status: "success" as const, label: "Ready" }
+    : controllerState?.state === "starting"
+      ? { variant: "warning" as const, status: "warning" as const, label: "Starting" }
+      : controllerState?.state === "restarting"
+        ? { variant: "warning" as const, status: "warning" as const, label: "Restarting" }
+        : controllerState?.state === "failed" || controllerState?.state === "stopped"
+          ? { variant: "destructive" as const, status: "error" as const, label: "Attention" }
+          : { variant: "secondary" as const, status: "info" as const, label: isDesktop ? "Waiting" : "External" };
 
   async function handleCreateSession() {
     if (providerSetupRequired) {
@@ -183,12 +194,12 @@ export function AppShell({
           <Card variant="muted" className="card card-muted stack-tight sidebar-status-card">
             <div className="sidebar-section-header">
               <span className="eyebrow">Controller</span>
-              <Badge variant="secondary" size="sm" radius="full" className="status-inline">
-                <StatusDot status="success" size="xs" />
-                Ready
+              <Badge variant={controllerBadge.variant} size="sm" radius="full" className="status-inline">
+                <StatusDot status={controllerBadge.status} size="xs" pulse={controllerState?.state === "starting" || controllerState?.state === "restarting"} />
+                {controllerBadge.label}
               </Badge>
             </div>
-            <p className="muted">Health, restart, and failure handling will surface here without leaving the chat view.</p>
+            <p className="muted">{controllerState?.message ?? (isDesktop ? "Controller health and restart feedback stay visible in the sidebar." : "Health and restart actions are available when running inside the desktop shell.")}</p>
           </Card>
 
           <nav className="nav nav-compact" aria-label="Settings">

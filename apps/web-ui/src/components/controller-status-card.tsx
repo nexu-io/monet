@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, StatusDot } from "@nexu-design/ui-web";
 
-import { getMonetClientConfig, type ControllerHealthResponse, type MonetClientConfig } from "../lib/monet-client";
+import { useControllerState } from "../lib/controller-state";
+import { type ControllerHealthResponse } from "../lib/monet-client";
 
 type HealthState = {
   readonly loading: boolean;
@@ -18,12 +19,15 @@ const initialState: HealthState = {
 };
 
 export function ControllerStatusCard() {
-  const [config, setConfig] = useState<MonetClientConfig | null>(null);
+  const { config, controllerState, isDesktop, restartController, restartError, restartPending } = useControllerState();
   const [state, setState] = useState<HealthState>(initialState);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   async function loadHealth() {
-    const nextConfig = getMonetClientConfig();
-    setConfig(nextConfig);
+    if (!config) {
+      return;
+    }
+
     setState((current) => ({ ...current, loading: true, error: null }));
 
     try {
@@ -32,13 +36,13 @@ export function ControllerStatusCard() {
         credentials: "omit"
       };
 
-      if (nextConfig.bearerToken) {
+      if (config.bearerToken) {
         requestOptions.headers = {
-          Authorization: `Bearer ${nextConfig.bearerToken}`
+          Authorization: `Bearer ${config.bearerToken}`
         };
       }
 
-      const response = await fetch(`${nextConfig.apiBase}/api/health`, requestOptions);
+      const response = await fetch(`${config.apiBase}/api/health`, requestOptions);
 
       if (!response.ok) {
         throw new Error(`Controller returned ${response.status} ${response.statusText}`);
@@ -56,13 +60,63 @@ export function ControllerStatusCard() {
   }
 
   useEffect(() => {
-    void loadHealth();
-  }, []);
+    if (!config) {
+      return;
+    }
 
-  const tone = state.loading ? "unknown" : state.data ? "healthy" : "offline";
-  const label = state.loading ? "Checking controller" : state.data ? "Controller ready" : "Controller unavailable";
-  const badgeVariant = state.loading ? "warning" : state.data ? "success" : "destructive";
-  const dotStatus = state.loading ? "warning" : state.data ? "success" : "error";
+    if (controllerState?.state === "starting" || controllerState?.state === "restarting") {
+      setState({ loading: true, data: null, error: null });
+      return;
+    }
+
+    if (controllerState?.state === "failed" || controllerState?.state === "stopped") {
+      setState({
+        loading: false,
+        data: null,
+        error: controllerState.message ?? "Unable to reach the local controller."
+      });
+      return;
+    }
+
+    void loadHealth();
+  }, [config, controllerState?.message, controllerState?.state]);
+
+  async function handleRestart() {
+    try {
+      const result = await restartController();
+
+      if (result?.restarted === false) {
+        setActionMessage("This session uses an external controller. Restart it outside the app.");
+        return;
+      }
+
+      setActionMessage("Controller restart requested. Waiting for readiness signal…");
+    } catch {
+      setActionMessage(null);
+    }
+  }
+
+  const lifecycleState = controllerState?.state;
+  const tone = lifecycleState === "starting" || lifecycleState === "restarting" || state.loading
+    ? "unknown"
+    : lifecycleState === "failed" || lifecycleState === "stopped" || !state.data
+      ? "offline"
+      : "healthy";
+  const label = lifecycleState === "starting"
+    ? "Starting local controller"
+    : lifecycleState === "restarting"
+      ? "Restarting controller"
+      : lifecycleState === "failed"
+        ? "Controller start failed"
+        : lifecycleState === "stopped"
+          ? "Controller stopped"
+          : state.loading
+            ? "Checking controller"
+            : state.data
+              ? "Controller ready"
+              : "Controller unavailable";
+  const badgeVariant = tone === "healthy" ? "success" : state.loading || lifecycleState === "starting" || lifecycleState === "restarting" ? "warning" : "destructive";
+  const dotStatus = tone === "healthy" ? "success" : state.loading || lifecycleState === "starting" || lifecycleState === "restarting" ? "warning" : "error";
 
   return (
     <Card className="card stack">
@@ -85,6 +139,10 @@ export function ControllerStatusCard() {
 
         <ul className="status-list">
           <li>
+            <strong>Desktop lifecycle</strong>
+            <div className="muted">{controllerState ? label : isDesktop ? "Waiting for desktop status..." : "Browser-only mode"}</div>
+          </li>
+          <li>
             <strong>API base</strong>
             <div className="muted mono">{config?.apiBase ?? "Resolving..."}</div>
           </li>
@@ -98,13 +156,27 @@ export function ControllerStatusCard() {
           </li>
           <li>
             <strong>Health response</strong>
-            <div className="muted mono">{state.data ? JSON.stringify(state.data) : state.error ?? "Waiting for response..."}</div>
+            <div className="muted mono">{state.data ? JSON.stringify(state.data) : controllerState?.message ?? state.error ?? "Waiting for response..."}</div>
           </li>
         </ul>
 
-        <Button type="button" variant="primary" onClick={() => void loadHealth()} disabled={state.loading}>
-          {state.loading ? "Refreshing..." : "Retry health check"}
-        </Button>
+        {actionMessage || restartError ? <p className="muted">{actionMessage ?? restartError}</p> : null}
+
+        <div className="session-browser-actions">
+          <Button type="button" variant="primary" onClick={() => void loadHealth()} disabled={state.loading || !config}>
+            {state.loading ? "Refreshing..." : "Retry health check"}
+          </Button>
+          {isDesktop ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void handleRestart()}
+              disabled={restartPending || controllerState?.restartAvailable === false}
+            >
+              {restartPending || lifecycleState === "restarting" ? "Restarting..." : "Restart controller"}
+            </Button>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

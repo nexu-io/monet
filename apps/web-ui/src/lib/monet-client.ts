@@ -1,5 +1,15 @@
 export type ProviderType = "openai" | "openrouter";
 
+export type ControllerRuntimeState = "starting" | "ready" | "restarting" | "stopped" | "failed";
+
+export interface ControllerStatePayload {
+  readonly state: ControllerRuntimeState;
+  readonly apiBase?: string;
+  readonly bearerToken?: string | null;
+  readonly message?: string;
+  readonly restartAvailable?: boolean;
+}
+
 export interface ProviderSecretStorageSnapshot {
   readonly available: boolean;
   readonly message: string;
@@ -15,11 +25,13 @@ export type MonetDesktopApi = {
   readonly apiBase?: string;
   readonly bearerToken?: string;
   readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretStorageSnapshot>;
+  readonly getControllerState?: () => ControllerStatePayload;
   readonly getProviderSecretStorage?: () => Promise<ProviderSecretStorageSnapshot>;
   readonly getRuntimeInfo?: () => {
     readonly apiBase?: string;
     readonly bearerToken?: string;
   };
+  readonly onControllerStateChange?: (listener: (payload: ControllerStatePayload) => void) => () => void;
   readonly restartController?: () => Promise<{ restarted: boolean; apiBase?: string; reason?: string }>;
   readonly saveProviderSecret?: (payload: {
     providerType: ProviderType;

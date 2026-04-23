@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 interface ControllerStatePayload {
-  readonly state: "starting" | "ready" | "stopped";
+  readonly state: "starting" | "ready" | "restarting" | "stopped" | "failed";
   readonly apiBase?: string;
   readonly bearerToken?: string | null;
+  readonly message?: string;
+  readonly restartAvailable?: boolean;
 }
 
 interface PreloadRequestResult {
@@ -29,6 +31,19 @@ interface ProviderSecretStorageSnapshot {
 
 let apiBase = getArgumentValue("--monet-api-base=");
 let bearerToken = getArgumentValue("--monet-bearer-token=");
+const controllerManaged = getArgumentValue("--monet-controller-managed=") !== "false";
+let controllerState: ControllerStatePayload = apiBase
+  ? {
+      state: "ready",
+      apiBase,
+      ...(bearerToken !== undefined ? { bearerToken } : {}),
+      restartAvailable: controllerManaged
+    }
+  : {
+      state: "starting",
+      message: "Waiting for the local Monet controller to finish starting.",
+      restartAvailable: controllerManaged
+    };
 
 ipcRenderer.on("monet:controller-state", (_event, payload: ControllerStatePayload) => {
   if (payload.apiBase) {
@@ -38,11 +53,29 @@ ipcRenderer.on("monet:controller-state", (_event, payload: ControllerStatePayloa
   if (payload.bearerToken !== undefined) {
     bearerToken = payload.bearerToken ?? undefined;
   }
+
+  const nextApiBase = payload.apiBase ?? apiBase;
+  const nextBearerToken = payload.bearerToken !== undefined ? payload.bearerToken : bearerToken;
+
+  controllerState = {
+    state: payload.state,
+    ...(nextApiBase !== undefined ? { apiBase: nextApiBase } : {}),
+    ...(nextBearerToken !== undefined ? { bearerToken: nextBearerToken } : {}),
+    ...(payload.message !== undefined ? { message: payload.message } : controllerState.message !== undefined ? { message: controllerState.message } : {}),
+    ...(payload.restartAvailable !== undefined
+      ? { restartAvailable: payload.restartAvailable }
+      : controllerState.restartAvailable !== undefined
+        ? { restartAvailable: controllerState.restartAvailable }
+        : {})
+  };
 });
 
 contextBridge.exposeInMainWorld("monetDesktop", {
   apiBase,
   bearerToken,
+  getControllerState() {
+    return controllerState;
+  },
   getRuntimeInfo() {
     return {
       apiBase,
