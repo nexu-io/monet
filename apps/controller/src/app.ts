@@ -78,7 +78,8 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   const runRegistry = createRunRegistry();
   const toolRegistry = createToolRegistry(
     createBuiltinToolDefinitions({
-      allowedDirectories: options.allowedToolDirectories
+      allowedDirectories: options.allowedToolDirectories,
+      controllerPort: options.port
     })
   );
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();

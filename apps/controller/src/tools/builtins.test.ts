@@ -9,6 +9,10 @@ import { createLogger } from "../logger";
 import { createBuiltinToolDefinitions } from "./builtins";
 import { createToolRegistry } from "./registry";
 
+type DnsLookupStub = (hostname: string, options: { all: true; verbatim: true }) => Promise<
+  Array<{ address: string; family: number }>
+>;
+
 function createTestFixture() {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-builtins-tests-"));
   const databasePath = join(fixtureDir, "controller.sqlite");
@@ -34,14 +38,21 @@ function createTestFixture() {
   };
 }
 
-function createRuntimeTools(workspaceDir: string, storage: ReturnType<typeof createChatStorage>) {
+function createRuntimeTools(
+  workspaceDir: string,
+  storage: ReturnType<typeof createChatStorage>,
+  options?: { controllerPort?: number; dnsLookup?: DnsLookupStub }
+) {
   const prepared = storage.prepareChatRequest({
     messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "hello" }] }]
   });
+  const builtinOptions = {
+    allowedDirectories: [workspaceDir],
+    ...(options?.controllerPort !== undefined ? { controllerPort: options.controllerPort } : {}),
+    ...(options?.dnsLookup ? { dnsLookup: options.dnsLookup } : {})
+  };
   const registry = createToolRegistry(
-    createBuiltinToolDefinitions({
-      allowedDirectories: [workspaceDir]
-    })
+    createBuiltinToolDefinitions(builtinOptions)
   );
 
   return registry.createRuntimeTools({
@@ -148,12 +159,14 @@ test("read_file rejects paths outside authorized directories", async () => {
 test("fetch_url fetches HTTPS text responses", async () => {
   const fixture = createTestFixture();
   const originalFetch = globalThis.fetch;
+  const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
 
   try {
-    globalThis.fetch = (async (input: string | URL | Request) => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       assert.equal(requestUrl, "https://example.com/article");
+      assert.equal(init?.redirect, "manual");
 
       return new Response("hello from the network", {
         status: 200,
@@ -163,7 +176,7 @@ test("fetch_url fetches HTTPS text responses", async () => {
       });
     }) as typeof fetch;
 
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, { dnsLookup });
     const fetchUrlTool = runtimeTools.fetch_url!;
     const result = (await fetchUrlTool.execute(
       {
@@ -204,6 +217,205 @@ test("fetch_url rejects non-HTTPS URLs", async () => {
       /only supports HTTPS/
     );
   } finally {
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url rejects loopback and private network destinations", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const fetchUrlTool = runtimeTools.fetch_url!;
+
+    await assert.rejects(
+      fetchUrlTool.execute(
+        {
+          url: "https://127.0.0.1/private"
+        },
+        createExecutionContext()
+      ),
+      /blocks loopback, private, link-local, and metadata/
+    );
+
+    await assert.rejects(
+      fetchUrlTool.execute(
+        {
+          url: "https://192.168.1.10/private"
+        },
+        createExecutionContext()
+      ),
+      /blocks loopback, private, link-local, and metadata/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url rejects resolved private destinations before fetching", async () => {
+  const fixture = createTestFixture();
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = (async () => {
+      throw new Error("fetch should not be called");
+    }) as typeof fetch;
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      dnsLookup: async () => [{ address: "127.0.0.1", family: 4 }]
+    });
+    const fetchUrlTool = runtimeTools.fetch_url!;
+
+    await assert.rejects(
+      fetchUrlTool.execute(
+        {
+          url: "https://internal.example.com/private"
+        },
+        createExecutionContext()
+      ),
+      /blocks loopback, private, link-local, and metadata/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url rejects access to the local controller port", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      controllerPort: 3030
+    });
+    const fetchUrlTool = runtimeTools.fetch_url!;
+
+    await assert.rejects(
+      fetchUrlTool.execute(
+        {
+          url: "https://127.0.0.1:3030/health"
+        },
+        createExecutionContext()
+      ),
+      /cannot access the local controller port/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url follows bounded redirects", async () => {
+  const fixture = createTestFixture();
+  const originalFetch = globalThis.fetch;
+  const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
+
+  try {
+    const seenUrls: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      seenUrls.push(requestUrl);
+
+      if (requestUrl === "https://example.com/start") {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: "/next"
+          }
+        });
+      }
+
+      return new Response("redirect complete", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain"
+        }
+      });
+    }) as typeof fetch;
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, { dnsLookup });
+    const fetchUrlTool = runtimeTools.fetch_url!;
+    const result = (await fetchUrlTool.execute(
+      {
+        url: "https://example.com/start"
+      },
+      createExecutionContext()
+    )) as { url: string; content: string };
+
+    assert.deepEqual(seenUrls, ["https://example.com/start", "https://example.com/next"]);
+    assert.equal(result.url, "https://example.com/next");
+    assert.equal(result.content, "redirect complete");
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url rejects redirect chains beyond the limit", async () => {
+  const fixture = createTestFixture();
+  const originalFetch = globalThis.fetch;
+  const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
+
+  try {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const step = Number.parseInt(new URL(requestUrl).pathname.replace("/", ""), 10);
+
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: `https://example.com/${step + 1}`
+        }
+      });
+    }) as typeof fetch;
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, { dnsLookup });
+    const fetchUrlTool = runtimeTools.fetch_url!;
+
+    await assert.rejects(
+      fetchUrlTool.execute(
+        {
+          url: "https://example.com/1"
+        },
+        createExecutionContext()
+      ),
+      /exceeded the redirect limit/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url rejects oversized responses", async () => {
+  const fixture = createTestFixture();
+  const originalFetch = globalThis.fetch;
+  const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
+
+  try {
+    globalThis.fetch = (async () => {
+      return new Response("too big", {
+        status: 200,
+        headers: {
+          "content-length": "1000001",
+          "content-type": "text/plain"
+        }
+      });
+    }) as typeof fetch;
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, { dnsLookup });
+    const fetchUrlTool = runtimeTools.fetch_url!;
+
+    await assert.rejects(
+      fetchUrlTool.execute(
+        {
+          url: "https://example.com/large"
+        },
+        createExecutionContext()
+      ),
+      /response exceeded the size limit/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
     fixture.cleanup();
   }
 });
