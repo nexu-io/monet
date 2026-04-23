@@ -479,6 +479,60 @@
           "availableModelCount"
         ]
       },
+      "AuthorizedDirectory": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "example": "/Users/example/Projects/monet"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:05:00.000Z"
+          }
+        },
+        "required": [
+          "path",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ListAuthorizedDirectoriesResponse": {
+        "type": "object",
+        "properties": {
+          "authorizedDirectories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuthorizedDirectory"
+            }
+          }
+        },
+        "required": [
+          "authorizedDirectories"
+        ]
+      },
+      "ReplaceAuthorizedDirectoriesRequest": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "paths"
+        ]
+      },
       "Tool": {
         "type": "object",
         "properties": {
@@ -983,6 +1037,65 @@
           },
           "500": {
             "description": "The provider validation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/authorized-directories": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "List authorized directories",
+        "description": "Returns the persisted allowlist of authorized directories used by filesystem tools.",
+        "responses": {
+          "200": {
+            "description": "Authorized directories fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuthorizedDirectoriesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Replace authorized directories",
+        "description": "Replaces the persisted allowlist of authorized directories used by filesystem tools.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceAuthorizedDirectoriesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized directories updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAuthorizedDirectoriesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid.",
             "content": {
               "application/json": {
                 "schema": {

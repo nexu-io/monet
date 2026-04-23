@@ -31,6 +31,15 @@ interface ProviderSecretStorageSnapshot {
   readonly reason: "available" | "desktop_api_unavailable" | "linux_keyring_unavailable" | "encryption_unavailable";
 }
 
+interface DesktopAppPathsSnapshot {
+  readonly userDataPath: string;
+}
+
+interface OpenPathResult {
+  readonly opened: boolean;
+  readonly error?: string;
+}
+
 let apiBase = getArgumentValue("--monet-api-base=");
 let bearerToken = getArgumentValue("--monet-bearer-token=");
 const controllerManaged = getArgumentValue("--monet-controller-managed=") !== "false";
@@ -113,6 +122,15 @@ contextBridge.exposeInMainWorld("monetDesktop", {
   },
   getProviderSecretStorage(): Promise<ProviderSecretStorageSnapshot> {
     return ipcRenderer.invoke("monet:get-provider-secret-storage");
+  },
+  getAppPaths(): Promise<DesktopAppPathsSnapshot> {
+    return ipcRenderer.invoke("monet:get-app-paths");
+  },
+  pickDirectory(): Promise<string | null> {
+    return ipcRenderer.invoke("monet:pick-directory");
+  },
+  openPath(payload: { path: string }): Promise<OpenPathResult> {
+    return ipcRenderer.invoke("monet:open-path", payload);
   },
   saveProviderSecret(payload: { providerType: ProviderType; secret: string }): Promise<ProviderSecretStorageSnapshot> {
     return ipcRenderer.invoke("monet:save-provider-secret", payload);

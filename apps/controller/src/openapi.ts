@@ -137,6 +137,26 @@ export const ValidateProviderResponseSchema = z
   })
   .openapi("ValidateProviderResponse");
 
+export const AuthorizedDirectorySchema = z
+  .object({
+    path: z.string().openapi({ example: "/Users/example/Projects/monet" }),
+    createdAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" }),
+    updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" })
+  })
+  .openapi("AuthorizedDirectory");
+
+export const ListAuthorizedDirectoriesResponseSchema = z
+  .object({
+    authorizedDirectories: z.array(AuthorizedDirectorySchema)
+  })
+  .openapi("ListAuthorizedDirectoriesResponse");
+
+export const ReplaceAuthorizedDirectoriesRequestSchema = z
+  .object({
+    paths: z.array(z.string().trim().min(1)).max(100)
+  })
+  .openapi("ReplaceAuthorizedDirectoriesRequest");
+
 export const ToolSchema = z
   .object({
     name: z.string().openapi({ example: "read_file" }),

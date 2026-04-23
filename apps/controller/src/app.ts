@@ -9,6 +9,7 @@ import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerRunRoutes } from "./routes/runs";
+import { registerSettingsRoutes } from "./routes/settings";
 import { registerSessionRoutes } from "./routes/sessions";
 import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
@@ -156,6 +157,10 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
         description: "Provider, model catalog, and validation endpoints."
       },
       {
+        name: "Settings",
+        description: "General settings endpoints for authorized directories and local runtime metadata."
+      },
+      {
         name: "Runs",
         description: "Run lifecycle endpoints such as interruption."
       },
@@ -212,6 +217,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerRunRoutes(app, { getChatStorage, runRegistry, providerRuntime, toolRegistry, runtime: options.agentRuntime });
   registerSessionRoutes(app, { getChatStorage });
   registerProviderRoutes(app, { getChatStorage, providerRuntime });
+  registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });
 
   return app;

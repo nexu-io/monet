@@ -6,6 +6,15 @@ export type HealthResponse = {
     version: string;
 };
 
+export type StopRunResponse = {
+    ok: true;
+};
+
+export type ErrorResponse = {
+    error: string;
+    message: string;
+};
+
 export type Session = {
     id: string;
     title: string;
@@ -18,11 +27,6 @@ export type Session = {
 
 export type ListSessionsResponse = {
     sessions: Array<Session>;
-};
-
-export type ErrorResponse = {
-    error: string;
-    message: string;
 };
 
 export type CreateSessionRequest = {
@@ -95,6 +99,30 @@ export type ValidateProviderResponse = {
     availableModelCount: number;
 };
 
+export type AuthorizedDirectory = {
+    path: string;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type ListAuthorizedDirectoriesResponse = {
+    authorizedDirectories: Array<AuthorizedDirectory>;
+};
+
+export type ReplaceAuthorizedDirectoriesRequest = {
+    paths: Array<string>;
+};
+
+export type Tool = {
+    name: string;
+    description: string;
+    requiresConfirmation: boolean;
+};
+
+export type ListToolsResponse = {
+    tools: Array<Tool>;
+};
+
 export type GetApiHealthData = {
     body?: never;
     path?: never;
@@ -110,6 +138,37 @@ export type GetApiHealthResponses = {
 };
 
 export type GetApiHealthResponse = GetApiHealthResponses[keyof GetApiHealthResponses];
+
+export type PostApiRunsByRunIdStopData = {
+    body?: never;
+    path: {
+        runId: string;
+    };
+    query?: never;
+    url: '/api/runs/{runId}/stop';
+};
+
+export type PostApiRunsByRunIdStopErrors = {
+    /**
+     * The requested run was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The run could not be stopped.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiRunsByRunIdStopError = PostApiRunsByRunIdStopErrors[keyof PostApiRunsByRunIdStopErrors];
+
+export type PostApiRunsByRunIdStopResponses = {
+    /**
+     * Run stop was accepted.
+     */
+    200: StopRunResponse;
+};
+
+export type PostApiRunsByRunIdStopResponse = PostApiRunsByRunIdStopResponses[keyof PostApiRunsByRunIdStopResponses];
 
 export type GetApiSessionsData = {
     body?: never;
@@ -350,6 +409,63 @@ export type PostApiProvidersByProviderIdValidateResponses = {
 };
 
 export type PostApiProvidersByProviderIdValidateResponse = PostApiProvidersByProviderIdValidateResponses[keyof PostApiProvidersByProviderIdValidateResponses];
+
+export type GetApiSettingsAuthorizedDirectoriesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/settings/authorized-directories';
+};
+
+export type GetApiSettingsAuthorizedDirectoriesResponses = {
+    /**
+     * Authorized directories fetched successfully.
+     */
+    200: ListAuthorizedDirectoriesResponse;
+};
+
+export type GetApiSettingsAuthorizedDirectoriesResponse = GetApiSettingsAuthorizedDirectoriesResponses[keyof GetApiSettingsAuthorizedDirectoriesResponses];
+
+export type PutApiSettingsAuthorizedDirectoriesData = {
+    body?: ReplaceAuthorizedDirectoriesRequest;
+    path?: never;
+    query?: never;
+    url: '/api/settings/authorized-directories';
+};
+
+export type PutApiSettingsAuthorizedDirectoriesErrors = {
+    /**
+     * The request body was invalid.
+     */
+    400: ErrorResponse;
+};
+
+export type PutApiSettingsAuthorizedDirectoriesError = PutApiSettingsAuthorizedDirectoriesErrors[keyof PutApiSettingsAuthorizedDirectoriesErrors];
+
+export type PutApiSettingsAuthorizedDirectoriesResponses = {
+    /**
+     * Authorized directories updated successfully.
+     */
+    200: ListAuthorizedDirectoriesResponse;
+};
+
+export type PutApiSettingsAuthorizedDirectoriesResponse = PutApiSettingsAuthorizedDirectoriesResponses[keyof PutApiSettingsAuthorizedDirectoriesResponses];
+
+export type GetApiToolsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tools';
+};
+
+export type GetApiToolsResponses = {
+    /**
+     * Tools fetched successfully.
+     */
+    200: ListToolsResponse;
+};
+
+export type GetApiToolsResponse = GetApiToolsResponses[keyof GetApiToolsResponses];
 
 export type ClientOptions = {
     baseUrl: `${string}://apps` | (string & {});

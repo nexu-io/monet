@@ -175,6 +175,38 @@ ipcMain.handle("monet:get-provider-secret-storage", () => {
   return getProviderSecretStore().getSnapshot() satisfies ProviderSecretStorageSnapshot;
 });
 
+ipcMain.handle("monet:get-app-paths", () => {
+  return {
+    userDataPath: app.getPath("userData")
+  };
+});
+
+ipcMain.handle("monet:pick-directory", async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ["openDirectory", "createDirectory"]
+  });
+
+  return result.canceled ? null : result.filePaths[0] ?? null;
+});
+
+ipcMain.handle("monet:open-path", async (_event, payload: { path: string }) => {
+  const targetPath = payload.path.trim();
+
+  if (!targetPath) {
+    return {
+      opened: false,
+      error: "Path is required."
+    };
+  }
+
+  const error = await shell.openPath(targetPath);
+
+  return {
+    opened: error.length === 0,
+    ...(error.length > 0 ? { error } : {})
+  };
+});
+
 ipcMain.handle(
   "monet:save-provider-secret",
   (_event, payload: { providerType: ProviderType; secret: string }) => {

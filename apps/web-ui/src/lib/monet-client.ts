@@ -21,17 +21,29 @@ export interface ProviderSecretStorageSnapshot {
   readonly reason: "available" | "desktop_api_unavailable" | "linux_keyring_unavailable" | "encryption_unavailable";
 }
 
+export interface DesktopAppPathsSnapshot {
+  readonly userDataPath: string;
+}
+
+export interface OpenPathResult {
+  readonly opened: boolean;
+  readonly error?: string;
+}
+
 export type MonetDesktopApi = {
   readonly platform?: NodeJS.Platform;
   readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretStorageSnapshot>;
+  readonly getAppPaths?: () => Promise<DesktopAppPathsSnapshot>;
   readonly getControllerState?: () => ControllerStatePayload;
   readonly getProviderSecretStorage?: () => Promise<ProviderSecretStorageSnapshot>;
   readonly getRuntimeInfo?: () => {
     readonly apiBase?: string;
     readonly bearerToken?: string;
   };
+  readonly openPath?: (payload: { path: string }) => Promise<OpenPathResult>;
   readonly onControllerStateChange?: (listener: (payload: ControllerStatePayload) => void) => () => void;
   readonly onShortcut?: (listener: (payload: { action: "new-session" | "open-settings" }) => void) => () => void;
+  readonly pickDirectory?: () => Promise<string | null>;
   readonly restartController?: () => Promise<{ restarted: boolean; apiBase?: string; reason?: string }>;
   readonly saveProviderSecret?: (payload: {
     providerType: ProviderType;

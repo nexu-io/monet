@@ -14,8 +14,13 @@ import {
 } from "@nexu-design/ui-web";
 
 import type { Provider, ProviderModel, ValidateProviderResponse } from "../lib/api/generated/types.gen";
-import { getMonetClientConfig, type ProviderSecretStorageSnapshot } from "../lib/monet-client";
+import {
+  getMonetClientConfig,
+  type DesktopAppPathsSnapshot,
+  type ProviderSecretStorageSnapshot
+} from "../lib/monet-client";
 import { PROVIDER_READINESS_EVENT } from "../lib/provider-readiness";
+import { useTheme, type AppTheme } from "./theme-provider";
 
 export const SETTINGS_QUERY_PARAM = "settings";
 
@@ -57,6 +62,13 @@ type AsyncState<T> = {
 
 type ProviderValidationState = AsyncState<ValidateProviderResponse>;
 type ProviderSecretStorageState = AsyncState<ProviderSecretStorageSnapshot>;
+type AuthorizedDirectory = {
+  readonly path: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+};
+type AuthorizedDirectoriesState = AsyncState<AuthorizedDirectory[]>;
+type AppPathsState = AsyncState<DesktopAppPathsSnapshot>;
 
 const initialProvidersState: AsyncState<Provider[]> = {
   loading: true,
@@ -71,6 +83,18 @@ const initialModelsState: AsyncState<ProviderModel[]> = {
 };
 
 const initialSecretStorageState: ProviderSecretStorageState = {
+  loading: false,
+  data: null,
+  error: null
+};
+
+const initialAuthorizedDirectoriesState: AuthorizedDirectoriesState = {
+  loading: true,
+  data: null,
+  error: null
+};
+
+const initialAppPathsState: AppPathsState = {
   loading: false,
   data: null,
   error: null
@@ -259,6 +283,409 @@ function ValidationBadge({ state }: { state: ProviderValidationState | null | un
       <StatusDot status={meta.dotStatus} size="xs" />
       <span>{meta.label}</span>
     </Badge>
+  );
+}
+
+function GeneralSettingsPanel() {
+  const config = getMonetClientConfig();
+  const desktopApi = getDesktopApi();
+  const { theme, resolvedTheme, setTheme } = useTheme();
+  const [authorizedDirectoriesState, setAuthorizedDirectoriesState] = useState<AuthorizedDirectoriesState>(
+    initialAuthorizedDirectoriesState
+  );
+  const [appPathsState, setAppPathsState] = useState<AppPathsState>(initialAppPathsState);
+  const [directoryDraft, setDirectoryDraft] = useState("");
+  const [directoryBusy, setDirectoryBusy] = useState(false);
+  const [directoryFeedback, setDirectoryFeedback] = useState<string | null>(null);
+  const [pathFeedback, setPathFeedback] = useState<string | null>(null);
+
+  const loadAuthorizedDirectories = useCallback(async () => {
+    setAuthorizedDirectoriesState((current) => ({
+      loading: true,
+      data: current.data,
+      error: null
+    }));
+
+    try {
+      const result = await requestControllerJson<{ authorizedDirectories: AuthorizedDirectory[] }>(
+        "/api/settings/authorized-directories"
+      );
+
+      setAuthorizedDirectoriesState({
+        loading: false,
+        data: result.authorizedDirectories,
+        error: null
+      });
+    } catch (error) {
+      setAuthorizedDirectoriesState({
+        loading: false,
+        data: null,
+        error: error instanceof Error ? error.message : "Unable to load authorized directories."
+      });
+    }
+  }, []);
+
+  const loadAppPaths = useCallback(async () => {
+    if (!desktopApi?.getAppPaths) {
+      setAppPathsState({
+        loading: false,
+        data: null,
+        error: "Desktop app paths are only available inside the Electron shell."
+      });
+      return;
+    }
+
+    setAppPathsState((current) => ({
+      loading: true,
+      data: current.data,
+      error: null
+    }));
+
+    try {
+      setAppPathsState({
+        loading: false,
+        data: await desktopApi.getAppPaths(),
+        error: null
+      });
+    } catch (error) {
+      setAppPathsState({
+        loading: false,
+        data: null,
+        error: error instanceof Error ? error.message : "Unable to inspect app paths."
+      });
+    }
+  }, [desktopApi]);
+
+  useEffect(() => {
+    void loadAuthorizedDirectories();
+    void loadAppPaths();
+  }, [loadAppPaths, loadAuthorizedDirectories]);
+
+  const replaceAuthorizedDirectories = useCallback(async (paths: readonly string[], successMessage: string) => {
+    setDirectoryBusy(true);
+    setDirectoryFeedback(null);
+
+    try {
+      const uniquePaths = Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+      const result = await requestControllerJson<{ authorizedDirectories: AuthorizedDirectory[] }>(
+        "/api/settings/authorized-directories",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            paths: uniquePaths
+          })
+        }
+      );
+
+      setAuthorizedDirectoriesState({
+        loading: false,
+        data: result.authorizedDirectories,
+        error: null
+      });
+      setDirectoryFeedback(successMessage);
+      setDirectoryDraft("");
+    } catch (error) {
+      setDirectoryFeedback(error instanceof Error ? error.message : "Unable to update authorized directories.");
+    } finally {
+      setDirectoryBusy(false);
+    }
+  }, []);
+
+  const authorizedDirectories = authorizedDirectoriesState.data ?? [];
+
+  const addDirectory = useCallback(
+    async (rawPath: string) => {
+      const nextPath = rawPath.trim();
+
+      if (!nextPath) {
+        return;
+      }
+
+      await replaceAuthorizedDirectories(
+        [...authorizedDirectories.map((entry) => entry.path), nextPath],
+        `Authorized ${nextPath}`
+      );
+    },
+    [authorizedDirectories, replaceAuthorizedDirectories]
+  );
+
+  const removeDirectory = useCallback(
+    async (targetPath: string) => {
+      await replaceAuthorizedDirectories(
+        authorizedDirectories.map((entry) => entry.path).filter((path) => path !== targetPath),
+        `Revoked ${targetPath}`
+      );
+    },
+    [authorizedDirectories, replaceAuthorizedDirectories]
+  );
+
+  const pickDirectory = useCallback(async () => {
+    if (!desktopApi?.pickDirectory) {
+      return;
+    }
+
+    try {
+      const pickedPath = await desktopApi.pickDirectory();
+
+      if (pickedPath) {
+        await addDirectory(pickedPath);
+      }
+    } catch (error) {
+      setDirectoryFeedback(error instanceof Error ? error.message : "Unable to open the directory picker.");
+    }
+  }, [addDirectory, desktopApi]);
+
+  const openPath = useCallback(
+    async (targetPath: string) => {
+      if (!desktopApi?.openPath) {
+        return;
+      }
+
+      setPathFeedback(null);
+
+      try {
+        const result = await desktopApi.openPath({ path: targetPath });
+        setPathFeedback(result.opened ? `Opened ${targetPath}` : result.error ?? `Unable to open ${targetPath}`);
+      } catch (error) {
+        setPathFeedback(error instanceof Error ? error.message : "Unable to open the requested path.");
+      }
+    },
+    [desktopApi]
+  );
+
+  const copyPath = useCallback(async (targetPath: string) => {
+    try {
+      await navigator.clipboard.writeText(targetPath);
+      setPathFeedback(`Copied ${targetPath}`);
+    } catch (error) {
+      setPathFeedback(error instanceof Error ? error.message : "Unable to copy the requested path.");
+    }
+  }, []);
+
+  const themeOptions: ReadonlyArray<{ value: AppTheme; label: string; detail: string }> = [
+    {
+      value: "system",
+      label: "System",
+      detail: "Follow the OS appearance preference."
+    },
+    {
+      value: "light",
+      label: "Light",
+      detail: "Use the brighter canvas and surface palette."
+    },
+    {
+      value: "dark",
+      label: "Dark",
+      detail: "Keep the current dark workspace look."
+    }
+  ];
+
+  return (
+    <div className="settings-general-layout">
+      <Card className="card stack">
+        <CardHeader>
+          <div className="stack-tight">
+            <span className="eyebrow">Filesystem access</span>
+            <CardTitle>Authorized directories</CardTitle>
+            <CardDescription className="muted">
+              File tools can only read and write inside directories you explicitly authorize here.
+            </CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="stack">
+          <div className="settings-provider-item-meta muted">
+            <span>{authorizedDirectories.length} authorized</span>
+            <span>Persisted in the local controller database</span>
+          </div>
+
+          <label className="settings-secret-field">
+            <span className="muted">Add a directory path manually</span>
+            <input
+              type="text"
+              value={directoryDraft}
+              placeholder="/Users/example/Projects"
+              className="settings-secret-input mono"
+              disabled={directoryBusy}
+              onChange={(event) => setDirectoryDraft(event.currentTarget.value)}
+            />
+          </label>
+
+          <div className="settings-provider-chip-row">
+            <Button type="button" variant="primary" disabled={directoryBusy || !directoryDraft.trim()} onClick={() => void addDirectory(directoryDraft)}>
+              {directoryBusy ? "Saving…" : "Add directory"}
+            </Button>
+            <Button type="button" variant="secondary" disabled={directoryBusy || !desktopApi?.pickDirectory} onClick={() => void pickDirectory()}>
+              Choose folder…
+            </Button>
+          </div>
+
+          {!desktopApi?.pickDirectory ? (
+            <p className="muted">Native folder picking is only available inside the Electron desktop shell.</p>
+          ) : null}
+
+          {authorizedDirectoriesState.loading ? <p className="muted">Loading authorized directories…</p> : null}
+          {authorizedDirectoriesState.error ? <p className="muted mono">{authorizedDirectoriesState.error}</p> : null}
+
+          {!authorizedDirectoriesState.loading && !authorizedDirectoriesState.error && authorizedDirectories.length === 0 ? (
+            <div className="settings-empty-state">
+              <p className="muted">No directories are authorized yet.</p>
+              <p className="muted">Add one before using read_file or write_file in agent runs.</p>
+            </div>
+          ) : null}
+
+          <div className="settings-directory-list" role="list" aria-label="Authorized directories">
+            {authorizedDirectories.map((entry) => (
+              <div key={entry.path} className="settings-directory-item" role="listitem">
+                <span className="settings-directory-item-icon" aria-hidden="true">
+                  📁
+                </span>
+                <div className="stack-tight">
+                  <strong className="settings-directory-item-path mono" title={entry.path}>
+                    {entry.path}
+                  </strong>
+                  <div className="settings-provider-item-meta muted">
+                    <span>Updated {formatTimestamp(entry.updatedAt)}</span>
+                    <span>Added {formatTimestamp(entry.createdAt)}</span>
+                  </div>
+                </div>
+                <Button type="button" variant="secondary" disabled={directoryBusy} onClick={() => void removeDirectory(entry.path)}>
+                  Revoke
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          {directoryFeedback ? <p className="muted mono">{directoryFeedback}</p> : null}
+        </CardContent>
+      </Card>
+
+      <Card className="card stack">
+        <CardHeader>
+          <div className="stack-tight">
+            <span className="eyebrow">Local storage</span>
+            <CardTitle>Data directory</CardTitle>
+            <CardDescription className="muted">
+              Monet stores desktop state, secrets metadata, window state, and the local controller database in the app data directory.
+            </CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="stack">
+          <ul className="kv-list">
+            <li>
+              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
+                <div className="settings-provider-item-header">
+                  <strong>Application data path</strong>
+                  <div className="settings-provider-chip-row">
+                    <button
+                      type="button"
+                      className="kv-inline-action"
+                      disabled={!appPathsState.data?.userDataPath}
+                      onClick={() => void copyPath(appPathsState.data?.userDataPath ?? "")}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      className="kv-inline-action"
+                      disabled={!desktopApi?.openPath || !appPathsState.data?.userDataPath}
+                      onClick={() => void openPath(appPathsState.data?.userDataPath ?? "")}
+                    >
+                      Reveal
+                    </button>
+                  </div>
+                </div>
+                <div className="muted mono">{appPathsState.data?.userDataPath ?? "Unavailable outside the desktop shell."}</div>
+              </Card>
+            </li>
+          </ul>
+
+          {appPathsState.loading ? <p className="muted">Loading app paths…</p> : null}
+          {appPathsState.error ? <p className="muted">{appPathsState.error}</p> : null}
+          {pathFeedback ? <p className="muted mono">{pathFeedback}</p> : null}
+        </CardContent>
+      </Card>
+
+      <Card className="card stack">
+        <CardHeader>
+          <div className="stack-tight">
+            <span className="eyebrow">Appearance</span>
+            <CardTitle>Theme</CardTitle>
+            <CardDescription className="muted">Choose whether the renderer follows the system appearance or forces a specific theme.</CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="stack">
+          <div className="settings-theme-options" role="list" aria-label="Theme options">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className="settings-theme-option"
+                data-active={theme === option.value ? "true" : "false"}
+                onClick={() => setTheme(option.value)}
+              >
+                <span className="settings-theme-swatch" data-theme-preview={option.value} aria-hidden="true" />
+                <div className="stack-tight">
+                  <strong>{option.label}</strong>
+                  <span className="muted">{option.detail}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="settings-provider-item-meta muted">
+            <span>Saved preference: {theme}</span>
+            <span>Currently applied: {resolvedTheme}</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="card stack">
+        <CardHeader>
+          <div className="stack-tight">
+            <span className="eyebrow">Desktop runtime</span>
+            <CardTitle>Renderer runtime settings</CardTitle>
+            <CardDescription className="muted">Inspect how this renderer is currently connected to the local controller.</CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="stack">
+          <ul className="kv-list">
+            <li>
+              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
+                <strong>Controller endpoint</strong>
+                <div className="muted mono">{config.apiBase}</div>
+              </Card>
+            </li>
+            <li>
+              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
+                <strong>Configuration source</strong>
+                <div className="muted">{config.source}</div>
+              </Card>
+            </li>
+            <li>
+              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
+                <strong>Local auth token</strong>
+                <div className="muted">{config.bearerToken ? "Configured" : "Not configured"}</div>
+              </Card>
+            </li>
+          </ul>
+
+          <ul className="kv-list">
+            {runtimeSettings.map((item) => (
+              <li key={item.title}>
+                <Card variant="muted" padding="sm" className="card card-muted stack-tight">
+                  <strong>{item.title}</strong>
+                  <div className="muted">{item.detail}</div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -955,27 +1382,5 @@ export function SettingsPanelContent({ panelId }: { panelId: SettingsPanelId }) 
     return <ModelSettingsPanel />;
   }
 
-  return (
-    <Card className="card stack">
-      <CardHeader>
-        <div className="stack-tight">
-          <span className="eyebrow">Desktop integration</span>
-          <CardTitle>Renderer runtime settings</CardTitle>
-        </div>
-      </CardHeader>
-
-      <CardContent>
-        <ul className="kv-list">
-          {runtimeSettings.map((item) => (
-            <li key={item.title}>
-              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
-                <strong>{item.title}</strong>
-                <div className="muted">{item.detail}</div>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
-  );
+  return <GeneralSettingsPanel />;
 }

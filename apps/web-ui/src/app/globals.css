@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
   --app-shell-width: calc(var(--spacing) * 68);
   --app-content-max-width: calc(var(--spacing) * 220);
   --app-page-padding: calc(var(--spacing) * 6);
@@ -20,7 +20,7 @@
   --app-status-offline-fg: var(--color-error);
   --app-status-unknown-bg: var(--color-warning-subtle);
   --app-status-unknown-fg: var(--color-warning);
-  background: var(--color-dark-bg);
+  background: hsl(var(--background));
   color: var(--color-text-primary);
   font-family: var(--font-sans);
 }
@@ -42,7 +42,15 @@ body {
   line-height: 1.5;
   background:
     radial-gradient(circle at top, var(--app-top-glow), transparent 30%),
-    linear-gradient(180deg, var(--color-dark-bg) 0%, var(--color-dark-surface) 55%, hsl(var(--background)) 100%);
+    linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--card)) 55%, hsl(var(--secondary)) 100%);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 a {
@@ -316,6 +324,13 @@ textarea {
   gap: calc(var(--spacing) * 4);
 }
 
+.settings-general-layout,
+.settings-directory-list,
+.settings-theme-options {
+  display: grid;
+  gap: calc(var(--spacing) * 3);
+}
+
 .settings-provider-grid {
   display: grid;
   gap: calc(var(--spacing) * 4);
@@ -337,7 +352,9 @@ textarea {
 
 .settings-provider-item,
 .settings-model-item,
-.settings-validation-card {
+.settings-validation-card,
+.settings-directory-item,
+.settings-theme-option {
   display: grid;
   gap: calc(var(--spacing) * 2.5);
   padding: calc(var(--spacing) * 3.5);
@@ -353,6 +370,74 @@ textarea {
     border-color var(--duration-normal) var(--ease-standard),
     background-color var(--duration-normal) var(--ease-standard),
     transform var(--duration-normal) var(--ease-standard);
+}
+
+.settings-directory-item {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.settings-directory-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--spacing) * 9);
+  height: calc(var(--spacing) * 9);
+  border-radius: var(--radius-lg);
+  background: hsl(var(--accent) / 0.14);
+  color: hsl(var(--accent));
+}
+
+.settings-directory-item-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-heading);
+}
+
+.settings-theme-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-theme-option {
+  border: 1px solid var(--color-border-card);
+  background: hsl(var(--secondary) / 0.38);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-normal) var(--ease-standard),
+    background-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-normal) var(--ease-standard);
+}
+
+.settings-theme-option:hover,
+.settings-theme-option[data-active="true"] {
+  border-color: var(--color-border-strong);
+  background: hsl(var(--secondary) / 0.7);
+  transform: translateY(-1px);
+}
+
+.settings-theme-option[data-active="true"] {
+  box-shadow: var(--shadow-focus);
+}
+
+.settings-theme-swatch {
+  height: calc(var(--spacing) * 12);
+  border-radius: var(--radius-lg);
+  border: 1px solid hsl(var(--border) / 0.55);
+}
+
+.settings-theme-swatch[data-theme-preview="system"] {
+  background: linear-gradient(135deg, #0f172a 0% 50%, #f8fafc 50% 100%);
+}
+
+.settings-theme-swatch[data-theme-preview="light"] {
+  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
+}
+
+.settings-theme-swatch[data-theme-preview="dark"] {
+  background: linear-gradient(135deg, #020617 0%, #1e293b 100%);
 }
 
 .settings-provider-item:hover,
@@ -401,6 +486,23 @@ textarea {
 .settings-secret-input:disabled {
   cursor: not-allowed;
   opacity: 0.72;
+}
+
+.kv-inline-action {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 1.5);
+  padding: calc(var(--spacing) * 1) calc(var(--spacing) * 2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.kv-inline-action:hover {
+  background: hsl(var(--secondary) / 0.5);
+  color: var(--color-text-primary);
 }
 
 .settings-provider-item-meta {
@@ -1138,6 +1240,10 @@ textarea {
   .settings-provider-grid {
     grid-template-columns: 1fr;
   }
+
+  .settings-theme-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1153,5 +1259,13 @@ textarea {
   .settings-title-row,
   .settings-provider-item-header {
     align-items: flex-start;
+  }
+
+  .settings-directory-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-directory-item [data-slot="button"] {
+    grid-column: 1 / -1;
   }
 }
