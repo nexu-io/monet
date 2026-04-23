@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 interface ControllerStatePayload {
   readonly state: "starting" | "ready" | "stopped";
   readonly apiBase?: string;
+  readonly bearerToken?: string | null;
 }
 
 interface PreloadRequestResult {
@@ -13,12 +14,41 @@ interface PreloadRequestResult {
   readonly body: string;
 }
 
-const apiBase = getArgumentValue("--monet-api-base=");
-const bearerToken = getArgumentValue("--monet-bearer-token=");
+type ProviderType = "openai" | "openrouter";
+
+interface ProviderSecretStorageSnapshot {
+  readonly available: boolean;
+  readonly message: string;
+  readonly platform: NodeJS.Platform | "browser";
+  readonly providers: ReadonlyArray<{
+    readonly providerType: ProviderType;
+    readonly hasSecret: boolean;
+  }>;
+  readonly reason: "available" | "desktop_api_unavailable" | "linux_keyring_unavailable" | "encryption_unavailable";
+}
+
+let apiBase = getArgumentValue("--monet-api-base=");
+let bearerToken = getArgumentValue("--monet-bearer-token=");
+
+ipcRenderer.on("monet:controller-state", (_event, payload: ControllerStatePayload) => {
+  if (payload.apiBase) {
+    apiBase = payload.apiBase;
+  }
+
+  if (payload.bearerToken !== undefined) {
+    bearerToken = payload.bearerToken ?? undefined;
+  }
+});
 
 contextBridge.exposeInMainWorld("monetDesktop", {
   apiBase,
   bearerToken,
+  getRuntimeInfo() {
+    return {
+      apiBase,
+      bearerToken
+    };
+  },
   async request(input: string, init?: RequestInit): Promise<PreloadRequestResult> {
     if (!apiBase) {
       throw new Error("The Monet desktop preload did not receive an apiBase value.");
@@ -46,6 +76,15 @@ contextBridge.exposeInMainWorld("monetDesktop", {
   },
   restartController() {
     return ipcRenderer.invoke("monet:restart-controller");
+  },
+  getProviderSecretStorage(): Promise<ProviderSecretStorageSnapshot> {
+    return ipcRenderer.invoke("monet:get-provider-secret-storage");
+  },
+  saveProviderSecret(payload: { providerType: ProviderType; secret: string }): Promise<ProviderSecretStorageSnapshot> {
+    return ipcRenderer.invoke("monet:save-provider-secret", payload);
+  },
+  clearProviderSecret(payload: { providerType: ProviderType }): Promise<ProviderSecretStorageSnapshot> {
+    return ipcRenderer.invoke("monet:clear-provider-secret", payload);
   },
   onControllerStateChange(listener: (payload: ControllerStatePayload) => void) {
     const wrappedListener = (_event: Electron.IpcRendererEvent, payload: ControllerStatePayload) => {

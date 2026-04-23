@@ -14,7 +14,7 @@ import {
 } from "@nexu-design/ui-web";
 
 import type { Provider, ProviderModel, ValidateProviderResponse } from "../lib/api/generated/types.gen";
-import { getMonetClientConfig } from "../lib/monet-client";
+import { getMonetClientConfig, type ProviderSecretStorageSnapshot } from "../lib/monet-client";
 
 export const SETTINGS_QUERY_PARAM = "settings";
 
@@ -55,6 +55,7 @@ type AsyncState<T> = {
 };
 
 type ProviderValidationState = AsyncState<ValidateProviderResponse>;
+type ProviderSecretStorageState = AsyncState<ProviderSecretStorageSnapshot>;
 
 const initialProvidersState: AsyncState<Provider[]> = {
   loading: true,
@@ -66,6 +67,21 @@ const initialModelsState: AsyncState<ProviderModel[]> = {
   loading: false,
   data: null,
   error: null
+};
+
+const initialSecretStorageState: ProviderSecretStorageState = {
+  loading: false,
+  data: null,
+  error: null
+};
+
+const browserSecretStorageSnapshot: ProviderSecretStorageSnapshot = {
+  available: false,
+  message:
+    "Secure provider secret storage is only available inside the Electron desktop shell. Browser-only development should keep using environment variables.",
+  platform: "browser",
+  providers: [],
+  reason: "desktop_api_unavailable"
 };
 
 const validationReasonMeta: Record<
@@ -130,6 +146,14 @@ function formatTimestamp(value: string) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(value));
+}
+
+function getDesktopApi() {
+  return typeof window === "undefined" ? undefined : window.monetDesktop;
+}
+
+function getSecretStatus(snapshot: ProviderSecretStorageSnapshot | null, providerType: Provider["type"]) {
+  return snapshot?.providers.find((entry) => entry.providerType === providerType) ?? null;
 }
 
 function requestHeaders() {
@@ -234,6 +258,10 @@ function ModelSettingsPanel() {
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [modelsState, setModelsState] = useState<AsyncState<ProviderModel[]>>(initialModelsState);
   const [validationByProviderId, setValidationByProviderId] = useState<Record<string, ProviderValidationState>>({});
+  const [secretStorageState, setSecretStorageState] = useState<ProviderSecretStorageState>(initialSecretStorageState);
+  const [secretInput, setSecretInput] = useState("");
+  const [secretBusyAction, setSecretBusyAction] = useState<"save" | "clear" | null>(null);
+  const [secretFeedback, setSecretFeedback] = useState<string | null>(null);
 
   const providers = providersState.data ?? [];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? null;
@@ -247,6 +275,39 @@ function ModelSettingsPanel() {
     () => providers.some((provider) => validationByProviderId[provider.id]?.data?.valid),
     [providers, validationByProviderId]
   );
+
+  const loadSecretStorage = useCallback(async () => {
+    const desktopApi = getDesktopApi();
+
+    if (!desktopApi?.getProviderSecretStorage) {
+      setSecretStorageState({
+        loading: false,
+        data: browserSecretStorageSnapshot,
+        error: null
+      });
+      return;
+    }
+
+    setSecretStorageState((current) => ({
+      loading: true,
+      data: current.data,
+      error: null
+    }));
+
+    try {
+      setSecretStorageState({
+        loading: false,
+        data: await desktopApi.getProviderSecretStorage(),
+        error: null
+      });
+    } catch (error) {
+      setSecretStorageState({
+        loading: false,
+        data: null,
+        error: error instanceof Error ? error.message : "Unable to inspect local secret storage."
+      });
+    }
+  }, []);
 
   const validateProvider = useCallback(async (providerId: string) => {
     setValidationByProviderId((current) => ({
@@ -341,6 +402,10 @@ function ModelSettingsPanel() {
   }, [loadProviders]);
 
   useEffect(() => {
+    void loadSecretStorage();
+  }, [loadSecretStorage]);
+
+  useEffect(() => {
     if (!selectedProviderId) {
       setModelsState(initialModelsState);
       return;
@@ -389,6 +454,90 @@ function ModelSettingsPanel() {
 
   const selectedValidation = selectedProviderId ? validationByProviderId[selectedProviderId] : null;
   const selectedValidationMeta = selectedValidation?.data ? validationReasonMeta[selectedValidation.data.reason] : null;
+  const selectedProviderSecretStatus = getSecretStatus(secretStorageState.data, selectedProvider?.type ?? "openai");
+
+  const saveProviderSecret = useCallback(async () => {
+    if (!selectedProvider) {
+      return;
+    }
+
+    const desktopApi = getDesktopApi();
+
+    if (!desktopApi?.saveProviderSecret) {
+      setSecretFeedback(browserSecretStorageSnapshot.message);
+      return;
+    }
+
+    setSecretBusyAction("save");
+    setSecretFeedback(null);
+
+    try {
+      setSecretStorageState({
+        loading: false,
+        data: await desktopApi.saveProviderSecret({
+          providerType: selectedProvider.type,
+          secret: secretInput
+        }),
+        error: null
+      });
+
+      const restartResult = await desktopApi.restartController?.();
+
+      await loadProviders();
+      await validateProvider(selectedProvider.id);
+      setSecretInput("");
+      setSecretFeedback(
+        restartResult?.restarted === false
+          ? "Secret saved to secure storage. Restart the external controller manually before revalidating provider access."
+          : "Secret saved to secure storage and the local controller was restarted."
+      );
+    } catch (error) {
+      setSecretFeedback(error instanceof Error ? error.message : "Unable to save the provider secret.");
+    } finally {
+      setSecretBusyAction(null);
+    }
+  }, [loadProviders, secretInput, selectedProvider, validateProvider]);
+
+  const clearProviderSecret = useCallback(async () => {
+    if (!selectedProvider) {
+      return;
+    }
+
+    const desktopApi = getDesktopApi();
+
+    if (!desktopApi?.clearProviderSecret) {
+      setSecretFeedback(browserSecretStorageSnapshot.message);
+      return;
+    }
+
+    setSecretBusyAction("clear");
+    setSecretFeedback(null);
+
+    try {
+      setSecretStorageState({
+        loading: false,
+        data: await desktopApi.clearProviderSecret({
+          providerType: selectedProvider.type
+        }),
+        error: null
+      });
+
+      const restartResult = await desktopApi.restartController?.();
+
+      await loadProviders();
+      await validateProvider(selectedProvider.id);
+      setSecretInput("");
+      setSecretFeedback(
+        restartResult?.restarted === false
+          ? "Saved secret cleared. Restart the external controller manually if it should stop using any previous environment-based credentials."
+          : "Saved secret cleared and the local controller was restarted."
+      );
+    } catch (error) {
+      setSecretFeedback(error instanceof Error ? error.message : "Unable to clear the provider secret.");
+    } finally {
+      setSecretBusyAction(null);
+    }
+  }, [loadProviders, selectedProvider, validateProvider]);
 
   if (providersState.loading) {
     return (
@@ -606,6 +755,80 @@ function ModelSettingsPanel() {
                     <div className="muted mono">{selectedProvider.id}</div>
                   </li>
                 </ul>
+
+                <div className="settings-validation-card card card-muted stack-tight">
+                  <div className="settings-provider-item-header">
+                    <strong>Local credentials</strong>
+                    <div className="settings-provider-chip-row">
+                      <Badge
+                        variant={secretStorageState.data?.available ? "success" : "warning"}
+                        size="sm"
+                        radius="full"
+                      >
+                        {secretStorageState.loading
+                          ? "Checking secure storage…"
+                          : secretStorageState.data?.available
+                            ? "Secure storage ready"
+                            : "Secure storage unavailable"}
+                      </Badge>
+                      <Badge
+                        variant={selectedProviderSecretStatus?.hasSecret ? "secondary" : "warning"}
+                        size="sm"
+                        radius="full"
+                      >
+                        {selectedProviderSecretStatus?.hasSecret ? "Secret saved" : "No saved secret"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <p className="muted">
+                    {secretStorageState.error ?? secretStorageState.data?.message ?? browserSecretStorageSnapshot.message}
+                  </p>
+                  <p className="muted">
+                    Saved secrets are injected into the managed controller at startup. Explicit environment variables still take precedence.
+                  </p>
+
+                  <label className="settings-secret-field">
+                    <span className="muted">{formatProviderType(selectedProvider.type)} API key</span>
+                    <input
+                      type="password"
+                      value={secretInput}
+                      placeholder={selectedProvider.type === "openai" ? "sk-..." : "or-..."}
+                      className="settings-secret-input"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={!secretStorageState.data?.available || secretBusyAction != null}
+                      onChange={(event) => setSecretInput(event.currentTarget.value)}
+                    />
+                  </label>
+
+                  <div className="settings-provider-chip-row">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={!secretStorageState.data?.available || !secretInput.trim() || secretBusyAction != null}
+                      onClick={() => void saveProviderSecret()}
+                    >
+                      {secretBusyAction === "save" ? "Saving…" : "Save secret"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={!secretStorageState.data?.available || !selectedProviderSecretStatus?.hasSecret || secretBusyAction != null}
+                      onClick={() => void clearProviderSecret()}
+                    >
+                      {secretBusyAction === "clear" ? "Clearing…" : "Clear saved secret"}
+                    </Button>
+                  </div>
+
+                  {secretStorageState.data?.reason === "linux_keyring_unavailable" ? (
+                    <p className="muted">
+                      Linux fallback: secret persistence stays disabled until a supported system keyring is available. Validation can still succeed when the controller is started with provider credentials in the environment.
+                    </p>
+                  ) : null}
+
+                  {secretFeedback ? <p className="muted mono">{secretFeedback}</p> : null}
+                </div>
 
                 <div className="settings-validation-card card card-muted stack-tight">
                   <div className="settings-provider-item-header">

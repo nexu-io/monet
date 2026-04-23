@@ -1,6 +1,30 @@
+export type ProviderType = "openai" | "openrouter";
+
+export interface ProviderSecretStorageSnapshot {
+  readonly available: boolean;
+  readonly message: string;
+  readonly platform: NodeJS.Platform | "browser";
+  readonly providers: ReadonlyArray<{
+    readonly providerType: ProviderType;
+    readonly hasSecret: boolean;
+  }>;
+  readonly reason: "available" | "desktop_api_unavailable" | "linux_keyring_unavailable" | "encryption_unavailable";
+}
+
 export type MonetDesktopApi = {
   readonly apiBase?: string;
   readonly bearerToken?: string;
+  readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretStorageSnapshot>;
+  readonly getProviderSecretStorage?: () => Promise<ProviderSecretStorageSnapshot>;
+  readonly getRuntimeInfo?: () => {
+    readonly apiBase?: string;
+    readonly bearerToken?: string;
+  };
+  readonly restartController?: () => Promise<{ restarted: boolean; apiBase?: string; reason?: string }>;
+  readonly saveProviderSecret?: (payload: {
+    providerType: ProviderType;
+    secret: string;
+  }) => Promise<ProviderSecretStorageSnapshot>;
 };
 
 declare global {
@@ -24,10 +48,15 @@ export interface ControllerHealthResponse {
 const defaultApiBase = "http://127.0.0.1:3030";
 
 export function getMonetClientConfig(): MonetClientConfig {
-  if (typeof window !== "undefined" && window.monetDesktop?.apiBase) {
+  const desktopApi = typeof window !== "undefined" ? window.monetDesktop : undefined;
+  const runtimeInfo = desktopApi?.getRuntimeInfo?.();
+  const preloadApiBase = runtimeInfo?.apiBase ?? desktopApi?.apiBase;
+  const preloadBearerToken = runtimeInfo?.bearerToken ?? desktopApi?.bearerToken;
+
+  if (preloadApiBase) {
     return {
-      apiBase: window.monetDesktop.apiBase,
-      bearerToken: window.monetDesktop.bearerToken ?? null,
+      apiBase: preloadApiBase,
+      bearerToken: preloadBearerToken ?? null,
       source: "preload"
     };
   }

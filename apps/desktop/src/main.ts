@@ -4,9 +4,10 @@ import { access } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 
-import { BrowserWindow, app, dialog, ipcMain, shell, utilityProcess } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, safeStorage, shell, utilityProcess } from "electron";
 
 import { createLogger } from "./logger";
+import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
 
 export const desktopAppName = "@monet/desktop";
 
@@ -20,6 +21,7 @@ interface ControllerRuntime {
 interface ControllerStatePayload {
   readonly state: "starting" | "ready" | "stopped";
   readonly apiBase?: string;
+  readonly bearerToken?: string | null;
 }
 
 const controllerHost = "127.0.0.1";
@@ -31,6 +33,10 @@ const logger = createLogger("desktop", {
 let mainWindow: BrowserWindow | null = null;
 let controllerRuntime: ControllerRuntime | null = null;
 let isAppQuitting = false;
+let providerSecretStore:
+  | ReturnType<typeof createProviderSecretStore>
+  | null = null;
+const intentionallyStoppedControllerPids = new Set<number>();
 
 if (!gotSingleInstanceLock) {
   logger.warn("desktop.single_instance_denied");
@@ -107,7 +113,11 @@ ipcMain.handle("monet:restart-controller", async () => {
 
   try {
     controllerRuntime = await startManagedController();
-    broadcastControllerState({ state: "ready", apiBase: controllerRuntime.apiBase });
+    broadcastControllerState({
+      state: "ready",
+      apiBase: controllerRuntime.apiBase,
+      bearerToken: controllerRuntime.bearerToken
+    });
 
     logger.info("desktop.controller_restart_completed", {
       apiBase: controllerRuntime.apiBase
@@ -121,6 +131,25 @@ ipcMain.handle("monet:restart-controller", async () => {
     logger.error("desktop.controller_restart_failed", error);
     throw error;
   }
+});
+
+ipcMain.handle("monet:get-provider-secret-storage", () => {
+  return getProviderSecretStore().getSnapshot() satisfies ProviderSecretStorageSnapshot;
+});
+
+ipcMain.handle(
+  "monet:save-provider-secret",
+  (_event, payload: { providerType: ProviderType; secret: string }) => {
+    getProviderSecretStore().saveSecret(payload.providerType, payload.secret);
+
+    return getProviderSecretStore().getSnapshot() satisfies ProviderSecretStorageSnapshot;
+  }
+);
+
+ipcMain.handle("monet:clear-provider-secret", (_event, payload: { providerType: ProviderType }) => {
+  getProviderSecretStore().clearSecret(payload.providerType);
+
+  return getProviderSecretStore().getSnapshot() satisfies ProviderSecretStorageSnapshot;
 });
 
 async function bootstrap() {
@@ -187,7 +216,11 @@ async function createMainWindow(runtime: ControllerRuntime) {
   logger.info("desktop.renderer_loaded", {
     managedController: runtime.managed
   });
-  broadcastControllerState({ state: "ready", apiBase: runtime.apiBase });
+  broadcastControllerState({
+    state: "ready",
+    apiBase: runtime.apiBase,
+    bearerToken: runtime.bearerToken
+  });
 
   window.on("closed", () => {
     if (mainWindow === window) {
@@ -386,6 +419,11 @@ async function resolveControllerRuntime(): Promise<ControllerRuntime> {
 async function startManagedController(): Promise<ControllerRuntime> {
   if (controllerRuntime?.child) {
     logger.warn("desktop.controller_existing_child_replaced");
+
+    if (typeof controllerRuntime.child.pid === "number") {
+      intentionallyStoppedControllerPids.add(controllerRuntime.child.pid);
+    }
+
     controllerRuntime.child.kill();
   }
 
@@ -404,6 +442,7 @@ async function startManagedController(): Promise<ControllerRuntime> {
   const child = utilityProcess.fork(controllerEntrypoint, [], {
     env: {
       ...process.env,
+      ...buildProviderSecretEnv(process.env),
       MONET_CONTROLLER_HOST: controllerHost,
       MONET_CONTROLLER_PORT: String(port),
       MONET_CONTROLLER_BEARER_TOKEN: bearerToken,
@@ -414,6 +453,11 @@ async function startManagedController(): Promise<ControllerRuntime> {
   child.once("exit", () => {
     if (isAppQuitting) {
       logger.info("desktop.controller_exit_during_shutdown");
+      return;
+    }
+
+    if (typeof child.pid === "number" && intentionallyStoppedControllerPids.delete(child.pid)) {
+      logger.info("desktop.controller_exit_expected_for_restart");
       return;
     }
 
@@ -544,4 +588,37 @@ function sleep(durationMs: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, durationMs);
   });
+}
+
+function getProviderSecretStore() {
+  providerSecretStore ??= createProviderSecretStore({
+    platform: process.platform,
+    safeStorage,
+    secretsFilePath: path.join(app.getPath("userData"), "provider-secrets.json")
+  });
+
+  return providerSecretStore;
+}
+
+function buildProviderSecretEnv(env: NodeJS.ProcessEnv) {
+  try {
+    const secrets = getProviderSecretStore().loadSecretsForControllerEnv();
+    const nextEnv: NodeJS.ProcessEnv = {};
+
+    if (!env.MONET_OPENAI_API_KEY?.trim() && !env.OPENAI_API_KEY?.trim() && secrets.openai) {
+      nextEnv.MONET_OPENAI_API_KEY = secrets.openai;
+    }
+
+    if (!env.MONET_OPENROUTER_API_KEY?.trim() && !env.OPENROUTER_API_KEY?.trim() && secrets.openrouter) {
+      nextEnv.MONET_OPENROUTER_API_KEY = secrets.openrouter;
+    }
+
+    return nextEnv;
+  } catch (error) {
+    logger.warn("desktop.provider_secret_load_failed", {
+      reason: error instanceof Error ? error.message : "unknown_error"
+    });
+
+    return {};
+  }
 }
