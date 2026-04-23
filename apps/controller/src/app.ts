@@ -1,6 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
-import { createChatStorage, type ChatStorage } from "./chat-storage";
+import { createChatStorage } from "./chat-storage";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
 import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
@@ -30,11 +30,9 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       );
     }
   });
-  let chatStorage: ChatStorage | undefined;
+  const chatStorage = createChatStorage({ databasePath: options.databasePath });
 
   function getChatStorage() {
-    chatStorage ??= createChatStorage({ databasePath: options.databasePath });
-
     return chatStorage;
   }
 

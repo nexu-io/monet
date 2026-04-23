@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -27,6 +28,16 @@ type ProviderType = "openai" | "openrouter";
 
 interface CreateChatStorageOptions {
   readonly databasePath: string;
+}
+
+interface MigrationJournal {
+  readonly entries?: MigrationJournalEntry[];
+}
+
+interface MigrationJournalEntry {
+  readonly when: number;
+  readonly tag: string;
+  readonly breakpoints?: boolean;
 }
 
 interface SessionRow {
@@ -522,17 +533,70 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
 }
 
 function bootstrapSchema(connection: DatabaseSync) {
-  const hasSessionsTable = connection
-    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions' LIMIT 1")
-    .get();
+  const migrationsDirectory = resolve(__dirname, "../../../packages/database/migrations");
+  const journalPath = resolve(migrationsDirectory, "meta/_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf8")) as MigrationJournal;
+  const entries = Array.isArray(journal.entries) ? [...journal.entries].sort((left, right) => left.when - right.when) : [];
 
-  if (hasSessionsTable) {
-    return;
+  ensureDrizzleMigrationsTable(connection);
+
+  const latestAppliedMigration = connection
+    .prepare("SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC, id DESC LIMIT 1")
+    .get() as { created_at: number | null } | undefined;
+  const lastAppliedAt = typeof latestAppliedMigration?.created_at === "number" ? latestAppliedMigration.created_at : -1;
+
+  for (const entry of entries) {
+    if (!isValidMigrationEntry(entry) || entry.when <= lastAppliedAt) {
+      continue;
+    }
+
+    const migrationPath = resolve(migrationsDirectory, `${entry.tag}.sql`);
+    const sql = readFileSync(migrationPath, "utf8");
+    const statements = splitMigrationStatements(sql, entry.breakpoints ?? false);
+    const hash = createHash("sha256").update(sql).digest("hex");
+
+    connection.exec("BEGIN");
+
+    try {
+      for (const statement of statements) {
+        connection.exec(statement);
+      }
+
+      connection
+        .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
+        .run(hash, entry.when);
+
+      connection.exec("COMMIT");
+    } catch (error) {
+      connection.exec("ROLLBACK");
+      throw error;
+    }
+  }
+}
+
+function ensureDrizzleMigrationsTable(connection: DatabaseSync) {
+  connection.exec(`CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    hash text NOT NULL,
+    created_at numeric
+  )`);
+}
+
+function isValidMigrationEntry(entry: MigrationJournalEntry | undefined): entry is MigrationJournalEntry {
+  return Boolean(entry && typeof entry.tag === "string" && entry.tag.trim().length > 0 && Number.isFinite(entry.when));
+}
+
+function splitMigrationStatements(sql: string, hasBreakpoints: boolean) {
+  if (hasBreakpoints) {
+    return sql
+      .split("--> statement-breakpoint")
+      .map((statement) => statement.trim())
+      .filter((statement) => statement.length > 0);
   }
 
-  const migrationPath = resolve(__dirname, "../../../packages/database/migrations/0000_initial_schema.sql");
-  const sql = readFileSync(migrationPath, "utf8");
-  connection.exec(sql);
+  const statement = sql.trim();
+
+  return statement.length > 0 ? [statement] : [];
 }
 
 function ensureStubProviderAndModel(connection: DatabaseSync) {
