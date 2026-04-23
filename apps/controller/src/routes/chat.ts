@@ -1,17 +1,9 @@
-import { createId as createCuid2 } from "@paralleldrive/cuid2";
-import { stepCountIs, streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
+import { validateUIMessages, type UIMessage } from "ai";
 
-import {
-  countUsageTokens,
-  describeRunFinishReason,
-  isRunBudgetFinishReason,
-  resolveRunBudget,
-  shouldCompleteRunForFinishReason,
-  shouldInterruptRunForFinishReason,
-  type RunFinishReason
-} from "../agent-runtime";
+import { resolveRunBudget } from "../agent-runtime";
 import type { ControllerApp } from "../app";
-import { ChatStorageResolutionError, type ChatStorage, type ResolvedChatRequest } from "../chat-storage";
+import { createChatStreamResponse } from "../chat-stream";
+import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
 import type { AgentRuntimeConfig } from "../config";
 import { createLogger } from "../logger";
 import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
@@ -32,10 +24,6 @@ interface ChatRequestBody {
 const chatLogger = createLogger("controller", {
   component: "chat-route"
 });
-
-function toModelMessages(messages: UIMessage[]) {
-  return convertToModelMessages(messages.map(({ id: _id, ...message }) => message));
-}
 
 export function registerChatRoutes(
   app: ControllerApp,
@@ -95,7 +83,7 @@ export function registerChatRoutes(
       options.runtime
     );
 
-    let resolvedChatRequest: ResolvedChatRequest;
+    let resolvedChatRequest;
 
     try {
       resolvedChatRequest = options.getChatStorage().prepareChatRequest({
@@ -145,66 +133,20 @@ export function registerChatRoutes(
       );
     }
 
-    const runtimeLogger = chatLogger.child({
-      requestId,
-      runId: resolvedChatRequest.runId,
-      sessionId: resolvedChatRequest.sessionId,
-      providerId: resolvedChatRequest.providerId,
-      modelId: resolvedChatRequest.modelId,
-      runtimeArea: "tool-runtime"
-    });
-    const runtimeTools = options.toolRegistry.createRuntimeTools({
-      runId: resolvedChatRequest.runId,
-      chatStorage: options.getChatStorage(),
-      logger: runtimeLogger
-    });
-
-    const startedAt = Date.now();
-    const abortController = new AbortController();
-    let runFinishReason: RunFinishReason | null = null;
-    let observedStepCount = 0;
-    let observedTokenCount = 0;
-    let observedToolCallCount = 0;
-    let finalizedRun = false;
-
-    const abortRun = (reason: RunFinishReason) => {
-      if (runFinishReason == null) {
-        runFinishReason = reason;
-      }
-
-      runtimeLogger.warn("chat.run_aborted", {
-        currentStep: observedStepCount,
-        reason,
-        totalTokens: observedTokenCount,
-        totalToolCalls: observedToolCallCount
-      });
-
-      if (!abortController.signal.aborted) {
-        abortController.abort(new Error(describeRunFinishReason(reason)));
-      }
-    };
-
-    const unregisterRun = options.runRegistry.register(resolvedChatRequest.runId, {
-      abort: abortRun
-    });
-
-    runtimeLogger.info("chat.run_started", {
-      maxSteps: resolvedChatRequest.maxSteps,
-      maxTokensPerRun: resolvedChatRequest.maxTokensPerRun,
-      maxToolCallsPerRun: options.runtime.maxToolCallsPerRun,
-      availableToolCount: Object.keys(runtimeTools).length,
-      messageCount: messages.length,
-      wallClockDeadlineAt: resolvedChatRequest.wallClockDeadlineAt
-    });
-
-    let model: Parameters<typeof streamText>[0]["model"];
-
     try {
-      model = await options.providerRuntime.createChatModel(resolvedChatRequest.providerId, resolvedChatRequest.modelId);
+      return await createChatStreamResponse({
+        request: resolvedChatRequest,
+        messages,
+        chatStorage: options.getChatStorage(),
+        providerRuntime: options.providerRuntime,
+        runRegistry: options.runRegistry,
+        toolRegistry: options.toolRegistry,
+        runtime: options.runtime,
+        logger: chatLogger.child({ requestId }),
+        requestSignal: context.req.raw.signal
+      });
     } catch (error) {
       if (error instanceof ProviderRuntimeError) {
-        unregisterRun();
-
         const status = error.statusCode === 422 ? 422 : 500;
 
         chatLogger.warn("chat.provider_resolution_failed", {
@@ -230,184 +172,16 @@ export function registerChatRoutes(
         );
       }
 
-      unregisterRun();
-
       options.getChatStorage().failRun({
         runId: resolvedChatRequest.runId,
         finishReason: error instanceof Error ? error.message : "provider_runtime_error"
       });
 
-      chatLogger.error("chat.provider_resolution_unhandled", error, {
+      chatLogger.error("chat.stream_init_failed", error, {
         requestId,
         runId: resolvedChatRequest.runId,
         providerId: resolvedChatRequest.providerId,
         modelId: resolvedChatRequest.modelId
-      });
-
-      return context.json(
-        {
-          error: "internal_error",
-          message: "Failed to initialize the provider model."
-        },
-        500
-      );
-    }
-
-    const requestSignal = context.req.raw.signal;
-    const wallClockDeadlineAt = new Date(resolvedChatRequest.wallClockDeadlineAt ?? runBudget.wallClockDeadlineAt).getTime();
-    const wallClockBudgetMs = Math.max(0, wallClockDeadlineAt - startedAt);
-
-    const wallClockTimer =
-      wallClockBudgetMs > 0
-        ? setTimeout(() => {
-            abortRun("wall_clock_budget_exceeded");
-          }, wallClockBudgetMs)
-        : null;
-
-    const abortRequestHandler = () => {
-      abortRun("request_aborted");
-    };
-
-    if (requestSignal.aborted) {
-      abortRequestHandler();
-    } else {
-      requestSignal.addEventListener("abort", abortRequestHandler, { once: true });
-    }
-
-    const cleanupRunResources = () => {
-      unregisterRun();
-
-      if (wallClockTimer) {
-        clearTimeout(wallClockTimer);
-      }
-
-      requestSignal.removeEventListener("abort", abortRequestHandler);
-    };
-
-    const finalizeRun = (status: "completed" | "failed" | "interrupted", finishReason: string | null) => {
-      if (finalizedRun) {
-        return;
-      }
-
-      finalizedRun = true;
-      cleanupRunResources();
-
-      if (status === "completed") {
-        options.getChatStorage().completeRun({
-          runId: resolvedChatRequest.runId,
-          finishReason
-        });
-
-        runtimeLogger.info("chat.run_completed", {
-          currentStep: observedStepCount,
-          durationMs: Date.now() - startedAt,
-          finishReason
-        });
-
-        return;
-      }
-
-      if (status === "interrupted") {
-        options.getChatStorage().interruptRun({
-          runId: resolvedChatRequest.runId,
-          finishReason: finishReason ?? "request_aborted"
-        });
-
-        runtimeLogger.warn("chat.run_interrupted", {
-          currentStep: observedStepCount,
-          durationMs: Date.now() - startedAt,
-          finishReason: finishReason ?? "request_aborted"
-        });
-
-        return;
-      }
-
-      options.getChatStorage().failRun({
-        runId: resolvedChatRequest.runId,
-        finishReason: finishReason ?? "stream_error"
-      });
-
-      runtimeLogger.warn("chat.run_failed", {
-        currentStep: observedStepCount,
-        durationMs: Date.now() - startedAt,
-        finishReason: finishReason ?? "stream_error"
-      });
-    };
-
-    const resolveTerminalStatus = (finishReason: string | null | undefined) => {
-      return shouldCompleteRunForFinishReason(finishReason)
-        ? "completed"
-        : shouldInterruptRunForFinishReason(finishReason)
-          ? "interrupted"
-          : "failed";
-    };
-
-    let result: ReturnType<typeof streamText>;
-
-    try {
-      result = streamText({
-        model,
-        abortSignal: abortController.signal,
-        messages: await toModelMessages(messages),
-        tools: runtimeTools as NonNullable<Parameters<typeof streamText>[0]["tools"]>,
-        stopWhen: [stepCountIs(resolvedChatRequest.maxSteps)],
-        onStepFinish: ({ stepNumber, toolCalls, usage }) => {
-          const currentStep = stepNumber + 1;
-
-          observedStepCount = Math.max(observedStepCount, currentStep);
-          observedTokenCount += countUsageTokens(usage);
-          observedToolCallCount += toolCalls.length;
-
-          options.getChatStorage().updateRunProgress({
-            runId: resolvedChatRequest.runId,
-            currentStep: observedStepCount
-          });
-
-          runtimeLogger.info("chat.run_step_finished", {
-            stepNumber: currentStep,
-            stepToolCalls: toolCalls.length,
-            totalTokens: observedTokenCount,
-            totalToolCalls: observedToolCallCount
-          });
-
-          if (
-            typeof resolvedChatRequest.maxTokensPerRun === "number" &&
-            observedTokenCount > resolvedChatRequest.maxTokensPerRun
-          ) {
-            abortRun("token_budget_exceeded");
-            return;
-          }
-
-          if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
-            abortRun("tool_call_budget_exceeded");
-          }
-        },
-        onAbort: () => {
-          try {
-            finalizeRun(resolveTerminalStatus(runFinishReason), runFinishReason);
-          } catch (error) {
-            runtimeLogger.error("chat.abort_finalize_failed", error);
-          }
-        },
-        onFinish: ({ finishReason }) => {
-          try {
-            finalizeRun("completed", finishReason ?? null);
-          } catch (error) {
-            runtimeLogger.error("chat.complete_run_failed", error);
-          }
-        }
-      });
-    } catch (error) {
-      const finishReason = error instanceof Error ? error.message : "stream_error";
-
-      try {
-        finalizeRun(resolveTerminalStatus(finishReason), finishReason);
-      } catch (persistError) {
-        runtimeLogger.error("chat.stream_init_finalize_failed", persistError);
-      }
-
-      runtimeLogger.error("chat.stream_init_failed", error, {
-        durationMs: Date.now() - startedAt
       });
 
       return context.json(
@@ -418,67 +192,5 @@ export function registerChatRoutes(
         500
       );
     }
-
-    void Promise.resolve(result.consumeStream()).catch((error: unknown) => {
-      try {
-        const finishReason =
-          runFinishReason ??
-          (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
-          (error instanceof Error ? error.message : "stream_error");
-
-        finalizeRun(resolveTerminalStatus(finishReason), finishReason);
-      } catch (persistError) {
-        runtimeLogger.error("chat.consume_stream_finalize_failed", persistError);
-      }
-
-      runtimeLogger.error("chat.consume_stream_failed", error, {
-        durationMs: Date.now() - startedAt
-      });
-    });
-
-    return result.toUIMessageStreamResponse({
-      originalMessages: messages,
-      generateMessageId: () => `msg_${createCuid2()}`,
-      onFinish: ({ responseMessage }) => {
-        try {
-          options.getChatStorage().persistAssistantMessage({
-            sessionId: resolvedChatRequest.sessionId,
-            runId: resolvedChatRequest.runId,
-            providerId: resolvedChatRequest.providerId,
-            modelId: resolvedChatRequest.modelId,
-            message: responseMessage
-          });
-
-          runtimeLogger.info("chat.assistant_message_persisted", {
-            messageId: responseMessage.id,
-            partCount: responseMessage.parts.length
-          });
-        } catch (error) {
-          runtimeLogger.error("chat.persist_assistant_message_failed", error);
-        }
-      },
-      onError: (error) => {
-        try {
-          const finishReason =
-            runFinishReason ??
-            (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
-            (error instanceof Error ? error.message : "stream_error");
-
-          finalizeRun(resolveTerminalStatus(finishReason), finishReason);
-        } catch (persistError) {
-          runtimeLogger.error("chat.fail_run_persist_failed", persistError);
-        }
-
-        runtimeLogger.error("chat.stream_failed", error, {
-          durationMs: Date.now() - startedAt
-        });
-
-        if (isRunBudgetFinishReason(runFinishReason)) {
-          return describeRunFinishReason(runFinishReason);
-        }
-
-        return "An error occurred.";
-      }
-    });
   });
 }

@@ -72,13 +72,33 @@ export function createToolRegistry(
           const runtimeTool = tool({
             description: definition.metadata.description,
             inputSchema: definition.inputSchema as ToolFactoryOptions["inputSchema"],
-            execute: async (input, executionContext) => {
-              const startedAt = Date.now();
+            needsApproval: definition.metadata.requiresConfirmation,
+            onInputAvailable: ({ input, toolCallId }) => {
               const persistedToolCallId = context.chatStorage.startToolCall({
+                toolCallId,
                 runId: context.runId,
                 toolName: definition.metadata.name,
                 input
               });
+
+              context.logger.info("tool.input_available", {
+                toolCallId: persistedToolCallId,
+                sdkToolCallId: toolCallId,
+                toolName: definition.metadata.name,
+                requiresConfirmation: definition.metadata.requiresConfirmation
+              });
+            },
+            execute: async (input, executionContext) => {
+              const startedAt = Date.now();
+              const persistedToolCallId = executionContext.toolCallId;
+
+              context.chatStorage.startToolCall({
+                toolCallId: persistedToolCallId,
+                runId: context.runId,
+                toolName: definition.metadata.name,
+                input
+              });
+              context.chatStorage.markToolCallRunning(persistedToolCallId);
 
               context.logger.info("tool.execution_started", {
                 toolCallId: persistedToolCallId,

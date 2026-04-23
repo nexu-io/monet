@@ -209,10 +209,10 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
 
   registerHealthRoutes(app);
   registerChatRoutes(app, { getChatStorage, providerRuntime, runRegistry, toolRegistry, runtime: options.agentRuntime });
-  registerRunRoutes(app, { getChatStorage, runRegistry });
+  registerRunRoutes(app, { getChatStorage, runRegistry, providerRuntime, toolRegistry, runtime: options.agentRuntime });
   registerSessionRoutes(app, { getChatStorage });
   registerProviderRoutes(app, { getChatStorage, providerRuntime });
-  registerToolRoutes(app, { toolRegistry });
+  registerToolRoutes(app, { toolRegistry, getChatStorage });
 
   return app;
 }

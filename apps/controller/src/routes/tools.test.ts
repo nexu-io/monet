@@ -30,7 +30,10 @@ test("list tools endpoint returns registered tool metadata", async () => {
     }
   ]);
 
-  registerToolRoutes(app, { toolRegistry });
+  registerToolRoutes(app, {
+    toolRegistry,
+    getChatStorage: () => ({}) as never
+  });
 
   const response = await app.request("http://127.0.0.1:3030/api/tools", {
     method: "GET"

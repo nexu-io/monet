@@ -151,6 +151,23 @@ export const ListToolsResponseSchema = z
   })
   .openapi("ListToolsResponse");
 
+export const ToolApprovalDecisionSchema = z.enum(["approved", "rejected"]).openapi("ToolApprovalDecision");
+
+export const ConfirmToolRequestSchema = z
+  .object({
+    runId: z.string().openapi({ example: "run_123" }),
+    toolCallId: z.string().openapi({ example: "call_123" }),
+    decision: ToolApprovalDecisionSchema.openapi({ example: "approved" }),
+    confirmationToken: z.string().openapi({ example: "opaque-token-from-server" })
+  })
+  .openapi("ConfirmToolRequest");
+
+export const ConfirmToolResponseSchema = z
+  .object({
+    ok: z.literal(true).openapi({ example: true })
+  })
+  .openapi("ConfirmToolResponse");
+
 export const StopRunResponseSchema = z
   .object({
     ok: z.literal(true).openapi({ example: true })

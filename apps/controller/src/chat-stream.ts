@@ -1,0 +1,349 @@
+import { createId as createCuid2 } from "@paralleldrive/cuid2";
+import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
+
+import {
+  countUsageTokens,
+  describeRunFinishReason,
+  isRunBudgetFinishReason,
+  resolveRunBudget,
+  shouldCompleteRunForFinishReason,
+  shouldInterruptRunForFinishReason,
+  type RunFinishReason
+} from "./agent-runtime";
+import type { ChatStorage } from "./chat-storage";
+import type { AgentRuntimeConfig } from "./config";
+import type { Logger } from "./logger";
+import type { ProviderRuntime } from "./provider-runtime";
+import type { RunRegistry } from "./run-registry";
+import type { ToolRegistry } from "./tools/registry";
+
+export interface ChatStreamRequest {
+  readonly sessionId: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly runId: string;
+  readonly maxSteps: number;
+  readonly maxTokensPerRun: number | null;
+  readonly wallClockDeadlineAt: string | null;
+}
+
+function toModelMessages(messages: UIMessage[]) {
+  return convertToModelMessages(messages.map(({ id: _id, ...message }) => message));
+}
+
+function isApprovalRequestedToolPart(part: unknown): part is {
+  readonly toolCallId: string;
+  readonly approval: { readonly id: string };
+} {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "state" in part &&
+    (part as { state?: unknown }).state === "approval-requested" &&
+    typeof (part as { toolCallId?: unknown }).toolCallId === "string" &&
+    typeof (part as { approval?: { id?: unknown } }).approval?.id === "string"
+  );
+}
+
+export async function createChatStreamResponse(options: {
+  readonly request: ChatStreamRequest;
+  readonly messages: UIMessage[];
+  readonly chatStorage: ChatStorage;
+  readonly providerRuntime: ProviderRuntime;
+  readonly runRegistry: RunRegistry;
+  readonly toolRegistry: ToolRegistry;
+  readonly runtime: AgentRuntimeConfig;
+  readonly logger: Logger;
+  readonly requestSignal: AbortSignal;
+}) {
+  const { request, messages } = options;
+  const runtimeLogger = options.logger.child({
+    runId: request.runId,
+    sessionId: request.sessionId,
+    providerId: request.providerId,
+    modelId: request.modelId,
+    runtimeArea: "tool-runtime"
+  });
+  const runtimeTools = options.toolRegistry.createRuntimeTools({
+    runId: request.runId,
+    chatStorage: options.chatStorage,
+    logger: runtimeLogger
+  });
+
+  const startedAt = Date.now();
+  const abortController = new AbortController();
+  let runFinishReason: RunFinishReason | null = null;
+  let observedStepCount = 0;
+  let observedTokenCount = 0;
+  let observedToolCallCount = 0;
+  let finalizedRun = false;
+
+  const abortRun = (reason: RunFinishReason) => {
+    if (runFinishReason == null) {
+      runFinishReason = reason;
+    }
+
+    runtimeLogger.warn("chat.run_aborted", {
+      currentStep: observedStepCount,
+      reason,
+      totalTokens: observedTokenCount,
+      totalToolCalls: observedToolCallCount
+    });
+
+    if (!abortController.signal.aborted) {
+      abortController.abort(new Error(describeRunFinishReason(reason)));
+    }
+  };
+
+  const unregisterRun = options.runRegistry.register(request.runId, {
+    abort: abortRun
+  });
+
+  runtimeLogger.info("chat.run_started", {
+    maxSteps: request.maxSteps,
+    maxTokensPerRun: request.maxTokensPerRun,
+    maxToolCallsPerRun: options.runtime.maxToolCallsPerRun,
+    availableToolCount: Object.keys(runtimeTools).length,
+    messageCount: messages.length,
+    wallClockDeadlineAt: request.wallClockDeadlineAt
+  });
+
+  let model: Parameters<typeof streamText>[0]["model"];
+
+  try {
+    model = await options.providerRuntime.createChatModel(request.providerId, request.modelId);
+  } catch (error) {
+    unregisterRun();
+    throw error;
+  }
+
+  const effectiveBudget = resolveRunBudget(
+    {
+      requestedMaxSteps: request.maxSteps
+    },
+    options.runtime
+  );
+  const wallClockDeadlineAt = new Date(request.wallClockDeadlineAt ?? effectiveBudget.wallClockDeadlineAt).getTime();
+  const wallClockBudgetMs = Math.max(0, wallClockDeadlineAt - startedAt);
+  const wallClockTimer =
+    wallClockBudgetMs > 0
+      ? setTimeout(() => {
+          abortRun("wall_clock_budget_exceeded");
+        }, wallClockBudgetMs)
+      : null;
+
+  const abortRequestHandler = () => {
+    abortRun("request_aborted");
+  };
+
+  if (options.requestSignal.aborted) {
+    abortRequestHandler();
+  } else {
+    options.requestSignal.addEventListener("abort", abortRequestHandler, { once: true });
+  }
+
+  const cleanupRunResources = () => {
+    unregisterRun();
+
+    if (wallClockTimer) {
+      clearTimeout(wallClockTimer);
+    }
+
+    options.requestSignal.removeEventListener("abort", abortRequestHandler);
+  };
+
+  const finalizeRun = (status: "completed" | "failed" | "interrupted" | "awaiting_confirmation", finishReason: string | null) => {
+    if (finalizedRun) {
+      return;
+    }
+
+    finalizedRun = true;
+    cleanupRunResources();
+
+    if (status === "completed") {
+      options.chatStorage.completeRun({
+        runId: request.runId,
+        finishReason
+      });
+
+      runtimeLogger.info("chat.run_completed", {
+        currentStep: observedStepCount,
+        durationMs: Date.now() - startedAt,
+        finishReason
+      });
+
+      return;
+    }
+
+    if (status === "awaiting_confirmation") {
+      options.chatStorage.markRunAwaitingConfirmation(request.runId);
+
+      runtimeLogger.info("chat.run_awaiting_confirmation", {
+        currentStep: observedStepCount,
+        durationMs: Date.now() - startedAt
+      });
+
+      return;
+    }
+
+    if (status === "interrupted") {
+      options.chatStorage.interruptRun({
+        runId: request.runId,
+        finishReason: finishReason ?? "request_aborted"
+      });
+
+      runtimeLogger.warn("chat.run_interrupted", {
+        currentStep: observedStepCount,
+        durationMs: Date.now() - startedAt,
+        finishReason: finishReason ?? "request_aborted"
+      });
+
+      return;
+    }
+
+    options.chatStorage.failRun({
+      runId: request.runId,
+      finishReason: finishReason ?? "stream_error"
+    });
+
+    runtimeLogger.warn("chat.run_failed", {
+      currentStep: observedStepCount,
+      durationMs: Date.now() - startedAt,
+      finishReason: finishReason ?? "stream_error"
+    });
+  };
+
+  const resolveTerminalStatus = (finishReason: string | null | undefined) => {
+    return shouldCompleteRunForFinishReason(finishReason)
+      ? "completed"
+      : shouldInterruptRunForFinishReason(finishReason)
+        ? "interrupted"
+        : "failed";
+  };
+
+  const result = streamText({
+    model,
+    abortSignal: abortController.signal,
+    messages: await toModelMessages(messages),
+    tools: runtimeTools as NonNullable<Parameters<typeof streamText>[0]["tools"]>,
+    stopWhen: [stepCountIs(request.maxSteps)],
+    onStepFinish: ({ stepNumber, toolCalls, usage }) => {
+      const currentStep = stepNumber + 1;
+
+      observedStepCount = Math.max(observedStepCount, currentStep);
+      observedTokenCount += countUsageTokens(usage);
+      observedToolCallCount += toolCalls.length;
+
+      options.chatStorage.updateRunProgress({
+        runId: request.runId,
+        currentStep: observedStepCount
+      });
+
+      runtimeLogger.info("chat.run_step_finished", {
+        stepNumber: currentStep,
+        stepToolCalls: toolCalls.length,
+        totalTokens: observedTokenCount,
+        totalToolCalls: observedToolCallCount
+      });
+
+      if (typeof request.maxTokensPerRun === "number" && observedTokenCount > request.maxTokensPerRun) {
+        abortRun("token_budget_exceeded");
+        return;
+      }
+
+      if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
+        abortRun("tool_call_budget_exceeded");
+      }
+    },
+    onAbort: () => {
+      try {
+        finalizeRun(resolveTerminalStatus(runFinishReason), runFinishReason);
+      } catch (error) {
+        runtimeLogger.error("chat.abort_finalize_failed", error);
+      }
+    },
+    onFinish: ({ finishReason }) => {
+      runtimeLogger.info("chat.stream_finished", {
+        currentStep: observedStepCount,
+        finishReason: finishReason ?? null,
+        durationMs: Date.now() - startedAt
+      });
+    }
+  });
+
+  void Promise.resolve(result.consumeStream()).catch((error: unknown) => {
+    try {
+      const finishReason =
+        runFinishReason ??
+        (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
+        (error instanceof Error ? error.message : "stream_error");
+
+      finalizeRun(resolveTerminalStatus(finishReason), finishReason);
+    } catch (persistError) {
+      runtimeLogger.error("chat.consume_stream_finalize_failed", persistError);
+    }
+
+    runtimeLogger.error("chat.consume_stream_failed", error, {
+      durationMs: Date.now() - startedAt
+    });
+  });
+
+  return result.toUIMessageStreamResponse({
+    originalMessages: messages,
+    generateMessageId: () => `msg_${createCuid2()}`,
+    messageMetadata: () => ({ runId: request.runId }),
+    onFinish: ({ responseMessage }) => {
+      try {
+        const approvalRequests = responseMessage.parts.flatMap((part) => (isApprovalRequestedToolPart(part) ? [part] : []));
+
+        options.chatStorage.persistAssistantMessage({
+          sessionId: request.sessionId,
+          runId: request.runId,
+          providerId: request.providerId,
+          modelId: request.modelId,
+          message: responseMessage
+        });
+
+        for (const part of approvalRequests) {
+          options.chatStorage.recordToolApprovalRequest({
+            toolCallId: part.toolCallId,
+            confirmationToken: part.approval.id
+          });
+        }
+
+        finalizeRun(approvalRequests.length > 0 ? "awaiting_confirmation" : "completed", null);
+
+        runtimeLogger.info("chat.assistant_message_persisted", {
+          messageId: responseMessage.id,
+          partCount: responseMessage.parts.length,
+          approvalRequestCount: approvalRequests.length
+        });
+      } catch (error) {
+        runtimeLogger.error("chat.persist_assistant_message_failed", error);
+        finalizeRun("failed", error instanceof Error ? error.message : "persist_assistant_message_failed");
+      }
+    },
+    onError: (error) => {
+      try {
+        const finishReason =
+          runFinishReason ??
+          (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
+          (error instanceof Error ? error.message : "stream_error");
+
+        finalizeRun(resolveTerminalStatus(finishReason), finishReason);
+      } catch (persistError) {
+        runtimeLogger.error("chat.fail_run_persist_failed", persistError);
+      }
+
+      runtimeLogger.error("chat.stream_failed", error, {
+        durationMs: Date.now() - startedAt
+      });
+
+      if (isRunBudgetFinishReason(runFinishReason)) {
+        return describeRunFinishReason(runFinishReason);
+      }
+
+      return "An error occurred.";
+    }
+  });
+}

@@ -94,6 +94,38 @@ interface MessageRow {
   readonly created_at: string;
 }
 
+interface RunRow {
+  readonly id: string;
+  readonly session_id: string;
+  readonly status: string;
+  readonly provider_id: string;
+  readonly model_id: string;
+  readonly current_step: number;
+  readonly max_steps: number;
+  readonly max_tokens_per_run: number | null;
+  readonly wall_clock_deadline_at: string | null;
+  readonly finish_reason: string | null;
+  readonly started_at: string;
+  readonly ended_at: string | null;
+}
+
+interface ToolCallRow {
+  readonly id: string;
+  readonly run_id: string;
+  readonly tool_name: string;
+  readonly input_json: string;
+  readonly output_json: string | null;
+  readonly output_truncated: number;
+  readonly output_size_bytes: number | null;
+  readonly approval_decision: "approved" | "rejected" | null;
+  readonly approval_decided_at: string | null;
+  readonly confirmation_token_hash: string | null;
+  readonly status: string;
+  readonly error_message: string | null;
+  readonly started_at: string;
+  readonly ended_at: string | null;
+}
+
 export interface StoredSession {
   readonly id: string;
   readonly title: string;
@@ -141,6 +173,27 @@ export interface StoredProviderModel {
   readonly createdAt: string;
   readonly updatedAt: string;
 }
+
+export interface StoredRunContext {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly status: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly currentStep: number;
+  readonly maxSteps: number;
+  readonly maxTokensPerRun: number | null;
+  readonly wallClockDeadlineAt: string | null;
+}
+
+export interface ConfirmToolCallInput {
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly decision: "approved" | "rejected";
+  readonly confirmationToken: string;
+}
+
+export type ConfirmToolCallResult = "confirmed" | "already_confirmed";
 
 export interface StoredAuthorizedDirectory {
   readonly path: string;
@@ -237,8 +290,13 @@ export interface ChatStorage {
     models: ProviderCatalogModelInput[];
   }): void;
   prepareChatRequest(input: ChatRequestPersistenceInput): ResolvedChatRequest;
+  getRunContext(runId: string): StoredRunContext;
+  persistRunMessages(options: { sessionId: string; runId: string; messages: UIMessage[] }): void;
   recoverUnfinishedRuns(): RecoverUnfinishedRunsResult;
   startToolCall(options: { toolCallId?: string; runId: string; toolName: string; input: unknown }): string;
+  markToolCallRunning(toolCallId: string): void;
+  recordToolApprovalRequest(options: { toolCallId: string; confirmationToken: string }): void;
+  confirmToolCall(input: ConfirmToolCallInput): ConfirmToolCallResult;
   completeToolCall(options: {
     toolCallId: string;
     output: unknown;
@@ -247,6 +305,8 @@ export interface ChatStorage {
     outputTruncated: boolean;
   };
   failToolCall(options: { toolCallId: string; errorMessage: string }): void;
+  markRunAwaitingConfirmation(runId: string): void;
+  resumeRun(runId: string): void;
   updateRunProgress(options: { runId: string; currentStep: number }): void;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
@@ -697,6 +757,29 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       };
     },
 
+    getRunContext(runId) {
+      const run = getRunRow(connection, runId);
+
+      if (!run) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown runId: ${runId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      return mapRunRow(run);
+    },
+
+    persistRunMessages({ sessionId, runId, messages }) {
+      persistMessages(connection, {
+        sessionId,
+        runId,
+        messages,
+        createdAt: new Date().toISOString()
+      });
+    },
+
     recoverUnfinishedRuns() {
       const interruptedRunIds = listRunIdsByStatus(connection, "running");
       const failedRunIds = listRunIdsByStatus(connection, "pending");
@@ -758,11 +841,98 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
              error_message,
              started_at,
              ended_at
-           ) VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, 'running', NULL, ?, NULL)`
+           ) VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, 'pending', NULL, ?, NULL)
+           ON CONFLICT(id) DO UPDATE SET
+             run_id = excluded.run_id,
+             tool_name = excluded.tool_name,
+             input_json = excluded.input_json`
         )
         .run(persistedToolCallId, runId, toolName, serializeToolCallPayload(input), startedAt);
 
       return persistedToolCallId;
+    },
+
+    markToolCallRunning(toolCallId) {
+      connection
+        .prepare(
+          `UPDATE tool_calls
+           SET status = 'running',
+               error_message = NULL,
+               ended_at = NULL
+           WHERE id = ? AND status != 'completed'`
+        )
+        .run(toolCallId);
+    },
+
+    recordToolApprovalRequest({ toolCallId, confirmationToken }) {
+      connection
+        .prepare(
+          `UPDATE tool_calls
+           SET confirmation_token_hash = ?,
+               approval_decision = NULL,
+               approval_decided_at = NULL,
+               status = 'pending',
+               error_message = NULL,
+               ended_at = NULL
+           WHERE id = ?`
+        )
+        .run(hashConfirmationToken(confirmationToken), toolCallId);
+    },
+
+    confirmToolCall({ runId, toolCallId, decision, confirmationToken }) {
+      const toolCall = getToolCallRow(connection, toolCallId);
+
+      if (!toolCall || toolCall.run_id !== runId) {
+        throw new ChatStorageResolutionError({
+          message: "Tool call not found for this run.",
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      if (!toolCall.confirmation_token_hash) {
+        throw new ChatStorageResolutionError({
+          message: "Tool call is not awaiting confirmation.",
+          statusCode: 409,
+          errorCode: "invalid_state"
+        });
+      }
+
+      if (toolCall.confirmation_token_hash !== hashConfirmationToken(confirmationToken)) {
+        throw new ChatStorageResolutionError({
+          message: "Confirmation token is invalid.",
+          statusCode: 403,
+          errorCode: "forbidden"
+        });
+      }
+
+      if (toolCall.approval_decision) {
+        if (toolCall.approval_decision === decision) {
+          return "already_confirmed";
+        }
+
+        throw new ChatStorageResolutionError({
+          message: "Tool call confirmation already recorded.",
+          statusCode: 409,
+          errorCode: "invalid_state"
+        });
+      }
+
+      const decidedAt = new Date().toISOString();
+
+      connection
+        .prepare(
+          `UPDATE tool_calls
+           SET approval_decision = ?,
+               approval_decided_at = ?,
+               status = CASE WHEN ? = 'rejected' THEN 'failed' ELSE status END,
+               error_message = CASE WHEN ? = 'rejected' THEN 'Tool execution rejected by user.' ELSE NULL END,
+               ended_at = CASE WHEN ? = 'rejected' THEN ? ELSE ended_at END
+           WHERE id = ?`
+        )
+        .run(decision, decidedAt, decision, decision, decision, decidedAt, toolCallId);
+
+      return "confirmed";
     },
 
     completeToolCall({ toolCallId, output }) {
@@ -806,6 +976,26 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
            WHERE id = ?`
         )
         .run(errorMessage, endedAt, toolCallId);
+    },
+
+    markRunAwaitingConfirmation(runId) {
+      connection
+        .prepare(
+          `UPDATE runs
+           SET status = 'pending', finish_reason = 'awaiting_confirmation', ended_at = NULL
+           WHERE id = ? AND status = 'running'`
+        )
+        .run(runId);
+    },
+
+    resumeRun(runId) {
+      connection
+        .prepare(
+          `UPDATE runs
+           SET status = 'running', finish_reason = NULL, ended_at = NULL
+           WHERE id = ? AND status = 'pending'`
+        )
+        .run(runId);
     },
 
     updateRunProgress({ runId, currentStep }) {
@@ -909,6 +1099,28 @@ function listRunIdsByStatus(connection: DatabaseSync, status: string) {
   const rows = connection.prepare(`SELECT id FROM runs WHERE status = ?`).all(status) as Array<{ id: string }>;
 
   return rows.map((row) => row.id);
+}
+
+function getRunRow(connection: DatabaseSync, runId: string) {
+  return connection
+    .prepare(
+      `SELECT id, session_id, status, provider_id, model_id, current_step, max_steps, max_tokens_per_run, wall_clock_deadline_at, finish_reason, started_at, ended_at
+       FROM runs
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(runId) as RunRow | undefined;
+}
+
+function getToolCallRow(connection: DatabaseSync, toolCallId: string) {
+  return connection
+    .prepare(
+      `SELECT id, run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, approval_decision, approval_decided_at, confirmation_token_hash, status, error_message, started_at, ended_at
+       FROM tool_calls
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(toolCallId) as ToolCallRow | undefined;
 }
 
 function bootstrapSchema(connection: DatabaseSync) {
@@ -1371,7 +1583,11 @@ function persistMessages(
       idempotency_key,
       created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(session_id, idempotency_key) DO NOTHING`
+    ON CONFLICT(session_id, idempotency_key) DO UPDATE SET
+      run_id = excluded.run_id,
+      role = excluded.role,
+      ui_message_json = excluded.ui_message_json,
+      ui_message_schema_version = excluded.ui_message_schema_version`
   );
 
   const updateSession = connection.prepare(
@@ -1430,6 +1646,20 @@ function mapSessionRow(row: SessionRow): StoredSession {
     archivedAt: row.archived_at,
     defaultProviderId: row.default_provider_id,
     defaultModelId: row.default_model_id
+  };
+}
+
+function mapRunRow(row: RunRow): StoredRunContext {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    status: row.status,
+    providerId: row.provider_id,
+    modelId: row.model_id,
+    currentStep: row.current_step,
+    maxSteps: row.max_steps,
+    maxTokensPerRun: row.max_tokens_per_run,
+    wallClockDeadlineAt: row.wall_clock_deadline_at
   };
 }
 
@@ -1665,6 +1895,10 @@ function hasIdPrefix(value: string, prefix: string) {
 
 function createPrefixedId(prefix: string) {
   return `${prefix}_${createCuid2()}`;
+}
+
+function hashConfirmationToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 function serializeToolCallPayload(value: unknown) {

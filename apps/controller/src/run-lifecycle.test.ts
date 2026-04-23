@@ -13,6 +13,24 @@ import { createChatStorage } from "./chat-storage";
 import { createRunRegistry } from "./run-registry";
 import { registerRunRoutes } from "./routes/runs";
 
+const noopProviderRuntime = {
+  createChatModel() {
+    throw new Error("not used in stop test");
+  }
+};
+
+const noopToolRegistry = {
+  listTools() {
+    return [] as const;
+  },
+  register() {
+    throw new Error("not used in stop test");
+  },
+  createRuntimeTools() {
+    return {};
+  }
+};
+
 interface StoredRunRow {
   readonly status: string;
   readonly finish_reason: string | null;
@@ -129,6 +147,14 @@ test("stop endpoint returns ok for an active run", async () => {
 
   registerRunRoutes(app, {
     runRegistry,
+    providerRuntime: noopProviderRuntime as never,
+    toolRegistry: noopToolRegistry as never,
+    runtime: {
+      maxStepsPerRun: 1,
+      maxTokensPerRun: 32_768,
+      maxToolCallsPerRun: 1,
+      wallClockBudgetMs: 30_000
+    },
     getChatStorage: () =>
       ({
         interruptRun() {

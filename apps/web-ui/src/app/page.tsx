@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { Card } from "@nexu-design/ui-web";
 
 import { ChatThread } from "../components/chat-thread";
@@ -13,6 +13,13 @@ import { PageFrame } from "../components/page-frame";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { getMonetClientConfig } from "../lib/monet-client";
 import type { SessionDetailRecord } from "../lib/session-api";
+
+interface PendingContinuationRequest {
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly decision: "approved" | "rejected";
+  readonly confirmationToken: string;
+}
 
 function deriveSessionTitle(input: string) {
   const normalized = input.trim().replace(/\s+/g, " ");
@@ -36,8 +43,10 @@ function SessionChatSurface({
   onRefreshSessions: () => Promise<void>;
 }) {
   const [input, setInput] = useState("");
+  const [approvalErrorText, setApprovalErrorText] = useState<string | undefined>(undefined);
+  const pendingContinuationRef = useRef<PendingContinuationRequest | null>(null);
   const controllerConfig = getMonetClientConfig();
-  const initialMessages = useMemo(() => session.messages.map((message) => message.uiMessage), [session.id]);
+  const initialMessages = useMemo(() => session.messages.map((message) => message.uiMessage), [session.id, session.messages]);
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -56,15 +65,39 @@ function SessionChatSurface({
           sessionId: session.id,
           providerId: session.defaultProviderId ?? "pro_b6m4q2r8t5v9x3z7k1n4p6s8",
           modelId: session.defaultModelId ?? "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
+        },
+        prepareSendMessagesRequest: ({ api, body, headers, credentials }) => {
+          const pendingContinuation = pendingContinuationRef.current;
+
+          if (!pendingContinuation) {
+            return {
+              api,
+              body: body ?? {},
+              headers,
+              credentials
+            };
+          }
+
+          return {
+            api: `${controllerConfig.apiBase}/api/runs/${pendingContinuation.runId}/continue`,
+            headers,
+            credentials,
+            body: {
+              ...body,
+              ...pendingContinuation
+            }
+          };
         }
       }),
     [controllerConfig.apiBase, controllerConfig.bearerToken, session.defaultModelId, session.defaultProviderId, session.id]
   );
-  const { messages, sendMessage, regenerate, stop, status, error, clearError } = useChat({
+  const { messages, sendMessage, regenerate, stop, status, error, clearError, addToolApprovalResponse } = useChat({
     id: session.id,
     messages: initialMessages,
     transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onFinish: async () => {
+      pendingContinuationRef.current = null;
       await onRefreshCurrentSession();
       await onRefreshSessions();
     }
@@ -85,6 +118,7 @@ function SessionChatSurface({
       await onRenameSession(session.id, deriveSessionTitle(text));
     }
 
+    pendingContinuationRef.current = null;
     await sendMessage({ text });
     setInput("");
   }
@@ -98,6 +132,7 @@ function SessionChatSurface({
       clearError();
     }
 
+    pendingContinuationRef.current = null;
     await regenerate();
   }
 
@@ -114,7 +149,54 @@ function SessionChatSurface({
       clearError();
     }
 
+    if (approvalErrorText) {
+      setApprovalErrorText(undefined);
+    }
+
     setInput(value);
+  }
+
+  async function handleToolApproval(input: PendingContinuationRequest) {
+    if (isBusy || isArchived) {
+      return;
+    }
+
+    setApprovalErrorText(undefined);
+
+    const headers = new Headers({
+      "content-type": "application/json"
+    });
+
+    if (controllerConfig.bearerToken) {
+      headers.set("Authorization", `Bearer ${controllerConfig.bearerToken}`);
+    }
+
+    const response = await fetch(`${controllerConfig.apiBase}/api/tools/confirm`, {
+      method: "POST",
+      headers,
+      credentials: "omit",
+      body: JSON.stringify(input)
+    });
+
+    if (!response.ok) {
+      let errorMessage = "Failed to confirm tool execution.";
+
+      try {
+        const payload = (await response.json()) as { message?: string };
+        errorMessage = payload.message ?? errorMessage;
+      } catch {
+        // keep generic fallback
+      }
+
+      setApprovalErrorText(errorMessage);
+      return;
+    }
+
+    pendingContinuationRef.current = input;
+    await addToolApprovalResponse({
+      id: input.confirmationToken,
+      approved: input.decision === "approved"
+    });
   }
 
   return (
@@ -128,7 +210,7 @@ function SessionChatSurface({
           sessionId={session.id}
           status={status}
           messageCount={messages.length}
-          hasError={error != null}
+          hasError={error != null || approvalErrorText != null}
           canRegenerate={canRegenerate}
           onRegenerate={() => void handleRegenerate()}
           onStop={handleStop}
@@ -154,7 +236,13 @@ function SessionChatSurface({
     >
       <div className="chat-thread-layout">
         <ControllerStatusCard />
-        <ChatThread messages={messages} status={status} errorText={error?.message} />
+        <ChatThread
+          messages={messages}
+          status={status}
+          errorText={approvalErrorText ?? error?.message}
+          isArchived={isArchived}
+          onToolApproval={(request) => void handleToolApproval(request)}
+        />
       </div>
     </PageFrame>
   );
