@@ -148,12 +148,14 @@
 - [x] 已有 `runs` 表
 - [x] 已有 `tool_calls` 表
 - [x] 已有 `providers` / `provider_models` 表
-- [ ] 已核对 `messages.run_id`
-- [ ] 已核对 `tool_calls.approval_decision`
-- [ ] 已核对 `tool_calls.approval_decided_at`
-- [ ] 已核对 `tool_calls.confirmation_token_hash`
-- [ ] 已核对 `wall_clock_deadline_at`
-- [ ] 已核对 `ON DELETE SET NULL` 等 FK 细节
+- [x] 已核对 `messages.run_id`
+- [x] 已核对 `tool_calls.approval_decision`
+- [x] 已核对 `tool_calls.approval_decided_at`
+- [x] 已核对 `tool_calls.confirmation_token_hash`
+- [x] 已核对 `wall_clock_deadline_at`
+- [x] 已核对 `ON DELETE SET NULL` 等 FK 细节
+
+核对结果：`packages/database/migrations/0000_initial_schema.sql` 与 `packages/database/src/schema/{messages,runs,tool-calls}.ts` 已覆盖上述字段；其中 `messages.run_id` 使用 `ON DELETE SET NULL`，`tool_calls.run_id` 使用 `ON DELETE CASCADE`，与当前 spec 一致。
 
 ---
 
