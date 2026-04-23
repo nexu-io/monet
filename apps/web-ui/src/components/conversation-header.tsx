@@ -6,6 +6,9 @@ export interface ConversationHeaderProps {
   readonly status: "submitted" | "streaming" | "ready" | "error";
   readonly messageCount: number;
   readonly hasError: boolean;
+  readonly canRegenerate: boolean;
+  readonly onRegenerate: () => void;
+  readonly onStop: () => void;
 }
 
 function getStatusLabel(status: ConversationHeaderProps["status"]) {
@@ -21,7 +24,9 @@ function getStatusLabel(status: ConversationHeaderProps["status"]) {
   }
 }
 
-export function ConversationHeader({ status, messageCount, hasError }: ConversationHeaderProps) {
+export function ConversationHeader({ status, messageCount, hasError, canRegenerate, onRegenerate, onStop }: ConversationHeaderProps) {
+  const isBusy = status === "submitted" || status === "streaming";
+
   return (
     <div className="conversation-header">
       <div className="conversation-header-copy">
@@ -36,6 +41,8 @@ export function ConversationHeader({ status, messageCount, hasError }: Conversat
         <Badge variant="secondary" size="sm" radius="full">{messageCount} messages</Badge>
         <Badge variant="secondary" size="sm" radius="full">{getStatusLabel(status)}</Badge>
         <Badge variant="secondary" size="sm" radius="full">{hasError ? "Last request failed" : "Local /api/chat wired"}</Badge>
+        <Button type="button" variant="secondary" onClick={onRegenerate} disabled={!canRegenerate}>Regenerate</Button>
+        <Button type="button" variant="secondary" onClick={onStop} disabled={!isBusy}>Stop</Button>
         <Button type="button" variant="secondary" disabled>Session settings</Button>
       </div>
     </div>

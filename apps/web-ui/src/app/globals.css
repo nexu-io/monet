@@ -319,6 +319,20 @@ textarea {
 .chat-thread {
   display: grid;
   gap: calc(var(--spacing) * 4);
+  position: relative;
+}
+
+.chat-thread-jump {
+  position: sticky;
+  bottom: calc(var(--spacing) * 2);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.chat-thread-jump [data-slot="button"] {
+  pointer-events: auto;
+  box-shadow: var(--shadow-rest);
 }
 
 .chat-message {
@@ -680,12 +694,18 @@ textarea {
 .composer-input {
   width: 100%;
   min-height: calc(var(--spacing) * 26);
+  max-height: min(40vh, calc(var(--spacing) * 64));
   resize: vertical;
   border: 1px solid var(--color-border-card);
   border-radius: var(--radius-2xl);
   padding: calc(var(--spacing) * 4);
   background: hsl(var(--card) / 0.9);
   color: var(--color-text-primary);
+}
+
+.composer-input:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .composer-input::placeholder {

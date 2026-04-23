@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Badge, Card } from "@nexu-design/ui-web";
+import { Badge, Button, Card } from "@nexu-design/ui-web";
 
 type ChatMessage = UIMessage;
 
@@ -188,8 +189,60 @@ export interface ChatThreadProps {
 }
 
 export function ChatThread({ messages, status, errorText }: ChatThreadProps) {
+  const rootRef = useRef<HTMLElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  useEffect(() => {
+    const scrollContainer = rootRef.current?.closest(".canvas-body");
+
+    if (!(scrollContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    const updateScrollState = () => {
+      const distanceToBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+      const isAtBottom = distanceToBottom <= 96;
+
+      shouldStickToBottomRef.current = isAtBottom;
+      setShowScrollToBottom(!isAtBottom);
+    };
+
+    updateScrollState();
+    scrollContainer.addEventListener("scroll", updateScrollState, { passive: true });
+
+    return () => {
+      scrollContainer.removeEventListener("scroll", updateScrollState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const scrollContainer = rootRef.current?.closest(".canvas-body");
+
+    if (!(scrollContainer instanceof HTMLElement) || !shouldStickToBottomRef.current) {
+      return;
+    }
+
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior: status === "streaming" ? "auto" : "smooth"
+    });
+  }, [messages, status]);
+
+  function scrollToBottom() {
+    const scrollContainer = rootRef.current?.closest(".canvas-body");
+
+    if (!(scrollContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    shouldStickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: "smooth" });
+  }
+
   return (
-    <section className="chat-thread" aria-label="Conversation transcript">
+    <section ref={rootRef} className="chat-thread" aria-label="Conversation transcript">
       {messages.length === 0 ? (
         <Card className="chat-empty-state">
           <div className="stack-tight">
@@ -229,6 +282,12 @@ export function ChatThread({ messages, status, errorText }: ChatThreadProps) {
             <p className="muted">{errorText}</p>
           </div>
         </Card>
+      ) : null}
+
+      {showScrollToBottom && messages.length > 0 ? (
+        <div className="chat-thread-jump">
+          <Button type="button" variant="secondary" onClick={scrollToBottom}>Back to bottom</Button>
+        </div>
       ) : null}
     </section>
   );
