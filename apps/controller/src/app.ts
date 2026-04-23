@@ -8,7 +8,9 @@ import { getRequestId, requestIdKey } from "./request-context";
 import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
 import { registerProviderRoutes } from "./routes/providers";
+import { registerRunRoutes } from "./routes/runs";
 import { registerSessionRoutes } from "./routes/sessions";
+import { createRunRegistry } from "./run-registry";
 import type { AgentRuntimeConfig, OpenAIProviderConfig } from "./config";
 
 export interface CreateControllerAppOptions {
@@ -69,6 +71,8 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     getChatStorage,
     openai: options.openai
   });
+  const runRegistry = createRunRegistry();
+  const recoveredRuns = chatStorage.recoverUnfinishedRuns();
 
   function getChatStorage() {
     return chatStorage;
@@ -130,6 +134,10 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       {
         name: "Providers",
         description: "Provider, model catalog, and validation endpoints."
+      },
+      {
+        name: "Runs",
+        description: "Run lifecycle endpoints such as interruption."
       }
     ]
   });
@@ -169,11 +177,14 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   controllerLogger.info("controller.app_created", {
     hasAllowedOrigins: options.allowedOrigins.length > 0,
     databasePath: options.databasePath,
+    interruptedRunCount: recoveredRuns.interruptedRunIds.length,
+    failedPendingRunCount: recoveredRuns.failedRunIds.length,
     port: options.port
   });
 
   registerHealthRoutes(app);
-  registerChatRoutes(app, { getChatStorage, providerRuntime, runtime: options.agentRuntime });
+  registerChatRoutes(app, { getChatStorage, providerRuntime, runRegistry, runtime: options.agentRuntime });
+  registerRunRoutes(app, { getChatStorage, runRegistry });
   registerSessionRoutes(app, { getChatStorage });
   registerProviderRoutes(app, { getChatStorage, providerRuntime });
 

@@ -2,6 +2,7 @@ import type { AgentRuntimeConfig } from "./config";
 
 export type RunFinishReason =
   | "request_aborted"
+  | "stop_requested"
   | "token_budget_exceeded"
   | "tool_call_budget_exceeded"
   | "wall_clock_budget_exceeded";
@@ -61,10 +62,15 @@ export function countUsageTokens(
 export function isRunBudgetFinishReason(reason: string | null | undefined): reason is RunFinishReason {
   return (
     reason === "request_aborted" ||
+    reason === "stop_requested" ||
     reason === "token_budget_exceeded" ||
     reason === "tool_call_budget_exceeded" ||
     reason === "wall_clock_budget_exceeded"
   );
+}
+
+export function shouldInterruptRunForFinishReason(reason: string | null | undefined) {
+  return reason === "request_aborted" || reason === "stop_requested";
 }
 
 export function shouldCompleteRunForFinishReason(reason: string | null | undefined) {
@@ -79,6 +85,8 @@ export function describeRunFinishReason(reason: RunFinishReason) {
   switch (reason) {
     case "request_aborted":
       return "Request aborted before the run could complete.";
+    case "stop_requested":
+      return "Run was stopped before it could complete.";
     case "token_budget_exceeded":
       return "Run token budget exceeded.";
     case "tool_call_budget_exceeded":

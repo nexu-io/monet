@@ -7,6 +7,7 @@ import {
   isRunBudgetFinishReason,
   resolveRunBudget,
   shouldCompleteRunForFinishReason,
+  shouldInterruptRunForFinishReason,
   type RunFinishReason
 } from "../agent-runtime";
 import type { ControllerApp } from "../app";
@@ -15,6 +16,7 @@ import type { AgentRuntimeConfig } from "../config";
 import { createLogger } from "../logger";
 import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
 import { getRequestId } from "../request-context";
+import type { RunRegistry } from "../run-registry";
 
 interface ChatRequestBody {
   readonly messages?: unknown;
@@ -36,7 +38,12 @@ function toModelMessages(messages: UIMessage[]) {
 
 export function registerChatRoutes(
   app: ControllerApp,
-  options: { getChatStorage: () => ChatStorage; providerRuntime: ProviderRuntime; runtime: AgentRuntimeConfig }
+  options: {
+    getChatStorage: () => ChatStorage;
+    providerRuntime: ProviderRuntime;
+    runRegistry: RunRegistry;
+    runtime: AgentRuntimeConfig;
+  }
 ) {
   app.post("/api/chat", async (context) => {
     const requestId = getRequestId(context);
@@ -146,6 +153,33 @@ export function registerChatRoutes(
     });
 
     const startedAt = Date.now();
+    const abortController = new AbortController();
+    let runFinishReason: RunFinishReason | null = null;
+    let observedStepCount = 0;
+    let observedTokenCount = 0;
+    let observedToolCallCount = 0;
+    let finalizedRun = false;
+
+    const abortRun = (reason: RunFinishReason) => {
+      if (runFinishReason == null) {
+        runFinishReason = reason;
+      }
+
+      runtimeLogger.warn("chat.run_aborted", {
+        currentStep: observedStepCount,
+        reason,
+        totalTokens: observedTokenCount,
+        totalToolCalls: observedToolCallCount
+      });
+
+      if (!abortController.signal.aborted) {
+        abortController.abort(new Error(describeRunFinishReason(reason)));
+      }
+    };
+
+    const unregisterRun = options.runRegistry.register(resolvedChatRequest.runId, {
+      abort: abortRun
+    });
 
     runtimeLogger.info("chat.run_started", {
       maxSteps: resolvedChatRequest.maxSteps,
@@ -161,6 +195,8 @@ export function registerChatRoutes(
       model = await options.providerRuntime.createChatModel(resolvedChatRequest.providerId, resolvedChatRequest.modelId);
     } catch (error) {
       if (error instanceof ProviderRuntimeError) {
+        unregisterRun();
+
         const status = error.statusCode === 422 ? 422 : 500;
 
         chatLogger.warn("chat.provider_resolution_failed", {
@@ -186,6 +222,8 @@ export function registerChatRoutes(
         );
       }
 
+      unregisterRun();
+
       options.getChatStorage().failRun({
         runId: resolvedChatRequest.runId,
         finishReason: error instanceof Error ? error.message : "provider_runtime_error"
@@ -207,32 +245,9 @@ export function registerChatRoutes(
       );
     }
 
-    const abortController = new AbortController();
     const requestSignal = context.req.raw.signal;
     const wallClockDeadlineAt = new Date(resolvedChatRequest.wallClockDeadlineAt ?? runBudget.wallClockDeadlineAt).getTime();
     const wallClockBudgetMs = Math.max(0, wallClockDeadlineAt - startedAt);
-    let runFinishReason: RunFinishReason | null = null;
-    let observedStepCount = 0;
-    let observedTokenCount = 0;
-    let observedToolCallCount = 0;
-    let finalizedRun = false;
-
-    const abortRun = (reason: RunFinishReason) => {
-      if (runFinishReason == null) {
-        runFinishReason = reason;
-      }
-
-      runtimeLogger.warn("chat.run_aborted", {
-        currentStep: observedStepCount,
-        reason,
-        totalTokens: observedTokenCount,
-        totalToolCalls: observedToolCallCount
-      });
-
-      if (!abortController.signal.aborted) {
-        abortController.abort(new Error(describeRunFinishReason(reason)));
-      }
-    };
 
     const wallClockTimer =
       wallClockBudgetMs > 0
@@ -252,6 +267,8 @@ export function registerChatRoutes(
     }
 
     const cleanupRunResources = () => {
+      unregisterRun();
+
       if (wallClockTimer) {
         clearTimeout(wallClockTimer);
       }
@@ -259,7 +276,7 @@ export function registerChatRoutes(
       requestSignal.removeEventListener("abort", abortRequestHandler);
     };
 
-    const finalizeRun = (status: "completed" | "failed", finishReason: string | null) => {
+    const finalizeRun = (status: "completed" | "failed" | "interrupted", finishReason: string | null) => {
       if (finalizedRun) {
         return;
       }
@@ -282,6 +299,21 @@ export function registerChatRoutes(
         return;
       }
 
+      if (status === "interrupted") {
+        options.getChatStorage().interruptRun({
+          runId: resolvedChatRequest.runId,
+          finishReason: finishReason ?? "request_aborted"
+        });
+
+        runtimeLogger.warn("chat.run_interrupted", {
+          currentStep: observedStepCount,
+          durationMs: Date.now() - startedAt,
+          finishReason: finishReason ?? "request_aborted"
+        });
+
+        return;
+      }
+
       options.getChatStorage().failRun({
         runId: resolvedChatRequest.runId,
         finishReason: finishReason ?? "stream_error"
@@ -294,62 +326,106 @@ export function registerChatRoutes(
       });
     };
 
-    const result = streamText({
-      model,
-      abortSignal: abortController.signal,
-      messages: await toModelMessages(messages),
-      stopWhen: [stepCountIs(resolvedChatRequest.maxSteps)],
-      onStepFinish: ({ stepNumber, toolCalls, usage }) => {
-        const currentStep = stepNumber + 1;
+    const resolveTerminalStatus = (finishReason: string | null | undefined) => {
+      return shouldCompleteRunForFinishReason(finishReason)
+        ? "completed"
+        : shouldInterruptRunForFinishReason(finishReason)
+          ? "interrupted"
+          : "failed";
+    };
 
-        observedStepCount = Math.max(observedStepCount, currentStep);
-        observedTokenCount += countUsageTokens(usage);
-        observedToolCallCount += toolCalls.length;
+    let result: ReturnType<typeof streamText>;
 
-        options.getChatStorage().updateRunProgress({
-          runId: resolvedChatRequest.runId,
-          currentStep: observedStepCount
-        });
+    try {
+      result = streamText({
+        model,
+        abortSignal: abortController.signal,
+        messages: await toModelMessages(messages),
+        stopWhen: [stepCountIs(resolvedChatRequest.maxSteps)],
+        onStepFinish: ({ stepNumber, toolCalls, usage }) => {
+          const currentStep = stepNumber + 1;
 
-        runtimeLogger.info("chat.run_step_finished", {
-          stepNumber: currentStep,
-          stepToolCalls: toolCalls.length,
-          totalTokens: observedTokenCount,
-          totalToolCalls: observedToolCallCount
-        });
+          observedStepCount = Math.max(observedStepCount, currentStep);
+          observedTokenCount += countUsageTokens(usage);
+          observedToolCallCount += toolCalls.length;
 
-        if (
-          typeof resolvedChatRequest.maxTokensPerRun === "number" &&
-          observedTokenCount > resolvedChatRequest.maxTokensPerRun
-        ) {
-          abortRun("token_budget_exceeded");
-          return;
+          options.getChatStorage().updateRunProgress({
+            runId: resolvedChatRequest.runId,
+            currentStep: observedStepCount
+          });
+
+          runtimeLogger.info("chat.run_step_finished", {
+            stepNumber: currentStep,
+            stepToolCalls: toolCalls.length,
+            totalTokens: observedTokenCount,
+            totalToolCalls: observedToolCallCount
+          });
+
+          if (
+            typeof resolvedChatRequest.maxTokensPerRun === "number" &&
+            observedTokenCount > resolvedChatRequest.maxTokensPerRun
+          ) {
+            abortRun("token_budget_exceeded");
+            return;
+          }
+
+          if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
+            abortRun("tool_call_budget_exceeded");
+          }
+        },
+        onAbort: () => {
+          try {
+            finalizeRun(resolveTerminalStatus(runFinishReason), runFinishReason);
+          } catch (error) {
+            runtimeLogger.error("chat.abort_finalize_failed", error);
+          }
+        },
+        onFinish: ({ finishReason }) => {
+          try {
+            finalizeRun("completed", finishReason ?? null);
+          } catch (error) {
+            runtimeLogger.error("chat.complete_run_failed", error);
+          }
         }
+      });
+    } catch (error) {
+      const finishReason = error instanceof Error ? error.message : "stream_error";
 
-        if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
-          abortRun("tool_call_budget_exceeded");
-        }
-      },
-      onAbort: () => {
-        try {
-          finalizeRun(
-            shouldCompleteRunForFinishReason(runFinishReason) ? "completed" : "failed",
-            runFinishReason
-          );
-        } catch (error) {
-          runtimeLogger.error("chat.abort_finalize_failed", error);
-        }
-      },
-      onFinish: ({ finishReason }) => {
-        try {
-          finalizeRun("completed", finishReason ?? null);
-        } catch (error) {
-          runtimeLogger.error("chat.complete_run_failed", error);
-        }
+      try {
+        finalizeRun(resolveTerminalStatus(finishReason), finishReason);
+      } catch (persistError) {
+        runtimeLogger.error("chat.stream_init_finalize_failed", persistError);
       }
-    });
 
-    result.consumeStream();
+      runtimeLogger.error("chat.stream_init_failed", error, {
+        durationMs: Date.now() - startedAt
+      });
+
+      return context.json(
+        {
+          error: "internal_error",
+          message: "Failed to start the chat stream."
+        },
+        500
+      );
+    }
+
+    void Promise.resolve(result.consumeStream()).catch((error: unknown) => {
+      try {
+        const finishReason =
+          runFinishReason ??
+          (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
+          (error instanceof Error ? error.message : "stream_error");
+
+        finalizeRun(resolveTerminalStatus(finishReason), finishReason);
+      } catch (persistError) {
+        runtimeLogger.error("chat.consume_stream_finalize_failed", persistError);
+      }
+
+      runtimeLogger.error("chat.consume_stream_failed", error, {
+        durationMs: Date.now() - startedAt
+      });
+    });
 
     return result.toUIMessageStreamResponse({
       originalMessages: messages,
@@ -379,10 +455,7 @@ export function registerChatRoutes(
             (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
             (error instanceof Error ? error.message : "stream_error");
 
-          finalizeRun(
-            shouldCompleteRunForFinishReason(finishReason) ? "completed" : "failed",
-            finishReason
-          );
+          finalizeRun(resolveTerminalStatus(finishReason), finishReason);
         } catch (persistError) {
           runtimeLogger.error("chat.fail_run_persist_failed", persistError);
         }

@@ -17,6 +17,10 @@
     {
       "name": "Providers",
       "description": "Provider, model catalog, and validation endpoints."
+    },
+    {
+      "name": "Runs",
+      "description": "Run lifecycle endpoints such as interruption."
     }
   ],
   "components": {
@@ -47,6 +51,38 @@
           "status",
           "service",
           "version"
+        ]
+      },
+      "StopRunResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "example": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "unauthorized"
+          },
+          "message": {
+            "type": "string",
+            "example": "Missing or invalid bearer token."
+          }
+        },
+        "required": [
+          "error",
+          "message"
         ]
       },
       "Session": {
@@ -115,23 +151,6 @@
         },
         "required": [
           "sessions"
-        ]
-      },
-      "ErrorResponse": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "string",
-            "example": "unauthorized"
-          },
-          "message": {
-            "type": "string",
-            "example": "Missing or invalid bearer token."
-          }
-        },
-        "required": [
-          "error",
-          "message"
         ]
       },
       "CreateSessionRequest": {
@@ -478,6 +497,58 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{runId}/stop": {
+      "post": {
+        "tags": [
+          "Runs"
+        ],
+        "summary": "Stop run",
+        "description": "Requests interruption of an in-flight run and marks unfinished persisted state as interrupted.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "run_123"
+            },
+            "required": true,
+            "name": "runId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run stop was accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopRunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested run was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The run could not be stopped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

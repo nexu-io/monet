@@ -181,6 +181,13 @@ export interface ResolvedChatRequest {
   readonly wallClockDeadlineAt: string | null;
 }
 
+export type InterruptRunResult = "interrupted" | "already_finished" | "not_found";
+
+export interface RecoverUnfinishedRunsResult {
+  readonly interruptedRunIds: string[];
+  readonly failedRunIds: string[];
+}
+
 export interface CreateSessionInput {
   readonly title?: string;
   readonly providerId?: string;
@@ -216,9 +223,11 @@ export interface ChatStorage {
     models: ProviderCatalogModelInput[];
   }): void;
   prepareChatRequest(input: ChatRequestPersistenceInput): ResolvedChatRequest;
+  recoverUnfinishedRuns(): RecoverUnfinishedRunsResult;
   updateRunProgress(options: { runId: string; currentStep: number }): void;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
+  interruptRun(options: { runId: string; finishReason: string }): InterruptRunResult;
   persistAssistantMessage(options: {
     sessionId: string;
     runId: string;
@@ -626,6 +635,46 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       };
     },
 
+    recoverUnfinishedRuns() {
+      const interruptedRunIds = listRunIdsByStatus(connection, "running");
+      const failedRunIds = listRunIdsByStatus(connection, "pending");
+      const endedAt = new Date().toISOString();
+
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        if (interruptedRunIds.length > 0) {
+          connection
+            .prepare(
+              `UPDATE runs
+               SET status = 'interrupted', finish_reason = 'startup_recovery', ended_at = ?
+               WHERE status = 'running'`
+            )
+            .run(endedAt);
+        }
+
+        if (failedRunIds.length > 0) {
+          connection
+            .prepare(
+              `UPDATE runs
+               SET status = 'failed', finish_reason = 'startup_recovery', ended_at = ?
+               WHERE status = 'pending'`
+            )
+            .run(endedAt);
+        }
+
+        connection.exec("COMMIT");
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+
+      return {
+        interruptedRunIds,
+        failedRunIds
+      };
+    },
+
     updateRunProgress({ runId, currentStep }) {
       const normalizedCurrentStep = Math.max(0, currentStep);
 
@@ -665,6 +714,43 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .run(finishReason, endedAt, runId);
     },
 
+    interruptRun({ runId, finishReason }) {
+      const endedAt = new Date().toISOString();
+      const interruptedRunningRun = connection
+        .prepare(
+          `UPDATE runs
+           SET status = 'interrupted', finish_reason = ?, ended_at = ?
+           WHERE id = ? AND status = 'running'`
+        )
+        .run(finishReason, endedAt, runId);
+
+      if (interruptedRunningRun.changes > 0) {
+        return "interrupted";
+      }
+
+      const interruptedPendingRun = connection
+        .prepare(
+          `UPDATE runs
+           SET status = 'interrupted', finish_reason = ?, ended_at = ?
+           WHERE id = ? AND status = 'pending'`
+        )
+        .run(finishReason, endedAt, runId);
+
+      if (interruptedPendingRun.changes > 0) {
+        return "interrupted";
+      }
+
+      const existingRun = connection.prepare(`SELECT status FROM runs WHERE id = ?`).get(runId) as
+        | { status: string }
+        | undefined;
+
+      if (!existingRun) {
+        return "not_found";
+      }
+
+      return "already_finished";
+    },
+
     persistAssistantMessage({ sessionId, runId, providerId, modelId, message }) {
       const createdAt = new Date().toISOString();
 
@@ -684,6 +770,12 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .run(createdAt, providerId, modelId, sessionId);
     }
   };
+}
+
+function listRunIdsByStatus(connection: DatabaseSync, status: string) {
+  const rows = connection.prepare(`SELECT id FROM runs WHERE status = ?`).all(status) as Array<{ id: string }>;
+
+  return rows.map((row) => row.id);
 }
 
 function bootstrapSchema(connection: DatabaseSync) {

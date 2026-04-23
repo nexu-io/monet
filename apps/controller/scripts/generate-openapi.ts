@@ -35,6 +35,10 @@ async function main() {
       {
         name: "Providers",
         description: "Provider, model catalog, and validation endpoints."
+      },
+      {
+        name: "Runs",
+        description: "Run lifecycle endpoints such as interruption."
       }
     ]
   });

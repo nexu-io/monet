@@ -137,6 +137,12 @@ export const ValidateProviderResponseSchema = z
   })
   .openapi("ValidateProviderResponse");
 
+export const StopRunResponseSchema = z
+  .object({
+    ok: z.literal(true).openapi({ example: true })
+  })
+  .openapi("StopRunResponse");
+
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
