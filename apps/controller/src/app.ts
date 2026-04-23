@@ -12,11 +12,13 @@ import { registerRunRoutes } from "./routes/runs";
 import { registerSessionRoutes } from "./routes/sessions";
 import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
+import { createBuiltinToolDefinitions } from "./tools/builtins";
 import { createToolRegistry } from "./tools/registry";
 import type { AgentRuntimeConfig, OpenAIProviderConfig } from "./config";
 
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
+  readonly allowedToolDirectories: readonly string[];
   readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly databasePath: string;
@@ -74,7 +76,11 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     openai: options.openai
   });
   const runRegistry = createRunRegistry();
-  const toolRegistry = createToolRegistry();
+  const toolRegistry = createToolRegistry(
+    createBuiltinToolDefinitions({
+      allowedDirectories: options.allowedToolDirectories
+    })
+  );
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
 
   function getChatStorage() {
@@ -183,6 +189,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
 
   controllerLogger.info("controller.app_created", {
     hasAllowedOrigins: options.allowedOrigins.length > 0,
+    allowedToolDirectoryCount: options.allowedToolDirectories.length,
     databasePath: options.databasePath,
     interruptedRunCount: recoveredRuns.interruptedRunIds.length,
     failedPendingRunCount: recoveredRuns.failedRunIds.length,

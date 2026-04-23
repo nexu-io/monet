@@ -6,6 +6,13 @@ import { createControllerApp } from "../src/app";
 async function main() {
   const app = createControllerApp({
     allowedOrigins: ["null"],
+    allowedToolDirectories: [process.cwd()],
+    agentRuntime: {
+      maxStepsPerRun: 8,
+      maxTokensPerRun: 32_768,
+      wallClockBudgetMs: 60_000,
+      maxToolCallsPerRun: 16
+    },
     bearerToken: "openapi-generation-token",
     databasePath: "/tmp/monet-openapi.sqlite",
     openai: {

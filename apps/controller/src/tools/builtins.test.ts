@@ -1,0 +1,209 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { createChatStorage } from "../chat-storage";
+import { createLogger } from "../logger";
+import { createBuiltinToolDefinitions } from "./builtins";
+import { createToolRegistry } from "./registry";
+
+function createTestFixture() {
+  const fixtureDir = mkdtempSync(join(tmpdir(), "monet-builtins-tests-"));
+  const databasePath = join(fixtureDir, "controller.sqlite");
+  const workspaceDir = join(fixtureDir, "workspace");
+  mkdirSync(workspaceDir, { recursive: true });
+  const storage = createChatStorage({
+    databasePath,
+    openai: {
+      baseUrl: null,
+      defaultModel: "gpt-4o-mini",
+      timeoutMs: null
+    }
+  });
+
+  return {
+    fixtureDir,
+    databasePath,
+    workspaceDir,
+    storage,
+    cleanup() {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  };
+}
+
+function createRuntimeTools(workspaceDir: string, storage: ReturnType<typeof createChatStorage>) {
+  const prepared = storage.prepareChatRequest({
+    messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "hello" }] }]
+  });
+  const registry = createToolRegistry(
+    createBuiltinToolDefinitions({
+      allowedDirectories: [workspaceDir]
+    })
+  );
+
+  return registry.createRuntimeTools({
+    runId: prepared.runId,
+    chatStorage: storage,
+    logger: createLogger("test")
+  }) as Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>;
+}
+
+function createExecutionContext() {
+  return {
+    toolCallId: "call_sdk_1",
+    messages: [],
+    abortSignal: new AbortController().signal,
+    experimental_context: undefined
+  };
+}
+
+test("builtin tool registry exposes fetch/read/write tools", () => {
+  const registry = createToolRegistry(
+    createBuiltinToolDefinitions({
+      allowedDirectories: [process.cwd()]
+    })
+  );
+
+  assert.deepEqual(registry.listTools(), [
+    {
+      name: "fetch_url",
+      description: "Fetches an HTTPS URL and returns the text response body.",
+      requiresConfirmation: false
+    },
+    {
+      name: "read_file",
+      description: "Reads a UTF-8 text file from an authorized directory.",
+      requiresConfirmation: false
+    },
+    {
+      name: "write_file",
+      description: "Writes a UTF-8 text file inside an authorized directory.",
+      requiresConfirmation: true
+    }
+  ]);
+});
+
+test("read_file and write_file operate inside authorized directories", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    writeFileSync(join(fixture.workspaceDir, "input.txt"), "hello from disk", "utf8");
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+
+    const readResult = (await readFileTool.execute(
+      { path: join(fixture.workspaceDir, "input.txt") },
+      createExecutionContext()
+    )) as { path: string; content: string; sizeBytes: number };
+
+    assert.equal(readResult.content, "hello from disk");
+    assert.equal(readResult.path, join(fixture.workspaceDir, "input.txt"));
+    assert.equal(readResult.sizeBytes, Buffer.byteLength("hello from disk", "utf8"));
+
+    const writeResult = (await writeFileTool.execute(
+      {
+        path: join(fixture.workspaceDir, "nested", "output.txt"),
+        content: "generated content"
+      },
+      createExecutionContext()
+    )) as { path: string; bytesWritten: number };
+
+    assert.equal(writeResult.path, join(fixture.workspaceDir, "nested", "output.txt"));
+    assert.equal(writeResult.bytesWritten, Buffer.byteLength("generated content", "utf8"));
+    assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "output.txt"), "utf8"), "generated content");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("read_file rejects paths outside authorized directories", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const readFileTool = runtimeTools.read_file!;
+    const outsidePath = join(fixture.fixtureDir, "outside.txt");
+
+    writeFileSync(outsidePath, "blocked", "utf8");
+
+    await assert.rejects(
+      readFileTool.execute(
+        {
+          path: outsidePath
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url fetches HTTPS text responses", async () => {
+  const fixture = createTestFixture();
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      assert.equal(requestUrl, "https://example.com/article");
+
+      return new Response("hello from the network", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain; charset=utf-8"
+        }
+      });
+    }) as typeof fetch;
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const fetchUrlTool = runtimeTools.fetch_url!;
+    const result = (await fetchUrlTool.execute(
+      {
+        url: "https://example.com/article"
+      },
+      createExecutionContext()
+    )) as {
+      url: string;
+      statusCode: number;
+      statusText: string;
+      contentType: string | null;
+      content: string;
+    };
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.contentType, "text/plain; charset=utf-8");
+    assert.equal(result.content, "hello from the network");
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.cleanup();
+  }
+});
+
+test("fetch_url rejects non-HTTPS URLs", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const fetchUrlTool = runtimeTools.fetch_url!;
+
+    await assert.rejects(
+      fetchUrlTool.execute(
+        {
+          url: "http://example.com/article"
+        },
+        createExecutionContext()
+      ),
+      /only supports HTTPS/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});

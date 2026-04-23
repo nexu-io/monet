@@ -4,6 +4,7 @@ const defaultControllerPort = 3030;
 const defaultControllerHost = "127.0.0.1";
 const defaultDatabasePath = resolve(process.cwd(), "sqlite", "monet.db");
 const defaultAllowedOrigins = ["null", "app://monet"] as const;
+const defaultAllowedToolDirectories = [resolve(process.cwd())] as const;
 const defaultAgentMaxStepsPerRun = 8;
 const defaultAgentMaxTokensPerRun = 32_768;
 const defaultAgentWallClockBudgetMs = 60_000;
@@ -11,6 +12,7 @@ const defaultAgentMaxToolCallsPerRun = 16;
 
 export interface ControllerConfig {
   readonly allowedOrigins: readonly string[];
+  readonly allowedToolDirectories: readonly string[];
   readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly host: string;
@@ -44,6 +46,7 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
 
   return {
     allowedOrigins: parseAllowedOrigins(env),
+    allowedToolDirectories: parseAllowedToolDirectories(env),
     agentRuntime: {
       maxStepsPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_STEPS_PER_RUN, defaultAgentMaxStepsPerRun),
       maxTokensPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_TOKENS_PER_RUN, defaultAgentMaxTokensPerRun),
@@ -61,6 +64,15 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENAI_TIMEOUT_MS)
     }
   };
+}
+
+function parseAllowedToolDirectories(env: NodeJS.ProcessEnv): readonly string[] {
+  const configuredDirectories = env.MONET_TOOL_ALLOWED_DIRECTORIES?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => resolve(value));
+
+  return Array.from(new Set(configuredDirectories?.length ? configuredDirectories : defaultAllowedToolDirectories));
 }
 
 function parseAllowedOrigins(env: NodeJS.ProcessEnv): readonly string[] {
