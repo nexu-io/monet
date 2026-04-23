@@ -1,9 +1,10 @@
 "use client";
 
-import { createContext, startTransition, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, startTransition, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { SETTINGS_QUERY_PARAM } from "./settings-panel-content";
 import {
   archiveSession as archiveSessionRequest,
   createSession as createSessionRequest,
@@ -14,8 +15,15 @@ import {
   type SessionDetailRecord,
   type SessionRecord
 } from "../lib/session-api";
+import { fetchProviderReadiness, PROVIDER_READINESS_EVENT, type ProviderReadinessSnapshot } from "../lib/provider-readiness";
 
 const SESSION_QUERY_PARAM = "session";
+
+interface ProviderReadinessState {
+  readonly loading: boolean;
+  readonly data: ProviderReadinessSnapshot | null;
+  readonly error: string | null;
+}
 
 interface SessionContextValue {
   readonly sessions: SessionRecord[];
@@ -25,11 +33,13 @@ interface SessionContextValue {
   readonly sessionsError: string | null;
   readonly isSessionsLoading: boolean;
   readonly isCurrentSessionLoading: boolean;
+  readonly providerReadiness: ProviderReadinessState;
   readonly createSession: (options?: { pathname?: string }) => Promise<SessionRecord>;
   readonly openSession: (sessionId: string, pathname?: string) => void;
   readonly buildSessionHref: (pathname: string, sessionId: string | null) => string;
   readonly refreshSessions: () => Promise<void>;
   readonly refreshCurrentSession: () => Promise<void>;
+  readonly refreshProviderReadiness: () => Promise<void>;
   readonly renameSession: (sessionId: string, title: string) => Promise<SessionRecord>;
   readonly archiveSession: (sessionId: string) => Promise<SessionRecord>;
 }
@@ -64,6 +74,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isSessionsLoading, setIsSessionsLoading] = useState(true);
   const [isCurrentSessionLoading, setIsCurrentSessionLoading] = useState(false);
+  const [providerReadiness, setProviderReadiness] = useState<ProviderReadinessState>({
+    loading: true,
+    data: null,
+    error: null
+  });
+  const hasForcedProviderSetupRef = useRef(false);
 
   function buildSessionHref(targetPathname: string, sessionId: string | null) {
     const params = new URLSearchParams(searchParams.toString());
@@ -123,8 +139,38 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function refreshProviderReadiness() {
+    setProviderReadiness((current) => ({
+      loading: true,
+      data: current.data,
+      error: null
+    }));
+
+    try {
+      setProviderReadiness({
+        loading: false,
+        data: await fetchProviderReadiness(),
+        error: null
+      });
+    } catch (error) {
+      setProviderReadiness({
+        loading: false,
+        data: null,
+        error: error instanceof Error ? error.message : "Failed to load provider readiness."
+      });
+    }
+  }
+
   async function createSession(options?: { pathname?: string }) {
-    const session = await createSessionRequest();
+    const readyProvider = providerReadiness.data?.firstReadyProvider;
+    const session = await createSessionRequest(
+      readyProvider
+        ? {
+            providerId: readyProvider.providerId,
+            modelId: readyProvider.modelId
+          }
+        : undefined
+    );
 
     setSessions((current) => upsertSession(current, session));
     setCurrentSessionDetail({
@@ -173,6 +219,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshSessions();
+    void refreshProviderReadiness();
+  }, []);
+
+  useEffect(() => {
+    function handleProviderReadinessUpdate() {
+      void refreshProviderReadiness();
+    }
+
+    window.addEventListener(PROVIDER_READINESS_EVENT, handleProviderReadinessUpdate);
+
+    return () => {
+      window.removeEventListener(PROVIDER_READINESS_EVENT, handleProviderReadinessUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -180,16 +239,51 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [currentSessionId]);
 
   useEffect(() => {
-    if (!currentSessionId && (pathname === "/" || pathname === "/sessions")) {
+    if (pathname !== "/" && pathname !== "/sessions") {
+      return;
+    }
+
+    if (isSessionsLoading || providerReadiness.loading) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    let changed = false;
+    const shouldForceProviderSetup = !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
+
+    if (providerReadiness.data?.hasReadyProvider) {
+      hasForcedProviderSetupRef.current = false;
+    }
+
+    if (shouldForceProviderSetup && params.get(SETTINGS_QUERY_PARAM) === "models") {
+      hasForcedProviderSetupRef.current = true;
+    }
+
+    if (shouldForceProviderSetup && !hasForcedProviderSetupRef.current && params.get(SETTINGS_QUERY_PARAM) !== "models") {
+      params.set(SETTINGS_QUERY_PARAM, "models");
+      hasForcedProviderSetupRef.current = true;
+      changed = true;
+    }
+
+    if (!currentSessionId) {
       const nextSession = sessions.find((session) => session.archivedAt === null) ?? null;
 
       if (nextSession) {
-        startTransition(() => {
-          router.replace(buildSessionHref(pathname, nextSession.id));
-        });
+        params.set(SESSION_QUERY_PARAM, nextSession.id);
+        changed = true;
       }
     }
-  }, [currentSessionId, pathname, router, searchParams, sessions]);
+
+    if (!changed) {
+      return;
+    }
+
+    const query = params.toString();
+
+    startTransition(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    });
+  }, [currentSessionId, isSessionsLoading, pathname, providerReadiness.data, providerReadiness.error, providerReadiness.loading, router, searchParams, sessions]);
 
   const currentSession = currentSessionDetail ?? sessions.find((session) => session.id === currentSessionId) ?? null;
   const value = useMemo<SessionContextValue>(
@@ -201,15 +295,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sessionsError,
       isSessionsLoading,
       isCurrentSessionLoading,
+      providerReadiness,
       createSession,
       openSession,
       buildSessionHref,
       refreshSessions,
       refreshCurrentSession,
+      refreshProviderReadiness,
       renameSession,
       archiveSession
     }),
-    [currentSession, currentSessionDetail, currentSessionId, isCurrentSessionLoading, isSessionsLoading, sessions, sessionsError]
+    [currentSession, currentSessionDetail, currentSessionId, isCurrentSessionLoading, isSessionsLoading, providerReadiness, sessions, sessionsError]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

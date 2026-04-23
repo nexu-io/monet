@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { Card } from "@nexu-design/ui-web";
@@ -10,8 +11,10 @@ import { Composer } from "../components/composer";
 import { ConversationHeader } from "../components/conversation-header";
 import { ControllerStatusCard } from "../components/controller-status-card";
 import { PageFrame } from "../components/page-frame";
+import { getSettingsHref } from "../components/settings-panel-content";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { getMonetClientConfig } from "../lib/monet-client";
+import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
 
 interface PendingContinuationRequest {
@@ -33,11 +36,13 @@ function deriveSessionTitle(input: string) {
 
 function SessionChatSurface({
   session,
+  fallbackProviderTarget,
   onRenameSession,
   onRefreshCurrentSession,
   onRefreshSessions
 }: {
   session: SessionDetailRecord;
+  fallbackProviderTarget: ProviderReadinessTarget | null;
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onRefreshCurrentSession: () => Promise<void>;
   onRefreshSessions: () => Promise<void>;
@@ -46,6 +51,8 @@ function SessionChatSurface({
   const [approvalErrorText, setApprovalErrorText] = useState<string | undefined>(undefined);
   const pendingContinuationRef = useRef<PendingContinuationRequest | null>(null);
   const controllerConfig = getMonetClientConfig();
+  const resolvedProviderId = fallbackProviderTarget?.providerId ?? null;
+  const resolvedModelId = fallbackProviderTarget?.modelId ?? null;
   const initialMessages = useMemo(() => session.messages.map((message) => message.uiMessage), [session.id, session.messages]);
   const transport = useMemo(
     () =>
@@ -63,8 +70,8 @@ function SessionChatSurface({
         },
         body: {
           sessionId: session.id,
-          providerId: session.defaultProviderId ?? "pro_b6m4q2r8t5v9x3z7k1n4p6s8",
-          modelId: session.defaultModelId ?? "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
+          ...(resolvedProviderId ? { providerId: resolvedProviderId } : {}),
+          ...(resolvedModelId ? { modelId: resolvedModelId } : {})
         },
         prepareSendMessagesRequest: ({ api, body, headers, credentials }) => {
           const pendingContinuation = pendingContinuationRef.current;
@@ -89,7 +96,7 @@ function SessionChatSurface({
           };
         }
       }),
-    [controllerConfig.apiBase, controllerConfig.bearerToken, session.defaultModelId, session.defaultProviderId, session.id]
+    [controllerConfig.apiBase, controllerConfig.bearerToken, resolvedModelId, resolvedProviderId, session.id]
   );
   const { messages, sendMessage, regenerate, stop, status, error, clearError, addToolApprovalResponse } = useChat({
     id: session.id,
@@ -106,11 +113,16 @@ function SessionChatSurface({
   const canRegenerate = !isBusy && messages.some((message) => message.role === "user");
   const hasUserMessages = messages.some((message) => message.role === "user");
   const isArchived = session.archivedAt !== null;
+  const isProviderUnavailable = !resolvedProviderId || !resolvedModelId;
+  const isComposerDisabled = isArchived || isProviderUnavailable;
+  const composerDisabledReason = isArchived
+    ? "This session is archived. Create a new session or switch to an active one to continue chatting."
+    : "Complete provider setup in Model Settings before starting a chat.";
 
   async function handleSubmit() {
     const text = input.trim();
 
-    if (!text || isBusy || isArchived) {
+    if (!text || isBusy || isComposerDisabled) {
       return;
     }
 
@@ -124,7 +136,7 @@ function SessionChatSurface({
   }
 
   async function handleRegenerate() {
-    if (!canRegenerate || isArchived) {
+    if (!canRegenerate || isComposerDisabled) {
       return;
     }
 
@@ -157,7 +169,7 @@ function SessionChatSurface({
   }
 
   async function handleToolApproval(input: PendingContinuationRequest) {
-    if (isBusy || isArchived) {
+    if (isBusy || isComposerDisabled) {
       throw new Error("Tool confirmation is unavailable right now.");
     }
 
@@ -211,7 +223,7 @@ function SessionChatSurface({
           status={status}
           messageCount={messages.length}
           hasError={error != null || approvalErrorText != null}
-          canRegenerate={canRegenerate}
+          canRegenerate={canRegenerate && !isComposerDisabled}
           onRegenerate={() => void handleRegenerate()}
           onStop={handleStop}
         />
@@ -221,12 +233,8 @@ function SessionChatSurface({
           value={input}
           status={status}
           canRegenerate={canRegenerate}
-          disabled={isArchived}
-          {...(isArchived
-            ? {
-                disabledReason: "This session is archived. Create a new session or switch to an active one to continue chatting."
-              }
-            : {})}
+          disabled={isComposerDisabled}
+          {...(isComposerDisabled ? { disabledReason: composerDisabledReason } : {})}
           onValueChange={handleInputChange}
           onSubmit={() => void handleSubmit()}
           onRegenerate={() => void handleRegenerate()}
@@ -249,7 +257,22 @@ function SessionChatSurface({
 }
 
 export default function HomePage() {
-  const { createSession, currentSessionDetail, isCurrentSessionLoading, isSessionsLoading, refreshCurrentSession, refreshSessions, renameSession, sessionsError } = useSessions();
+  const {
+    createSession,
+    currentSessionDetail,
+    isCurrentSessionLoading,
+    isSessionsLoading,
+    providerReadiness,
+    refreshCurrentSession,
+    refreshSessions,
+    renameSession,
+    sessions,
+    sessionsError
+  } = useSessions();
+
+  const hasActiveSessions = sessions.some((session) => session.archivedAt === null);
+  const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
+  const blankStateHref = getSettingsHref("/", new URLSearchParams(), "models");
 
   async function handleRenameSession(sessionId: string, title: string) {
     try {
@@ -260,6 +283,20 @@ export default function HomePage() {
   }
 
   if (!currentSessionDetail) {
+    const isStartupLoading = isSessionsLoading || isCurrentSessionLoading || providerReadiness.loading;
+    const title = isSessionsLoading || isCurrentSessionLoading || providerReadiness.loading
+      ? "Loading startup state..."
+      : providerSetupRequired
+        ? "Finish provider setup before starting chat"
+        : !hasActiveSessions
+          ? "Start your first chat"
+          : "No active session selected.";
+    const description = providerSetupRequired
+      ? "Monet opens Model Settings first when no validated provider can resolve a default model for new chats."
+      : !hasActiveSessions
+        ? "There are no active sessions yet. Create one to land in the blank conversation state."
+        : sessionsError ?? "Select a recent session from the sidebar or create a fresh one.";
+
     return (
       <PageFrame
         pathname="/"
@@ -267,14 +304,28 @@ export default function HomePage() {
         description="Desktop-first chat shell wired for a local Hono controller and ready for AI SDK UI message rendering."
       >
         <Card className="card stack-tight session-browser-empty">
-          <span className="eyebrow">Session state</span>
-          <strong>{isSessionsLoading || isCurrentSessionLoading ? "Loading session history..." : "No active session selected."}</strong>
-          <p className="muted">{sessionsError ?? "Create a fresh session to start streaming against the persisted controller-backed chat flow."}</p>
-          <div>
-            <button type="button" className="session-action-button session-action-button-primary" onClick={() => void createSession({ pathname: "/" })}>
-              Create session
-            </button>
-          </div>
+          <span className="eyebrow">Startup state</span>
+          <strong>{title}</strong>
+          <p className="muted">{description}</p>
+          {sessionsError ? <p className="muted mono">{sessionsError}</p> : null}
+          {!isStartupLoading ? (
+            <div className="session-browser-actions">
+              {providerSetupRequired ? (
+                <Link href={blankStateHref} className="session-action-button session-action-button-primary">
+                  Open model settings
+                </Link>
+              ) : (
+                <button type="button" className="session-action-button session-action-button-primary" onClick={() => void createSession({ pathname: "/" })}>
+                  Create session
+                </button>
+              )}
+              {!providerSetupRequired && hasActiveSessions ? (
+                <Link href="/sessions" className="session-action-button">
+                  View all sessions
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
         </Card>
       </PageFrame>
     );
@@ -284,6 +335,11 @@ export default function HomePage() {
     <SessionChatSurface
       key={currentSessionDetail.id}
       session={currentSessionDetail}
+      fallbackProviderTarget={
+        providerReadiness.data?.readyProviders.find(
+          (provider) => provider.providerId === currentSessionDetail.defaultProviderId && provider.modelId === currentSessionDetail.defaultModelId
+        ) ?? providerReadiness.data?.firstReadyProvider ?? null
+      }
       onRenameSession={handleRenameSession}
       onRefreshCurrentSession={refreshCurrentSession}
       onRefreshSessions={refreshSessions}

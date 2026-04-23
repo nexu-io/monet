@@ -15,6 +15,7 @@ import {
 
 import type { Provider, ProviderModel, ValidateProviderResponse } from "../lib/api/generated/types.gen";
 import { getMonetClientConfig, type ProviderSecretStorageSnapshot } from "../lib/monet-client";
+import { PROVIDER_READINESS_EVENT } from "../lib/provider-readiness";
 
 export const SETTINGS_QUERY_PARAM = "settings";
 
@@ -150,6 +151,14 @@ function formatTimestamp(value: string) {
 
 function getDesktopApi() {
   return typeof window === "undefined" ? undefined : window.monetDesktop;
+}
+
+function notifyProviderReadinessUpdated() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new Event(PROVIDER_READINESS_EVENT));
 }
 
 function getSecretStatus(snapshot: ProviderSecretStorageSnapshot | null, providerType: Provider["type"]) {
@@ -332,6 +341,7 @@ function ModelSettingsPanel() {
           error: null
         }
       }));
+      notifyProviderReadinessUpdated();
     } catch (error) {
       setValidationByProviderId((current) => ({
         ...current,
@@ -341,6 +351,7 @@ function ModelSettingsPanel() {
           error: error instanceof Error ? error.message : "Unable to validate provider."
         }
       }));
+      notifyProviderReadinessUpdated();
     }
   }, []);
 
@@ -371,6 +382,7 @@ function ModelSettingsPanel() {
 
       if (nextProviders.length === 0) {
         setValidationByProviderId({});
+        notifyProviderReadinessUpdated();
         return;
       }
 
@@ -388,12 +400,14 @@ function ModelSettingsPanel() {
       setValidationByProviderId(loadingStates);
 
       await Promise.all(nextProviders.map(async (provider) => validateProvider(provider.id)));
+      notifyProviderReadinessUpdated();
     } catch (error) {
       setProvidersState({
         loading: false,
         data: null,
         error: error instanceof Error ? error.message : "Unable to load providers."
       });
+      notifyProviderReadinessUpdated();
     }
   }, [validateProvider]);
 

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Badge, Button, Card, NavItem, StatusDot } from "@nexu-design/ui-web";
 
 import { getSettingsHref, isSettingsPanelId, type SettingsPanelId } from "./settings-panel-content";
@@ -58,13 +58,21 @@ export function AppShell({
   header?: ReactNode;
   composer?: ReactNode;
 }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const { archiveSession, buildSessionHref, createSession, currentSessionId, isSessionsLoading, openSession, renameSession, sessions } = useSessions();
+  const { archiveSession, buildSessionHref, createSession, currentSessionId, isSessionsLoading, openSession, providerReadiness, renameSession, sessions } = useSessions();
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 6);
   const requestedPanel = searchParams.get("settings");
   const activeSettingsPanel = isSettingsPanelId(requestedPanel) ? requestedPanel : null;
+  const isProviderReadinessLoading = providerReadiness.loading;
+  const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
 
   async function handleCreateSession() {
+    if (providerSetupRequired) {
+      router.push(getSettingsHref(pathname, searchParams, "models"));
+      return;
+    }
+
     await createSession({ pathname: "/" });
   }
 
@@ -100,8 +108,14 @@ export function AppShell({
             </div>
           </Card>
 
-          <Button type="button" variant="primary" className="new-session-button" onClick={() => void handleCreateSession()}>
-            + New session
+          <Button
+            type="button"
+            variant="primary"
+            className="new-session-button"
+            onClick={() => void handleCreateSession()}
+            disabled={isProviderReadinessLoading}
+          >
+            {isProviderReadinessLoading ? "Checking setup..." : providerSetupRequired ? "Open model settings" : "+ New session"}
           </Button>
 
           <nav className="nav" aria-label="Primary">
@@ -130,7 +144,9 @@ export function AppShell({
 
             <div className="session-preview-list">
               {isSessionsLoading ? <p className="muted">Loading sessions...</p> : null}
-              {!isSessionsLoading && recentSessions.length === 0 ? <p className="muted">No active sessions yet.</p> : null}
+              {!isSessionsLoading && recentSessions.length === 0 ? (
+                <p className="muted">{providerSetupRequired ? "Finish provider setup to create the first chat." : "No active sessions yet."}</p>
+              ) : null}
               {recentSessions.map((session) => {
                 const isActive = session.id === currentSessionId;
 

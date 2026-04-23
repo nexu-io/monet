@@ -84,7 +84,7 @@ export async function getSessionDetail(sessionId: string) {
   return requestJson<SessionDetailRecord>(`/api/sessions/${sessionId}`);
 }
 
-export async function createSession(input?: { title?: string }) {
+export async function createSession(input?: { title?: string; providerId?: string; modelId?: string }) {
   return requestJson<SessionRecord>("/api/sessions", {
     method: "POST",
     body: JSON.stringify(input ?? {})
