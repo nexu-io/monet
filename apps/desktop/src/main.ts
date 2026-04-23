@@ -6,6 +6,8 @@ import path from "node:path";
 
 import { BrowserWindow, app, dialog, ipcMain, shell, utilityProcess } from "electron";
 
+import { createLogger } from "./logger";
+
 export const desktopAppName = "@monet/desktop";
 
 interface ControllerRuntime {
@@ -22,12 +24,16 @@ interface ControllerStatePayload {
 
 const controllerHost = "127.0.0.1";
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const logger = createLogger("desktop", {
+  component: "main"
+});
 
 let mainWindow: BrowserWindow | null = null;
 let controllerRuntime: ControllerRuntime | null = null;
 let isAppQuitting = false;
 
 if (!gotSingleInstanceLock) {
+  logger.warn("desktop.single_instance_denied");
   app.quit();
 } else {
   app.on("second-instance", () => {
@@ -54,12 +60,21 @@ app.on("before-quit", () => {
 });
 
 app.on("window-all-closed", () => {
+  logger.info("desktop.window_all_closed", {
+    platform: process.platform
+  });
+
   if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
 app.on("activate", async () => {
+  logger.info("desktop.activate", {
+    hasWindow: mainWindow != null,
+    hasControllerRuntime: controllerRuntime != null
+  });
+
   if (mainWindow || !controllerRuntime) {
     return;
   }
@@ -68,6 +83,10 @@ app.on("activate", async () => {
 });
 
 ipcMain.handle("monet:get-runtime-info", () => {
+  logger.debug("desktop.runtime_info_requested", {
+    hasRuntime: controllerRuntime != null
+  });
+
   return {
     apiBase: controllerRuntime?.apiBase,
     bearerToken: controllerRuntime?.bearerToken
@@ -75,6 +94,10 @@ ipcMain.handle("monet:get-runtime-info", () => {
 });
 
 ipcMain.handle("monet:restart-controller", async () => {
+  logger.info("desktop.controller_restart_requested", {
+    usingExternalController: Boolean(process.env.MONET_DESKTOP_CONTROLLER_URL?.trim())
+  });
+
   if (process.env.MONET_DESKTOP_CONTROLLER_URL?.trim()) {
     return {
       restarted: false,
@@ -82,18 +105,31 @@ ipcMain.handle("monet:restart-controller", async () => {
     };
   }
 
-  controllerRuntime = await startManagedController();
-  broadcastControllerState({ state: "ready", apiBase: controllerRuntime.apiBase });
+  try {
+    controllerRuntime = await startManagedController();
+    broadcastControllerState({ state: "ready", apiBase: controllerRuntime.apiBase });
 
-  return {
-    restarted: true,
-    apiBase: controllerRuntime.apiBase
-  };
+    logger.info("desktop.controller_restart_completed", {
+      apiBase: controllerRuntime.apiBase
+    });
+
+    return {
+      restarted: true,
+      apiBase: controllerRuntime.apiBase
+    };
+  } catch (error) {
+    logger.error("desktop.controller_restart_failed", error);
+    throw error;
+  }
 });
 
 async function bootstrap() {
+  logger.info("desktop.bootstrap_started");
   controllerRuntime = await resolveControllerRuntime();
   mainWindow = await createMainWindow(controllerRuntime);
+  logger.info("desktop.bootstrap_completed", {
+    managedController: controllerRuntime.managed
+  });
 }
 
 async function createMainWindow(runtime: ControllerRuntime) {
@@ -141,12 +177,16 @@ async function createMainWindow(runtime: ControllerRuntime) {
     window.show();
   });
   await loadLoadingScreen(window);
+  logger.info("desktop.loading_screen_ready");
 
   if (!window.isDestroyed() && !window.isVisible()) {
     window.show();
   }
 
   await loadRenderer(window);
+  logger.info("desktop.renderer_loaded", {
+    managedController: runtime.managed
+  });
   broadcastControllerState({ state: "ready", apiBase: runtime.apiBase });
 
   window.on("closed", () => {
@@ -166,6 +206,10 @@ async function loadRenderer(window: BrowserWindow) {
   const rendererUrl = process.env.MONET_DESKTOP_RENDERER_URL?.trim();
 
   if (rendererUrl) {
+    logger.info("desktop.renderer_wait_started", {
+      mode: "dev",
+      rendererUrl
+    });
     await waitForRendererReady(rendererUrl);
     await window.loadURL(rendererUrl);
     return;
@@ -173,6 +217,10 @@ async function loadRenderer(window: BrowserWindow) {
 
   const rendererEntry = path.resolve(__dirname, "../../web-ui/out/index.html");
   await assertFileExists(rendererEntry, "exported web-ui entrypoint");
+  logger.info("desktop.renderer_wait_started", {
+    mode: "prod",
+    rendererEntry
+  });
   await window.loadFile(rendererEntry);
 }
 
@@ -182,6 +230,10 @@ async function waitForRendererReady(rendererUrl: string) {
       const response = await fetch(rendererUrl);
 
       if (response.ok) {
+        logger.info("desktop.renderer_ready", {
+          attempt: attempt + 1,
+          rendererUrl
+        });
         return;
       }
     } catch {
@@ -316,6 +368,11 @@ async function resolveControllerRuntime(): Promise<ControllerRuntime> {
   const externalApiBase = process.env.MONET_DESKTOP_CONTROLLER_URL?.trim();
 
   if (externalApiBase) {
+    logger.info("desktop.controller_runtime_resolved", {
+      mode: "external",
+      apiBase: trimTrailingSlash(externalApiBase)
+    });
+
     return {
       apiBase: trimTrailingSlash(externalApiBase),
       bearerToken: process.env.MONET_DESKTOP_CONTROLLER_BEARER_TOKEN?.trim() || null,
@@ -328,6 +385,7 @@ async function resolveControllerRuntime(): Promise<ControllerRuntime> {
 
 async function startManagedController(): Promise<ControllerRuntime> {
   if (controllerRuntime?.child) {
+    logger.warn("desktop.controller_existing_child_replaced");
     controllerRuntime.child.kill();
   }
 
@@ -337,6 +395,11 @@ async function startManagedController(): Promise<ControllerRuntime> {
   const port = await reserveEphemeralPort();
   const bearerToken = randomBytes(24).toString("hex");
   const apiBase = `http://${controllerHost}:${port}`;
+
+  logger.info("desktop.controller_start_requested", {
+    apiBase,
+    port
+  });
 
   const child = utilityProcess.fork(controllerEntrypoint, [], {
     env: {
@@ -350,9 +413,11 @@ async function startManagedController(): Promise<ControllerRuntime> {
 
   child.once("exit", () => {
     if (isAppQuitting) {
+      logger.info("desktop.controller_exit_during_shutdown");
       return;
     }
 
+    logger.error("desktop.controller_exited_unexpectedly");
     broadcastControllerState({ state: "stopped" });
     void dialog.showMessageBox({
       type: "error",
@@ -364,6 +429,11 @@ async function startManagedController(): Promise<ControllerRuntime> {
 
   broadcastControllerState({ state: "starting" });
   await waitForControllerReady(apiBase, bearerToken);
+
+  logger.info("desktop.controller_ready", {
+    apiBase,
+    port
+  });
 
   return {
     apiBase,
@@ -399,6 +469,10 @@ async function waitForControllerReady(apiBase: string, bearerToken: string) {
       });
 
       if (response.ok) {
+        logger.info("desktop.controller_healthcheck_ready", {
+          attempt: attempt + 1,
+          healthUrl
+        });
         return;
       }
     } catch {
@@ -448,7 +522,7 @@ async function assertFileExists(filePath: string, label: string) {
 
 function handleBootstrapError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error("Failed to bootstrap the Monet desktop shell.", error);
+  logger.error("desktop.bootstrap_failed", error);
 
   void dialog
     .showMessageBox({

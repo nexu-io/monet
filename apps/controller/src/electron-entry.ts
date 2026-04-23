@@ -1,7 +1,16 @@
 import { startControllerServer, type ControllerServerAddress } from "./index";
+import { createLogger } from "./logger";
+
+const logger = createLogger("controller", {
+  component: "electron-entry"
+});
 
 const server = startControllerServer({
   onReady(address) {
+    logger.info("controller.ready_notified", {
+      address: address.address,
+      port: address.port
+    });
     notifyReady(address);
   }
 });
@@ -26,7 +35,9 @@ function shutdown() {
   }
 
   shuttingDown = true;
+  logger.info("controller.shutdown_requested");
   server.close(() => {
+    logger.info("controller.shutdown_complete");
     process.exit(0);
   });
 }

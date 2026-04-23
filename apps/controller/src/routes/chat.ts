@@ -3,6 +3,8 @@ import { simulateReadableStream, streamText, convertToModelMessages, validateUIM
 
 import type { ControllerApp } from "../app";
 import { ChatStorageResolutionError, type ChatStorage, type ResolvedChatRequest } from "../chat-storage";
+import { createLogger } from "../logger";
+import { getRequestId } from "../request-context";
 
 interface ChatRequestBody {
   readonly messages?: unknown;
@@ -15,6 +17,9 @@ interface ChatRequestBody {
 }
 
 const STREAM_CHUNK_DELAY_MS = 18;
+const chatLogger = createLogger("controller", {
+  component: "chat-route"
+});
 
 function getLatestUserText(prompt: Array<{ role: string; content: unknown }>) {
   for (let index = prompt.length - 1; index >= 0; index -= 1) {
@@ -147,11 +152,16 @@ function toModelMessages(messages: UIMessage[]) {
 
 export function registerChatRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
   app.post("/api/chat", async (context) => {
+    const requestId = getRequestId(context);
     let body: ChatRequestBody;
 
     try {
       body = (await context.req.json()) as ChatRequestBody;
     } catch {
+      chatLogger.warn("chat.invalid_json", {
+        requestId
+      });
+
       return context.json(
         {
           error: "invalid_request",
@@ -168,6 +178,11 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
         messages: Array.isArray(body.messages) ? body.messages : []
       });
     } catch {
+      chatLogger.warn("chat.invalid_messages", {
+        requestId,
+        rawMessageCount: Array.isArray(body.messages) ? body.messages.length : 0
+      });
+
       return context.json(
         {
           error: "invalid_request",
@@ -191,6 +206,15 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
       if (error instanceof ChatStorageResolutionError) {
         const status = error.statusCode === 422 ? 422 : 400;
 
+        chatLogger.warn("chat.request_rejected", {
+          requestId,
+          errorCode: error.errorCode,
+          sessionId: body.sessionId,
+          providerId: body.providerId,
+          modelId: body.modelId,
+          status
+        });
+
         return context.json(
           {
             error: error.errorCode,
@@ -200,7 +224,12 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
         );
       }
 
-      console.error("Failed to prepare chat request persistence.", error);
+      chatLogger.error("chat.prepare_request_failed", error, {
+        requestId,
+        sessionId: body.sessionId,
+        providerId: body.providerId,
+        modelId: body.modelId
+      });
 
       return context.json(
         {
@@ -211,6 +240,22 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
       );
     }
 
+    const runtimeLogger = chatLogger.child({
+      requestId,
+      runId: resolvedChatRequest.runId,
+      sessionId: resolvedChatRequest.sessionId,
+      providerId: resolvedChatRequest.providerId,
+      modelId: resolvedChatRequest.modelId,
+      runtimeArea: "tool-runtime"
+    });
+
+    const startedAt = Date.now();
+
+    runtimeLogger.info("chat.run_started", {
+      maxSteps: body.runtimeOptions?.maxSteps ?? null,
+      messageCount: messages.length
+    });
+
     const result = streamText({
       model: createLocalChatModel(body, resolvedChatRequest),
       messages: await toModelMessages(messages),
@@ -220,8 +265,13 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
             runId: resolvedChatRequest.runId,
             finishReason: finishReason ?? null
           });
+
+          runtimeLogger.info("chat.run_completed", {
+            durationMs: Date.now() - startedAt,
+            finishReason: finishReason ?? null
+          });
         } catch (error) {
-          console.error("Failed to finalize chat run.", error);
+          runtimeLogger.error("chat.complete_run_failed", error);
         }
       }
     });
@@ -240,8 +290,13 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
             modelId: resolvedChatRequest.modelId,
             message: responseMessage
           });
+
+          runtimeLogger.info("chat.assistant_message_persisted", {
+            messageId: responseMessage.id,
+            partCount: responseMessage.parts.length
+          });
         } catch (error) {
-          console.error("Failed to persist assistant message.", error);
+          runtimeLogger.error("chat.persist_assistant_message_failed", error);
         }
       },
       onError: (error) => {
@@ -251,8 +306,12 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
             finishReason: error instanceof Error ? error.message : "stream_error"
           });
         } catch (persistError) {
-          console.error("Failed to mark chat run as failed.", persistError);
+          runtimeLogger.error("chat.fail_run_persist_failed", persistError);
         }
+
+        runtimeLogger.error("chat.stream_failed", error, {
+          durationMs: Date.now() - startedAt
+        });
 
         return "An error occurred.";
       }

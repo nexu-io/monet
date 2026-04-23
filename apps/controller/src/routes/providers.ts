@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 
 import type { ControllerApp } from "../app";
 import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
+import { createLogger } from "../logger";
 import {
   ErrorResponseSchema,
   ListModelsResponseSchema,
@@ -9,6 +10,10 @@ import {
   ValidateProviderResponseSchema,
   createErrorResponse
 } from "../openapi";
+
+const providersLogger = createLogger("controller", {
+  component: "providers-route"
+});
 
 const providerIdParamSchema = z.object({
   providerId: z.string().trim().min(1).openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" })
@@ -132,7 +137,7 @@ function createProviderErrorResponse(error: unknown) {
     };
   }
 
-  console.error("Providers route failed.", error);
+  providersLogger.error("providers.request_failed", error);
 
   return {
     body: createErrorResponse("internal_error", "Failed to process the provider request."),

@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
 import type { ControllerApp } from "../app";
+import { createLogger } from "../logger";
 import {
   ArchiveSessionResponseSchema,
   CreateSessionRequestSchema,
@@ -12,6 +13,10 @@ import {
   createErrorResponse
 } from "../openapi";
 import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
+
+const sessionsLogger = createLogger("controller", {
+  component: "sessions-route"
+});
 
 const sessionIdParamSchema = z.object({
   sessionId: z.string().openapi({ example: "ses_123" })
@@ -229,7 +234,7 @@ function createSessionMutationErrorResponse(error: unknown) {
     } as const;
   }
 
-  console.error("Sessions route failed.", error);
+  sessionsLogger.error("sessions.mutation_failed", error);
 
   return {
     body: createErrorResponse("internal_error", "Failed to process the session request."),
@@ -245,7 +250,7 @@ function createSessionLookupErrorResponse(error: unknown) {
     };
   }
 
-  console.error("Sessions route failed.", error);
+  sessionsLogger.error("sessions.lookup_failed", error);
 
   return {
     body: createErrorResponse("internal_error", "Failed to process the session request."),
