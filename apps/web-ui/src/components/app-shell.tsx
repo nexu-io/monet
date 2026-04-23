@@ -2,14 +2,18 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Badge, Button, Card, NavItem, StatusDot } from "@nexu-design/ui-web";
 
+import { getSettingsHref, isSettingsPanelId, type SettingsPanelId } from "./settings-panel-content";
+import { SettingsSheet } from "./settings-sheet";
 import { useSessions } from "./session-provider";
 
 type NavigationItem = {
   href: string;
   label: string;
   description: string;
+  settingsPanel?: SettingsPanelId;
 };
 
 const navigationItems: NavigationItem[] = [
@@ -21,12 +25,14 @@ const navigationItems: NavigationItem[] = [
   {
     href: "/settings/models",
     label: "Model Settings",
-    description: "Provider and model configuration."
+    description: "Provider and model configuration.",
+    settingsPanel: "models"
   },
   {
     href: "/settings/general",
     label: "General Settings",
-    description: "Desktop runtime and connectivity preferences."
+    description: "Desktop runtime and connectivity preferences.",
+    settingsPanel: "general"
   }
 ];
 
@@ -52,8 +58,11 @@ export function AppShell({
   header?: ReactNode;
   composer?: ReactNode;
 }) {
+  const searchParams = useSearchParams();
   const { archiveSession, buildSessionHref, createSession, currentSessionId, isSessionsLoading, openSession, renameSession, sessions } = useSessions();
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 6);
+  const requestedPanel = searchParams.get("settings");
+  const activeSettingsPanel = isSettingsPanelId(requestedPanel) ? requestedPanel : null;
 
   async function handleCreateSession() {
     await createSession({ pathname: "/" });
@@ -97,11 +106,12 @@ export function AppShell({
 
           <nav className="nav" aria-label="Primary">
             {navigationItems.map((item) => {
-              const isActive = pathname === item.href;
+              const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
+              const isActive = item.settingsPanel ? activeSettingsPanel === item.settingsPanel : pathname === item.href && activeSettingsPanel === null;
 
               return (
                 <NavItem key={item.href} asChild selected={isActive} className="nav-link">
-                  <Link href={item.href}>
+                  <Link href={href}>
                     <span className="nav-label">{item.label}</span>
                     <span className="nav-description">{item.description}</span>
                   </Link>
@@ -167,11 +177,12 @@ export function AppShell({
 
           <nav className="nav nav-compact" aria-label="Settings">
             {navigationItems.slice(1).map((item) => {
-              const isActive = pathname === item.href;
+              const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
+              const isActive = item.settingsPanel ? activeSettingsPanel === item.settingsPanel : pathname === item.href && activeSettingsPanel === null;
 
               return (
                 <NavItem key={item.href} asChild selected={isActive} className="nav-link nav-link-compact">
-                  <Link href={item.href}>
+                  <Link href={href}>
                     <span className="nav-label">{item.label}</span>
                     <span className="nav-description">{item.description}</span>
                   </Link>
@@ -189,6 +200,8 @@ export function AppShell({
         </div>
         {composer ? <div className="canvas-composer">{composer}</div> : null}
       </main>
+
+      <SettingsSheet pathname={pathname} />
     </div>
   );
 }

@@ -61,6 +61,7 @@ textarea {
   display: grid;
   grid-template-columns: var(--app-shell-width) minmax(0, 1fr);
   min-height: 100vh;
+  position: relative;
 }
 
 .sidebar {
@@ -213,6 +214,85 @@ textarea {
   color: var(--color-text-heading);
   font-size: var(--text-size-4xl);
   font-weight: var(--text-weight-bold);
+}
+
+.settings-sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: hsl(var(--background) / 0.56);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+}
+
+.settings-sheet {
+  position: relative;
+  width: min(calc(var(--spacing) * 120), 100vw);
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: calc(var(--spacing) * 4);
+  padding: calc(var(--spacing) * 5);
+  border-left: 1px solid var(--color-border-strong);
+  background: hsl(var(--background) / 0.94);
+  box-shadow: var(--shadow-overlay);
+  backdrop-filter: blur(18px);
+}
+
+.settings-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: calc(var(--spacing) * 4);
+}
+
+.settings-sheet-header h2 {
+  margin: 0;
+  color: var(--color-text-heading);
+  font-size: var(--text-size-4xl);
+  font-weight: var(--text-weight-bold);
+}
+
+.settings-sheet-nav {
+  display: grid;
+  gap: calc(var(--spacing) * 2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-sheet-nav-link {
+  display: grid;
+  gap: calc(var(--spacing) * 1);
+  padding: calc(var(--spacing) * 3);
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-xl);
+  background: hsl(var(--secondary) / 0.38);
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    border-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-normal) var(--ease-standard);
+}
+
+.settings-sheet-nav-link:hover,
+.settings-sheet-nav-link[data-active="true"] {
+  border-color: var(--color-border-strong);
+  background: hsl(var(--secondary) / 0.7);
+  transform: translateY(-1px);
+}
+
+.settings-sheet-body {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: var(--app-section-gap);
+  padding-right: calc(var(--spacing) * 1);
 }
 
 .grid {
@@ -928,5 +1008,24 @@ textarea {
   .page-intro h2,
   .hero-copy h3 {
     font-size: var(--text-size-3xl);
+  }
+
+  .settings-sheet {
+    width: min(calc(var(--spacing) * 104), 100vw);
+  }
+
+  .settings-sheet-nav {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-sheet {
+    width: 100vw;
+    padding: calc(var(--spacing) * 4);
+  }
+
+  .settings-sheet-header {
+    flex-direction: column;
   }
 }
