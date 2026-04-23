@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -106,6 +106,7 @@ test("read_file and write_file operate inside authorized directories", async () 
     const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const readFileTool = runtimeTools.read_file!;
     const writeFileTool = runtimeTools.write_file!;
+    const realWorkspaceDir = realpathSync(fixture.workspaceDir);
 
     const readResult = (await readFileTool.execute(
       { path: join(fixture.workspaceDir, "input.txt") },
@@ -113,7 +114,7 @@ test("read_file and write_file operate inside authorized directories", async () 
     )) as { path: string; content: string; sizeBytes: number };
 
     assert.equal(readResult.content, "hello from disk");
-    assert.equal(readResult.path, join(fixture.workspaceDir, "input.txt"));
+    assert.equal(readResult.path, join(realWorkspaceDir, "input.txt"));
     assert.equal(readResult.sizeBytes, Buffer.byteLength("hello from disk", "utf8"));
 
     const writeResult = (await writeFileTool.execute(
@@ -124,7 +125,7 @@ test("read_file and write_file operate inside authorized directories", async () 
       createExecutionContext()
     )) as { path: string; bytesWritten: number };
 
-    assert.equal(writeResult.path, join(fixture.workspaceDir, "nested", "output.txt"));
+    assert.equal(writeResult.path, join(realWorkspaceDir, "nested", "output.txt"));
     assert.equal(writeResult.bytesWritten, Buffer.byteLength("generated content", "utf8"));
     assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "output.txt"), "utf8"), "generated content");
   } finally {
@@ -146,6 +147,60 @@ test("read_file rejects paths outside authorized directories", async () => {
       readFileTool.execute(
         {
           path: outsidePath
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("read_file rejects symlink escapes outside authorized directories", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const outsideDir = join(fixture.fixtureDir, "outside");
+    const symlinkPath = join(fixture.workspaceDir, "linked-outside");
+    mkdirSync(outsideDir, { recursive: true });
+    writeFileSync(join(outsideDir, "secret.txt"), "top secret", "utf8");
+    symlinkSync(outsideDir, symlinkPath, "dir");
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const readFileTool = runtimeTools.read_file!;
+
+    await assert.rejects(
+      readFileTool.execute(
+        {
+          path: join(symlinkPath, "secret.txt")
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("write_file rejects symlink escapes outside authorized directories", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const outsideDir = join(fixture.fixtureDir, "outside");
+    const symlinkPath = join(fixture.workspaceDir, "linked-outside");
+    mkdirSync(outsideDir, { recursive: true });
+    symlinkSync(outsideDir, symlinkPath, "dir");
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const writeFileTool = runtimeTools.write_file!;
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: join(symlinkPath, "written.txt"),
+          content: "blocked"
         },
         createExecutionContext()
       ),

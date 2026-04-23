@@ -19,6 +19,7 @@ import type { AgentRuntimeConfig, OpenAIProviderConfig } from "./config";
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
   readonly allowedToolDirectories: readonly string[];
+  readonly allowedToolDirectoriesSource: "default" | "env";
   readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly databasePath: string;
@@ -75,10 +76,19 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     getChatStorage,
     openai: options.openai
   });
+  const persistedAllowedDirectories = chatStorage.listAuthorizedDirectories().map((entry) => entry.path);
+  const effectiveAllowedToolDirectories =
+    options.allowedToolDirectoriesSource === "env"
+      ? options.allowedToolDirectories
+      : persistedAllowedDirectories.length > 0
+        ? persistedAllowedDirectories
+        : options.allowedToolDirectories;
+
+  chatStorage.replaceAuthorizedDirectories(effectiveAllowedToolDirectories);
   const runRegistry = createRunRegistry();
   const toolRegistry = createToolRegistry(
     createBuiltinToolDefinitions({
-      allowedDirectories: options.allowedToolDirectories,
+      allowedDirectories: effectiveAllowedToolDirectories,
       controllerPort: options.port
     })
   );
@@ -190,7 +200,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
 
   controllerLogger.info("controller.app_created", {
     hasAllowedOrigins: options.allowedOrigins.length > 0,
-    allowedToolDirectoryCount: options.allowedToolDirectories.length,
+    allowedToolDirectoryCount: effectiveAllowedToolDirectories.length,
     databasePath: options.databasePath,
     interruptedRunCount: recoveredRuns.interruptedRunIds.length,
     failedPendingRunCount: recoveredRuns.failedRunIds.length,

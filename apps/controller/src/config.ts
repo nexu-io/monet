@@ -13,6 +13,7 @@ const defaultAgentMaxToolCallsPerRun = 16;
 export interface ControllerConfig {
   readonly allowedOrigins: readonly string[];
   readonly allowedToolDirectories: readonly string[];
+  readonly allowedToolDirectoriesSource: "default" | "env";
   readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly host: string;
@@ -44,9 +45,12 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
 
   const host = parseHost(env.MONET_CONTROLLER_HOST);
 
+  const allowedToolDirectories = parseAllowedToolDirectories(env);
+
   return {
     allowedOrigins: parseAllowedOrigins(env),
-    allowedToolDirectories: parseAllowedToolDirectories(env),
+    allowedToolDirectories: allowedToolDirectories.value,
+    allowedToolDirectoriesSource: allowedToolDirectories.source,
     agentRuntime: {
       maxStepsPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_STEPS_PER_RUN, defaultAgentMaxStepsPerRun),
       maxTokensPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_TOKENS_PER_RUN, defaultAgentMaxTokensPerRun),
@@ -66,13 +70,19 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
   };
 }
 
-function parseAllowedToolDirectories(env: NodeJS.ProcessEnv): readonly string[] {
+function parseAllowedToolDirectories(env: NodeJS.ProcessEnv): {
+  readonly value: readonly string[];
+  readonly source: "default" | "env";
+} {
   const configuredDirectories = env.MONET_TOOL_ALLOWED_DIRECTORIES?.split(",")
     .map((value) => value.trim())
     .filter(Boolean)
     .map((value) => resolve(value));
 
-  return Array.from(new Set(configuredDirectories?.length ? configuredDirectories : defaultAllowedToolDirectories));
+  return {
+    value: Array.from(new Set(configuredDirectories?.length ? configuredDirectories : defaultAllowedToolDirectories)),
+    source: configuredDirectories?.length ? "env" : "default"
+  };
 }
 
 function parseAllowedOrigins(env: NodeJS.ProcessEnv): readonly string[] {

@@ -78,6 +78,12 @@ interface ProviderModelRow {
   readonly updated_at: string;
 }
 
+interface AuthorizedDirectoryRow {
+  readonly path: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
 interface MessageRow {
   readonly id: string;
   readonly session_id: string;
@@ -132,6 +138,12 @@ export interface StoredProviderModel {
   readonly supportsReasoning: boolean;
   readonly enabled: boolean;
   readonly capabilitiesJson: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface StoredAuthorizedDirectory {
+  readonly path: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -207,6 +219,8 @@ export class ChatStorageResolutionError extends Error {
 }
 
 export interface ChatStorage {
+  listAuthorizedDirectories(): StoredAuthorizedDirectory[];
+  replaceAuthorizedDirectories(paths: readonly string[]): StoredAuthorizedDirectory[];
   listSessions(): StoredSession[];
   createSession(input: CreateSessionInput): StoredSession;
   getSessionDetail(sessionId: string): StoredSessionDetail;
@@ -260,6 +274,45 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   ensureOpenAIProviderAndDefaultModel(connection, options.openai);
 
   return {
+    listAuthorizedDirectories() {
+      const rows = connection
+        .prepare(
+          `SELECT path, created_at, updated_at
+           FROM authorized_directories
+           ORDER BY path ASC`
+        )
+        .all() as unknown as AuthorizedDirectoryRow[];
+
+      return rows.map(mapAuthorizedDirectoryRow);
+    },
+
+    replaceAuthorizedDirectories(paths) {
+      const normalizedPaths = normalizeAuthorizedDirectoryPaths(paths);
+      const now = new Date().toISOString();
+      const insertStatement = connection.prepare(
+        `INSERT INTO authorized_directories (path, created_at, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET updated_at = excluded.updated_at`
+      );
+
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        connection.exec("DELETE FROM authorized_directories");
+
+        for (const path of normalizedPaths) {
+          insertStatement.run(path, now, now);
+        }
+
+        connection.exec("COMMIT");
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+
+      return this.listAuthorizedDirectories();
+    },
+
     listSessions() {
       const rows = connection
         .prepare(
@@ -1380,6 +1433,14 @@ function mapSessionRow(row: SessionRow): StoredSession {
   };
 }
 
+function mapAuthorizedDirectoryRow(row: AuthorizedDirectoryRow): StoredAuthorizedDirectory {
+  return {
+    path: row.path,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 function mapProviderRow(row: ProviderRow): StoredProvider {
   return {
     id: row.id,
@@ -1392,6 +1453,12 @@ function mapProviderRow(row: ProviderRow): StoredProvider {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function normalizeAuthorizedDirectoryPaths(paths: readonly string[]) {
+  return Array.from(new Set(paths.map((path) => resolve(path.trim())).filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right)
+  );
 }
 
 function mapProviderModelRow(row: ProviderModelRow): StoredProviderModel {

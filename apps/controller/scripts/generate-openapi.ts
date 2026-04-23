@@ -7,6 +7,7 @@ async function main() {
   const app = createControllerApp({
     allowedOrigins: ["null"],
     allowedToolDirectories: [process.cwd()],
+    allowedToolDirectoriesSource: "env",
     agentRuntime: {
       maxStepsPerRun: 8,
       maxTokensPerRun: 32_768,

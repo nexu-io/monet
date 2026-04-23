@@ -1,6 +1,6 @@
 import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { BlockList, isIP } from "node:net";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
@@ -219,7 +219,50 @@ function isWithinDirectory(parentPath: string, candidatePath: string) {
   return pathRelativeToParent === "" || (!pathRelativeToParent.startsWith("..") && !isAbsolute(pathRelativeToParent));
 }
 
-function resolveAuthorizedPath(inputPath: string, allowedDirectories: readonly string[]) {
+async function getExistingRealPath(targetPath: string) {
+  let candidatePath = resolve(targetPath);
+
+  while (true) {
+    try {
+      const candidateStat = await lstat(candidatePath);
+
+      return {
+        existingPath: candidatePath,
+        realPath: await realpath(candidatePath),
+        isDirectory: candidateStat.isDirectory()
+      };
+    } catch (error) {
+      if (!isNodeErrorWithCode(error, "ENOENT")) {
+        throw error;
+      }
+    }
+
+    const parentPath = dirname(candidatePath);
+
+    if (parentPath === candidatePath) {
+      throw new Error("Path is outside the authorized directories.");
+    }
+
+    candidatePath = parentPath;
+  }
+}
+
+async function getAuthorizedDirectoriesRealPaths(allowedDirectories: readonly string[]) {
+  const settledDirectories = await Promise.allSettled(
+    allowedDirectories.map(async (directory) => ({
+      directory,
+      realPath: await realpath(directory)
+    }))
+  );
+
+  return settledDirectories.flatMap((result) => (result.status === "fulfilled" ? [result.value.realPath] : []));
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+}
+
+async function resolveAuthorizedPath(inputPath: string, allowedDirectories: readonly string[], accessMode: "read" | "write") {
   const normalizedInputPath = inputPath.trim();
 
   if (!normalizedInputPath) {
@@ -227,13 +270,24 @@ function resolveAuthorizedPath(inputPath: string, allowedDirectories: readonly s
   }
 
   const resolvedPath = resolve(normalizedInputPath);
-  const matchingDirectory = allowedDirectories.find((directory) => isWithinDirectory(directory, resolvedPath));
+  const authorizedDirectories = await getAuthorizedDirectoriesRealPaths(allowedDirectories);
+
+  if (authorizedDirectories.length === 0) {
+    throw new Error("No authorized directories are currently available.");
+  }
+
+  const existingPath = await getExistingRealPath(resolvedPath);
+  const candidatePath =
+    accessMode === "read" || existingPath.existingPath === resolvedPath
+      ? existingPath.realPath
+      : resolve(existingPath.realPath, relative(existingPath.existingPath, resolvedPath));
+  const matchingDirectory = authorizedDirectories.find((directory) => isWithinDirectory(directory, candidatePath));
 
   if (!matchingDirectory) {
     throw new Error("Path is outside the authorized directories.");
   }
 
-  return resolvedPath;
+  return candidatePath;
 }
 
 export function createBuiltinToolDefinitions(
@@ -292,7 +346,7 @@ export function createBuiltinToolDefinitions(
       } as const,
       async execute(input) {
         const normalizedInput = input as ReadFileInput;
-        const authorizedPath = resolveAuthorizedPath(normalizedInput.path, allowedDirectories);
+        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, allowedDirectories, "read");
         const [content, fileStat] = await Promise.all([readFile(authorizedPath, "utf8"), stat(authorizedPath)]);
 
         return {
@@ -319,7 +373,7 @@ export function createBuiltinToolDefinitions(
       } as const,
       async execute(input) {
         const normalizedInput = input as WriteFileInput;
-        const authorizedPath = resolveAuthorizedPath(normalizedInput.path, allowedDirectories);
+        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, allowedDirectories, "write");
 
         await mkdir(dirname(authorizedPath), { recursive: true });
         await writeFile(authorizedPath, normalizedInput.content, "utf8");
