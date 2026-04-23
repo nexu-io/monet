@@ -137,11 +137,18 @@ async function createMainWindow(runtime: ControllerRuntime) {
     void shell.openExternal(url);
   });
 
-  await loadRenderer(window);
   window.once("ready-to-show", () => {
     window.show();
-    broadcastControllerState({ state: "ready", apiBase: runtime.apiBase });
   });
+  await loadLoadingScreen(window);
+
+  if (!window.isDestroyed() && !window.isVisible()) {
+    window.show();
+  }
+
+  await loadRenderer(window);
+  broadcastControllerState({ state: "ready", apiBase: runtime.apiBase });
+
   window.on("closed", () => {
     if (mainWindow === window) {
       mainWindow = null;
@@ -151,10 +158,15 @@ async function createMainWindow(runtime: ControllerRuntime) {
   return window;
 }
 
+async function loadLoadingScreen(window: BrowserWindow) {
+  await window.loadURL(createLoadingScreenUrl());
+}
+
 async function loadRenderer(window: BrowserWindow) {
   const rendererUrl = process.env.MONET_DESKTOP_RENDERER_URL?.trim();
 
   if (rendererUrl) {
+    await waitForRendererReady(rendererUrl);
     await window.loadURL(rendererUrl);
     return;
   }
@@ -162,6 +174,142 @@ async function loadRenderer(window: BrowserWindow) {
   const rendererEntry = path.resolve(__dirname, "../../web-ui/out/index.html");
   await assertFileExists(rendererEntry, "exported web-ui entrypoint");
   await window.loadFile(rendererEntry);
+}
+
+async function waitForRendererReady(rendererUrl: string) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch(rendererUrl);
+
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Ignore early boot failures while the renderer dev server starts.
+    }
+
+    await sleep(500);
+  }
+
+  throw new Error(`Timed out waiting for renderer readiness at ${rendererUrl}.`);
+}
+
+function createLoadingScreenUrl() {
+  const html = String.raw`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monet</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top, rgba(59, 130, 246, 0.24), transparent 34%),
+          radial-gradient(circle at bottom, rgba(34, 197, 94, 0.18), transparent 30%),
+          linear-gradient(180deg, #0f172a 0%, #020617 100%);
+        color: rgba(248, 250, 252, 0.96);
+      }
+
+      main {
+        width: min(420px, calc(100vw - 48px));
+        padding: 32px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 24px;
+        background: rgba(15, 23, 42, 0.72);
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(18px);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(30, 41, 59, 0.72);
+        color: rgba(191, 219, 254, 0.96);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .badge::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #38bdf8, #22c55e);
+        box-shadow: 0 0 18px rgba(56, 189, 248, 0.65);
+      }
+
+      h1 {
+        margin: 20px 0 10px;
+        font-size: 32px;
+        line-height: 1.1;
+      }
+
+      p {
+        margin: 0;
+        color: rgba(203, 213, 225, 0.84);
+        font-size: 15px;
+        line-height: 1.6;
+      }
+
+      .footer {
+        margin-top: 24px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: rgba(148, 163, 184, 0.92);
+        font-size: 13px;
+      }
+
+      .spinner {
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        border: 2px solid rgba(148, 163, 184, 0.28);
+        border-top-color: #38bdf8;
+        border-right-color: #22c55e;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="badge">Desktop shell</div>
+      <h1>Launching Monet…</h1>
+      <p>Waiting for the local services and renderer to finish starting.</p>
+      <div class="footer">
+        <div class="spinner" aria-hidden="true"></div>
+        <span>This window will switch automatically when ready.</span>
+      </div>
+    </main>
+  </body>
+</html>`;
+
+  return `data:text/html;charset=UTF-8,${encodeURIComponent(html)}`;
 }
 
 async function resolveControllerRuntime(): Promise<ControllerRuntime> {
