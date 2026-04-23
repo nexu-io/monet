@@ -301,6 +301,7 @@ export interface ChatStorage {
   getRunContext(runId: string): StoredRunContext;
   persistRunMessages(options: { sessionId: string; runId: string; messages: UIMessage[] }): void;
   recoverUnfinishedRuns(): RecoverUnfinishedRunsResult;
+  interruptActiveRuns(options: { finishReason: string }): RecoverUnfinishedRunsResult;
   startToolCall(options: { toolCallId?: string; runId: string; toolName: string; input: unknown }): string;
   markToolCallRunning(toolCallId: string): void;
   recordToolApprovalRequest(options: { toolCallId: string; confirmationToken: string }): void;
@@ -850,6 +851,26 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       return {
         interruptedRunIds,
         failedRunIds
+      };
+    },
+
+    interruptActiveRuns({ finishReason }) {
+      const interruptedRunIds = listRunIdsByStatus(connection, "running");
+      const endedAt = new Date().toISOString();
+
+      if (interruptedRunIds.length > 0) {
+        connection
+          .prepare(
+            `UPDATE runs
+             SET status = 'interrupted', finish_reason = ?, ended_at = ?
+             WHERE status = 'running'`
+          )
+          .run(finishReason, endedAt);
+      }
+
+      return {
+        interruptedRunIds,
+        failedRunIds: []
       };
     },
 

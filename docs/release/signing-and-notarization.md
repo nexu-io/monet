@@ -85,8 +85,37 @@ Planned CI secrets:
 
 If EV or cloud signing is adopted later, move to `win.azureSignOptions` or certificate-subject signing without changing the release commands.
 
-## Deferred to the next task
+## Release pipeline
 
-- publish pipeline wiring
-- auto-update feed configuration
-- updater-specific graceful shutdown/restart hooks
+- `apps/desktop/package.json` now publishes through Electron Builder's GitHub provider (`nexu-io/monet`) with draft releases by default.
+- `.github/workflows/release-desktop.yml` builds tagged releases (`v*`) on macOS, Windows, and Linux and runs `pnpm release:desktop`.
+- Local release publishing is also available through `pnpm release:desktop` when the same signing and `GH_TOKEN` secrets are present.
+
+Recommended release flow:
+
+1. Ensure desktop signing secrets are configured in GitHub Actions.
+2. Bump the app version in `package.json` / `apps/desktop/package.json` before tagging.
+3. Push a tag such as `v0.1.1`.
+4. Wait for the `Desktop release` workflow to publish draft artifacts to GitHub Releases.
+5. Validate the signed artifacts, then promote the draft release.
+
+## Auto-update foundation
+
+- Packaged builds now include `electron-updater` and generate updater metadata through Electron Builder's GitHub publish target.
+- The desktop main process exposes preload hooks for:
+  - reading update state
+  - checking for updates on demand
+  - installing a downloaded update explicitly
+- Automatic update checks run only in packaged builds and can be disabled with `MONET_DISABLE_AUTO_UPDATE=1`.
+- Monet keeps `autoInstallOnAppQuit` disabled so installs only happen through the explicit in-app restart action.
+
+## Graceful shutdown before install
+
+- Before installing a downloaded update, the desktop shell now sends `SIGTERM` to the managed controller instead of immediately killing it.
+- The controller marks in-flight runs as `interrupted` with `finish_reason = 'controller_shutdown'` before closing its HTTP server.
+- If the controller does not exit within the timeout window, the desktop shell falls back to a force kill so app shutdown cannot hang indefinitely.
+
+## Notes
+
+- Auto-update is intentionally limited to the minimal foundation in this iteration: no rollout channels, no staged rollout, and no changelog UI.
+- The update UI currently lives in the renderer's controller status card so the preload/IPC contract is exercised without adding a larger settings surface.

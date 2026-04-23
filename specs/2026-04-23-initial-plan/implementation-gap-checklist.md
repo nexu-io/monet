@@ -278,8 +278,8 @@
 ### Milestone 4
 
 - [ ] 基础日志能力
-- [ ] 发布流程完善
-- [ ] auto-update 预留
+- [x] 发布流程完善
+- [x] auto-update 预留
 
 ---
 

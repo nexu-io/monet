@@ -17,6 +17,7 @@
     "dev:web": "NEXT_PUBLIC_MONET_CONTROLLER_URL=http://127.0.0.1:3030 NEXT_PUBLIC_MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/web-ui dev",
     "pack:desktop": "pnpm build && pnpm --filter @monet/desktop pack",
     "dist:desktop": "pnpm build && pnpm --filter @monet/desktop dist",
+    "release:desktop": "pnpm build && pnpm --filter @monet/desktop dist:publish",
     "check:openapi": "pnpm generate:openapi && git diff --exit-code -- apps/controller/openapi.json",
     "generate:openapi": "pnpm --filter @monet/controller generate:openapi",
     "generate:api": "pnpm generate:openapi && pnpm exec openapi-ts --file openapi-ts.config.ts",

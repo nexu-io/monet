@@ -9,9 +9,13 @@
     "dev": "electron dist/main.js",
     "pack": "electron-builder --dir --config.directories.output=../../dist/desktop",
     "dist": "electron-builder --config.directories.output=../../dist/desktop",
+    "dist:publish": "electron-builder --publish always --config.directories.output=../../dist/desktop",
     "postinstall": "electron-builder install-app-deps",
     "rebuild:native": "electron-rebuild -f",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
@@ -29,6 +33,15 @@
     "directories": {
       "buildResources": "resources"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "nexu-io",
+        "repo": "monet",
+        "releaseType": "draft"
+      }
+    ],
+    "generateUpdatesFilesForAllChannels": false,
     "files": [
       {
         "from": "dist",

@@ -9,6 +9,7 @@ import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen
 
 import { createLogger } from "./logger";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
+import { createDesktopUpdater, type UpdateStatePayload } from "./updater";
 
 export const desktopAppName = "@monet/desktop";
 
@@ -58,11 +59,23 @@ const windowStateFilePath = path.join(userDataPath, "window-state.json");
 let mainWindow: BrowserWindow | null = null;
 let controllerRuntime: ControllerRuntime | null = null;
 let isAppQuitting = false;
+let shutdownPromise: Promise<void> | null = null;
 let providerSecretStore:
   | ReturnType<typeof createProviderSecretStore>
   | null = null;
 const intentionallyStoppedControllerPids = new Set<number>();
 let pendingWindowStateSave: NodeJS.Timeout | null = null;
+const desktopUpdater = createDesktopUpdater({
+  logger: logger.child({
+    component: "updater"
+  }),
+  onStateChange(payload) {
+    broadcastUpdateState(payload);
+  },
+  onBeforeInstall() {
+    return gracefulShutdown("update");
+  }
+});
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -95,12 +108,15 @@ if (!gotSingleInstanceLock) {
   app.whenReady().then(bootstrap).catch(handleBootstrapError);
 }
 
-app.on("before-quit", () => {
-  isAppQuitting = true;
-
-  if (controllerRuntime?.child) {
-    controllerRuntime.child.kill();
+app.on("before-quit", (event) => {
+  if (isAppQuitting) {
+    return;
   }
+
+  event.preventDefault();
+  void gracefulShutdown("user").finally(() => {
+    app.exit(0);
+  });
 });
 
 app.on("window-all-closed", () => {
@@ -200,6 +216,22 @@ ipcMain.handle("monet:get-provider-secret-storage", () => {
   return getProviderSecretStore().getSnapshot() satisfies ProviderSecretStorageSnapshot;
 });
 
+ipcMain.handle("monet:get-update-state", () => {
+  return desktopUpdater.getState() satisfies UpdateStatePayload;
+});
+
+ipcMain.handle("monet:check-for-updates", async () => {
+  return await desktopUpdater.checkForUpdates();
+});
+
+ipcMain.handle("monet:install-update", async () => {
+  await desktopUpdater.installUpdate();
+
+  return {
+    started: true
+  };
+});
+
 ipcMain.handle("monet:get-app-paths", () => {
   return {
     userDataPath
@@ -252,6 +284,8 @@ async function bootstrap() {
   await registerDesktopRendererProtocol();
   controllerRuntime = await resolveControllerRuntime();
   mainWindow = await createMainWindow(controllerRuntime);
+  broadcastUpdateState(desktopUpdater.getState());
+  desktopUpdater.start();
   logger.info("desktop.bootstrap_completed", {
     managedController: controllerRuntime.managed
   });
@@ -654,12 +688,9 @@ async function resolveControllerRuntime(): Promise<ControllerRuntime> {
 async function startManagedController(mode: "startup" | "restart" = "startup"): Promise<ControllerRuntime> {
   if (controllerRuntime?.child) {
     logger.warn("desktop.controller_existing_child_replaced");
-
-    if (typeof controllerRuntime.child.pid === "number") {
-      intentionallyStoppedControllerPids.add(controllerRuntime.child.pid);
-    }
-
-    controllerRuntime.child.kill();
+    await stopManagedController({
+      reason: mode === "restart" ? "restart" : "replace"
+    });
   }
 
   const controllerEntrypoint = getControllerEntrypointPath();
@@ -721,11 +752,10 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   try {
     await waitForControllerReady(apiBase, bearerToken);
   } catch (error) {
-    if (typeof child.pid === "number") {
-      intentionallyStoppedControllerPids.add(child.pid);
-    }
-
-    child.kill();
+    await stopUtilityProcess(child, {
+      markAsIntentional: true,
+      reason: `${mode}-failed`
+    });
     broadcastControllerState({
       state: "failed",
       message: error instanceof Error ? error.message : `The local controller failed to ${mode}.`,
@@ -753,6 +783,10 @@ function buildPreloadArguments(runtime: ControllerRuntime) {
 
 function broadcastControllerState(payload: ControllerStatePayload) {
   mainWindow?.webContents.send("monet:controller-state", payload);
+}
+
+function broadcastUpdateState(payload: UpdateStatePayload) {
+  mainWindow?.webContents.send("monet:update-state", payload);
 }
 
 function dispatchDesktopShortcut(window: BrowserWindow, action: DesktopShortcutAction) {
@@ -947,6 +981,100 @@ function handleBootstrapError(error: unknown) {
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
+}
+
+async function gracefulShutdown(reason: "user" | "update") {
+  shutdownPromise ??= (async () => {
+    isAppQuitting = true;
+
+    logger.info("desktop.shutdown_requested", {
+      reason
+    });
+
+    await stopManagedController({
+      reason
+    });
+  })();
+
+  return shutdownPromise;
+}
+
+async function stopManagedController(options: { reason: string }) {
+  if (!controllerRuntime?.child) {
+    return;
+  }
+
+  await stopUtilityProcess(controllerRuntime.child, {
+    markAsIntentional: true,
+    reason: options.reason
+  });
+}
+
+async function stopUtilityProcess(
+  child: Electron.UtilityProcess,
+  options: {
+    markAsIntentional: boolean;
+    reason: string;
+  }
+) {
+  if (typeof child.pid === "number" && options.markAsIntentional) {
+    intentionallyStoppedControllerPids.add(child.pid);
+  }
+
+  logger.info("desktop.controller_stop_requested", {
+    pid: child.pid,
+    reason: options.reason
+  });
+
+  if (typeof child.pid === "number") {
+    process.kill(child.pid, "SIGTERM");
+  } else {
+    child.kill();
+  }
+
+  const exited = await waitForUtilityProcessExit(child, 5_000);
+
+  if (exited) {
+    return;
+  }
+
+  logger.warn("desktop.controller_stop_force_kill", {
+    pid: child.pid,
+    reason: options.reason
+  });
+  if (typeof child.pid === "number") {
+    process.kill(child.pid);
+  } else {
+    child.kill();
+  }
+  await waitForUtilityProcessExit(child, 1_000);
+}
+
+function waitForUtilityProcessExit(child: Electron.UtilityProcess, timeoutMs: number) {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      child.removeListener("exit", handleExit);
+      resolve(false);
+    }, timeoutMs);
+
+    const handleExit = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      resolve(true);
+    };
+
+    child.once("exit", handleExit);
+  });
 }
 
 function sleep(durationMs: number) {

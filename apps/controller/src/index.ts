@@ -16,6 +16,14 @@ export interface StartControllerServerOptions {
   readonly onReady?: (address: ControllerServerAddress) => void;
 }
 
+export interface ControllerServerRuntime {
+  readonly close: (callback?: (error?: Error) => void) => void;
+  readonly interruptActiveRuns: (options: { finishReason: string }) => {
+    readonly interruptedRunIds: string[];
+    readonly failedRunIds: string[];
+  };
+}
+
 export * from "./app";
 export * from "./config";
 export * from "./openapi";
@@ -33,7 +41,7 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     port: config.port
   });
 
-  const app = createControllerApp({
+  const runtime = createControllerApp({
     allowedOrigins: config.allowedOrigins,
     allowedToolDirectories: config.allowedToolDirectories,
     allowedToolDirectoriesSource: config.allowedToolDirectoriesSource,
@@ -45,9 +53,9 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     port: config.port
   });
 
-  return serve(
+  const server = serve(
     {
-      fetch: app.fetch,
+      fetch: runtime.app.fetch,
       hostname: config.host,
       port: config.port
     },
@@ -63,6 +71,13 @@ export function startControllerServer(options: StartControllerServerOptions = {}
       });
     }
   );
+
+  return {
+    close: server.close.bind(server),
+    interruptActiveRuns(options) {
+      return runtime.chatStorage.interruptActiveRuns(options);
+    }
+  } satisfies ControllerServerRuntime;
 }
 
 if (require.main === module) {

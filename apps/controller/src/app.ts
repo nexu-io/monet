@@ -35,11 +35,16 @@ export interface ControllerAppVariables {
 
 export type ControllerApp = OpenAPIHono<{ Variables: ControllerAppVariables }>;
 
+export interface ControllerAppRuntime {
+  readonly app: ControllerApp;
+  readonly chatStorage: ReturnType<typeof createChatStorage>;
+}
+
 const controllerLogger = createLogger("controller", {
   component: "http"
 });
 
-export function createControllerApp(options: CreateControllerAppOptions): ControllerApp {
+export function createControllerApp(options: CreateControllerAppOptions): ControllerAppRuntime {
   const app = new OpenAPIHono<{ Variables: ControllerAppVariables }>({
     defaultHook(result, context) {
       if (result.success) {
@@ -227,5 +232,8 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });
 
-  return app;
+  return {
+    app,
+    chatStorage
+  };
 }

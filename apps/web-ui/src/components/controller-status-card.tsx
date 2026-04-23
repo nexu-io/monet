@@ -19,7 +19,20 @@ const initialState: HealthState = {
 };
 
 export function ControllerStatusCard() {
-  const { config, controllerState, isDesktop, restartController, restartError, restartPending } = useControllerState();
+  const {
+    checkForUpdates,
+    config,
+    controllerState,
+    installUpdate,
+    isDesktop,
+    restartController,
+    restartError,
+    restartPending,
+    updateCheckPending,
+    updateError,
+    updateInstallPending,
+    updateState
+  } = useControllerState();
   const [state, setState] = useState<HealthState>(initialState);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -96,6 +109,24 @@ export function ControllerStatusCard() {
     }
   }
 
+  async function handleCheckForUpdates() {
+    try {
+      const result = await checkForUpdates();
+      setActionMessage(result?.message ?? "Checking for updates…");
+    } catch {
+      setActionMessage(null);
+    }
+  }
+
+  async function handleInstallUpdate() {
+    try {
+      await installUpdate();
+      setActionMessage("Restarting Monet to install the downloaded update…");
+    } catch {
+      setActionMessage(null);
+    }
+  }
+
   const lifecycleState = controllerState?.state;
   const tone = lifecycleState === "starting" || lifecycleState === "restarting" || state.loading
     ? "unknown"
@@ -158,9 +189,19 @@ export function ControllerStatusCard() {
             <strong>Health response</strong>
             <div className="muted mono">{state.data ? JSON.stringify(state.data) : controllerState?.message ?? state.error ?? "Waiting for response..."}</div>
           </li>
+          <li>
+            <strong>Update status</strong>
+            <div className="muted">
+              {updateState
+                ? `${updateState.message}${updateState.downloadedVersion ? ` (${updateState.downloadedVersion})` : updateState.availableVersion ? ` (${updateState.availableVersion})` : ""}`
+                : isDesktop
+                  ? "Resolving desktop updater status..."
+                  : "Browser-only mode"}
+            </div>
+          </li>
         </ul>
 
-        {actionMessage || restartError ? <p className="muted">{actionMessage ?? restartError}</p> : null}
+        {actionMessage || restartError || updateError ? <p className="muted">{actionMessage ?? restartError ?? updateError}</p> : null}
 
         <div className="session-browser-actions">
           <Button type="button" variant="primary" onClick={() => void loadHealth()} disabled={state.loading || !config}>
@@ -174,6 +215,16 @@ export function ControllerStatusCard() {
               disabled={restartPending || controllerState?.restartAvailable === false}
             >
               {restartPending || lifecycleState === "restarting" ? "Restarting..." : "Restart controller"}
+            </Button>
+          ) : null}
+          {isDesktop ? (
+            <Button type="button" variant="secondary" onClick={() => void handleCheckForUpdates()} disabled={updateCheckPending || updateInstallPending}>
+              {updateCheckPending || updateState?.state === "checking" ? "Checking updates..." : "Check for updates"}
+            </Button>
+          ) : null}
+          {isDesktop && updateState?.state === "downloaded" ? (
+            <Button type="button" variant="primary" onClick={() => void handleInstallUpdate()} disabled={updateInstallPending}>
+              {updateInstallPending ? "Installing update..." : "Restart to update"}
             </Button>
           ) : null}
         </div>

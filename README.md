@@ -46,6 +46,7 @@ From the repository root:
 - `pnpm build`: build the controller, web UI export, and desktop bundles needed by the current scaffold.
 - `pnpm pack:desktop`: build the workspace and assemble an unpacked Electron app under `dist/desktop/` for packaging validation.
 - `pnpm dist:desktop`: build the workspace and produce desktop artifacts with `electron-builder` under `dist/desktop/`.
+- `pnpm release:desktop`: build the workspace and publish desktop artifacts through Electron Builder's GitHub release flow.
 - `pnpm typecheck`: run TypeScript checks across every workspace package that currently has sources.
 - `pnpm dev`: start the controller, Next.js dev server, and Electron desktop app using the shared local dev token `monet-dev-token`.
 - `pnpm dev:controller`: run the Hono controller only on `127.0.0.1:3030`.
@@ -67,7 +68,9 @@ From the repository root:
 
 - macOS signing/notarization settings live in `apps/desktop/package.json` and use entitlements from `apps/desktop/resources/`.
 - Windows packaging targets NSIS and is ready for certificate-based signing once CI secrets are added.
-- The rollout plan for signing and notarization lives in `docs/release/signing-and-notarization.md`.
+- Tagged releases (`v*`) are built by `.github/workflows/release-desktop.yml` and published as draft GitHub releases.
+- Packaged builds now expose the first auto-update foundation through Electron Builder + `electron-updater`; dev builds keep updater checks disabled.
+- The rollout plan for signing, notarization, release publishing, and updater behavior lives in `docs/release/signing-and-notarization.md`.
 
 ## Current Status
 

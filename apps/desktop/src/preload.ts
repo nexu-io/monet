@@ -8,6 +8,15 @@ interface ControllerStatePayload {
   readonly restartAvailable?: boolean;
 }
 
+interface UpdateStatePayload {
+  readonly state: "unsupported" | "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  readonly message: string;
+  readonly currentVersion: string;
+  readonly availableVersion?: string;
+  readonly downloadedVersion?: string;
+  readonly downloadProgressPercent?: number;
+}
+
 interface PreloadRequestResult {
   readonly ok: boolean;
   readonly status: number;
@@ -125,6 +134,15 @@ contextBridge.exposeInMainWorld("monetDesktop", {
   restartController() {
     return ipcRenderer.invoke("monet:restart-controller");
   },
+  getUpdateState(): Promise<UpdateStatePayload> {
+    return ipcRenderer.invoke("monet:get-update-state");
+  },
+  checkForUpdates(): Promise<UpdateStatePayload> {
+    return ipcRenderer.invoke("monet:check-for-updates");
+  },
+  installUpdate(): Promise<{ started: boolean }> {
+    return ipcRenderer.invoke("monet:install-update");
+  },
   getProviderSecretStorage(): Promise<ProviderSecretStorageSnapshot> {
     return ipcRenderer.invoke("monet:get-provider-secret-storage");
   },
@@ -152,6 +170,17 @@ contextBridge.exposeInMainWorld("monetDesktop", {
 
     return () => {
       ipcRenderer.removeListener("monet:controller-state", wrappedListener);
+    };
+  },
+  onUpdateStateChange(listener: (payload: UpdateStatePayload) => void) {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, payload: UpdateStatePayload) => {
+      listener(payload);
+    };
+
+    ipcRenderer.on("monet:update-state", wrappedListener);
+
+    return () => {
+      ipcRenderer.removeListener("monet:update-state", wrappedListener);
     };
   },
   onShortcut(listener: (payload: { action: DesktopShortcutAction }) => void) {

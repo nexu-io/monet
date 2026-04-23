@@ -10,6 +10,17 @@ export interface ControllerStatePayload {
   readonly restartAvailable?: boolean;
 }
 
+export type UpdateLifecycleState = "unsupported" | "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+
+export interface UpdateStatePayload {
+  readonly state: UpdateLifecycleState;
+  readonly message: string;
+  readonly currentVersion: string;
+  readonly availableVersion?: string;
+  readonly downloadedVersion?: string;
+  readonly downloadProgressPercent?: number;
+}
+
 export interface ProviderSecretStorageSnapshot {
   readonly available: boolean;
   readonly message: string;
@@ -33,15 +44,19 @@ export interface OpenPathResult {
 export type MonetDesktopApi = {
   readonly platform?: NodeJS.Platform;
   readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretStorageSnapshot>;
+  readonly checkForUpdates?: () => Promise<UpdateStatePayload>;
   readonly getAppPaths?: () => Promise<DesktopAppPathsSnapshot>;
   readonly getControllerState?: () => ControllerStatePayload;
   readonly getProviderSecretStorage?: () => Promise<ProviderSecretStorageSnapshot>;
+  readonly getUpdateState?: () => Promise<UpdateStatePayload>;
   readonly getRuntimeInfo?: () => {
     readonly apiBase?: string;
     readonly bearerToken?: string;
   };
+  readonly installUpdate?: () => Promise<{ started: boolean }>;
   readonly openPath?: (payload: { path: string }) => Promise<OpenPathResult>;
   readonly onControllerStateChange?: (listener: (payload: ControllerStatePayload) => void) => () => void;
+  readonly onUpdateStateChange?: (listener: (payload: UpdateStatePayload) => void) => () => void;
   readonly onShortcut?: (listener: (payload: { action: "new-session" | "open-settings" }) => void) => () => void;
   readonly pickDirectory?: () => Promise<string | null>;
   readonly restartController?: () => Promise<{ restarted: boolean; apiBase?: string; reason?: string }>;

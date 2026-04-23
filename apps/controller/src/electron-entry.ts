@@ -36,6 +36,12 @@ function shutdown() {
 
   shuttingDown = true;
   logger.info("controller.shutdown_requested");
+  const interruptedRuns = server.interruptActiveRuns({
+    finishReason: "controller_shutdown"
+  });
+  logger.info("controller.shutdown_runs_interrupted", {
+    interruptedRunCount: interruptedRuns.interruptedRunIds.length
+  });
   server.close(() => {
     logger.info("controller.shutdown_complete");
     process.exit(0);
