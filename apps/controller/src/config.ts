@@ -2,9 +2,8 @@ import { resolve } from "node:path";
 
 const defaultControllerPort = 3030;
 const defaultControllerHost = "127.0.0.1";
-const defaultDatabasePath = resolve(process.cwd(), "sqlite", "monet.db");
 const defaultAllowedOrigins = ["null", "app://monet"] as const;
-const defaultAllowedToolDirectories = [resolve(process.cwd())] as const;
+const defaultAllowedToolDirectories = [] as const;
 const defaultAgentMaxStepsPerRun = 8;
 const defaultAgentMaxTokensPerRun = 32_768;
 const defaultAgentWallClockBudgetMs = 60_000;
@@ -68,7 +67,7 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
     bearerToken,
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
-    databasePath: env.MONET_DATABASE_PATH?.trim() || defaultDatabasePath,
+    databasePath: resolveDatabasePath(env),
     openai: {
       apiKey: parseOptionalString(env.MONET_OPENAI_API_KEY) ?? parseOptionalString(env.OPENAI_API_KEY),
       baseUrl: parseUrl(env.MONET_OPENAI_BASE_URL) ?? parseUrl(env.OPENAI_BASE_URL),
@@ -82,6 +81,22 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
     }
   };
+}
+
+function resolveDatabasePath(env: NodeJS.ProcessEnv): string {
+  const explicitPath = env.MONET_DATABASE_PATH?.trim();
+
+  if (explicitPath) {
+    return resolve(explicitPath);
+  }
+
+  const userDataDirectory = env.MONET_USER_DATA_DIR?.trim();
+
+  if (userDataDirectory) {
+    return resolve(userDataDirectory, "sqlite", "monet.db");
+  }
+
+  return resolve(process.cwd(), "sqlite", "monet.db");
 }
 
 function parseAllowedToolDirectories(env: NodeJS.ProcessEnv): {

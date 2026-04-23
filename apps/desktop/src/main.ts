@@ -51,7 +51,9 @@ const defaultWindowState = {
   minWidth: 1080,
   minHeight: 720
 } as const;
-const windowStateFilePath = path.join(app.getPath("userData"), "window-state.json");
+const userDataPath = app.getPath("userData");
+const sqliteDatabasePath = path.join(userDataPath, "sqlite", "monet.db");
+const windowStateFilePath = path.join(userDataPath, "window-state.json");
 
 let mainWindow: BrowserWindow | null = null;
 let controllerRuntime: ControllerRuntime | null = null;
@@ -135,6 +137,13 @@ ipcMain.handle("monet:get-runtime-info", () => {
   };
 });
 
+ipcMain.on("monet:get-runtime-info-sync", (event) => {
+  event.returnValue = {
+    apiBase: controllerRuntime?.apiBase,
+    bearerToken: controllerRuntime?.bearerToken
+  };
+});
+
 ipcMain.handle("monet:restart-controller", async () => {
   logger.info("desktop.controller_restart_requested", {
     usingExternalController: Boolean(process.env.MONET_DESKTOP_CONTROLLER_URL?.trim())
@@ -193,7 +202,7 @@ ipcMain.handle("monet:get-provider-secret-storage", () => {
 
 ipcMain.handle("monet:get-app-paths", () => {
   return {
-    userDataPath: app.getPath("userData")
+    userDataPath
   };
 });
 
@@ -380,7 +389,7 @@ async function loadRenderer(window: BrowserWindow) {
     return;
   }
 
-  const rendererEntry = path.resolve(__dirname, "../../web-ui/out/index.html");
+  const rendererEntry = path.join(getRendererOutputDirectory(), "index.html");
   await assertFileExists(rendererEntry, "exported web-ui entrypoint");
   logger.info("desktop.renderer_wait_started", {
     mode: "prod",
@@ -418,7 +427,19 @@ function createDesktopRendererUrl(pathname: string) {
 }
 
 function getRendererOutputDirectory() {
-  return path.resolve(__dirname, "../../web-ui/out");
+  return app.isPackaged ? path.join(app.getAppPath(), "web-ui", "out") : path.resolve(__dirname, "../../web-ui/out");
+}
+
+function getControllerEntrypointPath() {
+  return app.isPackaged
+    ? path.join(app.getAppPath(), "controller", "dist", "electron-entry.js")
+    : path.resolve(__dirname, "../../controller/dist/electron-entry.js");
+}
+
+function getMigrationsDirectory() {
+  return app.isPackaged
+    ? path.join(app.getAppPath(), "database", "migrations")
+    : path.resolve(__dirname, "../../../packages/database/migrations");
 }
 
 async function resolveDesktopRendererAssetPath(requestUrl: string, rendererOutputDirectory: string) {
@@ -641,7 +662,7 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
     controllerRuntime.child.kill();
   }
 
-  const controllerEntrypoint = path.resolve(__dirname, "../../controller/dist/electron-entry.js");
+  const controllerEntrypoint = getControllerEntrypointPath();
   await assertFileExists(controllerEntrypoint, "controller desktop entrypoint");
 
   const port = await reserveEphemeralPort();
@@ -660,7 +681,9 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
       MONET_CONTROLLER_HOST: controllerHost,
       MONET_CONTROLLER_PORT: String(port),
       MONET_CONTROLLER_BEARER_TOKEN: bearerToken,
-      MONET_USER_DATA_DIR: app.getPath("userData")
+      MONET_USER_DATA_DIR: userDataPath,
+      MONET_DATABASE_PATH: sqliteDatabasePath,
+      MONET_MIGRATIONS_DIR: getMigrationsDirectory()
     }
   });
 
@@ -725,13 +748,7 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
 }
 
 function buildPreloadArguments(runtime: ControllerRuntime) {
-  const args = [`--monet-api-base=${runtime.apiBase}`, `--monet-controller-managed=${runtime.managed ? "true" : "false"}`];
-
-  if (runtime.bearerToken) {
-    args.push(`--monet-bearer-token=${runtime.bearerToken}`);
-  }
-
-  return args;
+  return [`--monet-api-base=${runtime.apiBase}`, `--monet-controller-managed=${runtime.managed ? "true" : "false"}`];
 }
 
 function broadcastControllerState(payload: ControllerStatePayload) {
@@ -942,7 +959,7 @@ function getProviderSecretStore() {
   providerSecretStore ??= createProviderSecretStore({
     platform: process.platform,
     safeStorage,
-    secretsFilePath: path.join(app.getPath("userData"), "provider-secrets.json")
+    secretsFilePath: path.join(userDataPath, "provider-secrets.json")
   });
 
   return providerSecretStore;

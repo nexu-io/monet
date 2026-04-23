@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -329,9 +329,16 @@ export interface ChatStorage {
 }
 
 export function createChatStorage(options: CreateChatStorageOptions): ChatStorage {
-  mkdirSync(dirname(options.databasePath), { recursive: true });
+  const databaseDirectory = dirname(options.databasePath);
+
+  mkdirSync(databaseDirectory, {
+    recursive: true,
+    mode: 0o700
+  });
+  ensureOwnerOnlyPathPermissions(databaseDirectory, 0o700);
 
   const connection = new DatabaseSync(options.databasePath);
+  ensureSqliteFilePermissions(options.databasePath);
 
   connection.exec("PRAGMA journal_mode = WAL");
   connection.exec("PRAGMA synchronous = NORMAL");
@@ -357,6 +364,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     defaultModel: options.openrouter.defaultModel,
     timeoutMs: options.openrouter.timeoutMs
   });
+  ensureSqliteFilePermissions(options.databasePath);
 
   return {
     listAuthorizedDirectories() {
@@ -1120,6 +1128,28 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   };
 }
 
+function ensureSqliteFilePermissions(databasePath: string) {
+  for (const targetPath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
+    if (!existsSync(targetPath)) {
+      continue;
+    }
+
+    ensureOwnerOnlyPathPermissions(targetPath, 0o600);
+  }
+}
+
+function ensureOwnerOnlyPathPermissions(targetPath: string, mode: number) {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  try {
+    chmodSync(targetPath, mode);
+  } catch {
+    // Best effort only: some runtimes enforce a stricter umask or filesystem policy.
+  }
+}
+
 function listRunIdsByStatus(connection: DatabaseSync, status: string) {
   const rows = connection.prepare(`SELECT id FROM runs WHERE status = ?`).all(status) as Array<{ id: string }>;
 
@@ -1149,7 +1179,7 @@ function getToolCallRow(connection: DatabaseSync, toolCallId: string) {
 }
 
 function bootstrapSchema(connection: DatabaseSync) {
-  const migrationsDirectory = resolve(__dirname, "../../../packages/database/migrations");
+  const migrationsDirectory = resolve(process.env.MONET_MIGRATIONS_DIR?.trim() || resolve(__dirname, "../../../packages/database/migrations"));
   const journalPath = resolve(migrationsDirectory, "meta/_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8")) as MigrationJournal;
   const entries = Array.isArray(journal.entries) ? [...journal.entries].sort((left, right) => left.when - right.when) : [];

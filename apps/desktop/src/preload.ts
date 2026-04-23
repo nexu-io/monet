@@ -40,8 +40,13 @@ interface OpenPathResult {
   readonly error?: string;
 }
 
-let apiBase = getArgumentValue("--monet-api-base=");
-let bearerToken = getArgumentValue("--monet-bearer-token=");
+const runtimeInfo = ipcRenderer.sendSync("monet:get-runtime-info-sync") as {
+  readonly apiBase?: string;
+  readonly bearerToken?: string | null;
+};
+
+let apiBase = runtimeInfo.apiBase ?? getArgumentValue("--monet-api-base=");
+let bearerToken = runtimeInfo.bearerToken ?? undefined;
 const controllerManaged = getArgumentValue("--monet-controller-managed=") !== "false";
 let controllerState: ControllerStatePayload = apiBase
   ? {

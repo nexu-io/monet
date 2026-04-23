@@ -7,11 +7,100 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit false --outDir dist",
     "dev": "electron dist/main.js",
+    "pack": "electron-builder --dir --config.directories.output=../../dist/desktop",
+    "dist": "electron-builder --config.directories.output=../../dist/desktop",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild:native": "electron-rebuild -f",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.1",
     "@types/node": "^24.0.0",
     "electron": "^35.5.1",
+    "electron-builder": "^26.0.12",
     "typescript": "^5.8.3"
+  },
+  "build": {
+    "appId": "io.nexu.monet",
+    "productName": "Monet",
+    "asar": true,
+    "npmRebuild": true,
+    "nativeRebuilder": "sequential",
+    "directories": {
+      "buildResources": "resources"
+    },
+    "files": [
+      {
+        "from": "dist",
+        "to": "dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../controller/dist",
+        "to": "controller/dist",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../../packages/database/migrations",
+        "to": "database/migrations",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../web-ui/out",
+        "to": "web-ui/out",
+        "filter": [
+          "**/*"
+        ]
+      },
+      "package.json"
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.inherit.plist",
+      "notarize": true
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "forceCodeSigning": false
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

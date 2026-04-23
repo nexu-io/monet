@@ -44,6 +44,8 @@ From the repository root:
 - `pnpm install:check`: verify the lockfile-backed install path with `--frozen-lockfile`.
 - `pnpm check:openapi`: regenerate `apps/controller/openapi.json` and fail if the committed artifact is stale.
 - `pnpm build`: build the controller, web UI export, and desktop bundles needed by the current scaffold.
+- `pnpm pack:desktop`: build the workspace and assemble an unpacked Electron app under `dist/desktop/` for packaging validation.
+- `pnpm dist:desktop`: build the workspace and produce desktop artifacts with `electron-builder` under `dist/desktop/`.
 - `pnpm typecheck`: run TypeScript checks across every workspace package that currently has sources.
 - `pnpm dev`: start the controller, Next.js dev server, and Electron desktop app using the shared local dev token `monet-dev-token`.
 - `pnpm dev:controller`: run the Hono controller only on `127.0.0.1:3030`.
@@ -58,6 +60,14 @@ From the repository root:
 - `pnpm dev:desktop` performs a one-time TypeScript build before launching Electron. If you change files under `apps/desktop/src`, rerun `pnpm build:desktop` or restart `pnpm dev`.
 - `apps/web-ui` uses `output: 'export'`, so production renderer assets are emitted to `apps/web-ui/out` during `pnpm build`.
 - The desktop app expects the built controller entrypoint at `apps/controller/dist/electron-entry.js` and the exported renderer entrypoint at `apps/web-ui/out/index.html`.
+- Desktop packaging is configured in `apps/desktop/package.json`: Electron Builder packages `apps/desktop/dist`, bundles controller, renderer, and migration assets into `app.asar`, runs native dependency alignment via `electron-builder install-app-deps`, and flips Electron fuses for packaged builds.
+- Managed desktop launches pin SQLite to `app.getPath('userData')/sqlite/monet.db`; on POSIX hosts Monet best-effort chmods the database directory to `0700` and the database, WAL, and SHM files to `0600`.
+
+## Release Notes
+
+- macOS signing/notarization settings live in `apps/desktop/package.json` and use entitlements from `apps/desktop/resources/`.
+- Windows packaging targets NSIS and is ready for certificate-based signing once CI secrets are added.
+- The rollout plan for signing and notarization lives in `docs/release/signing-and-notarization.md`.
 
 ## Current Status
 
