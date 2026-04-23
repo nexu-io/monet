@@ -20,6 +20,7 @@ export interface ControllerConfig {
   readonly port: number;
   readonly databasePath: string;
   readonly openai: OpenAIProviderConfig;
+  readonly openrouter: OpenRouterProviderConfig;
 }
 
 export interface AgentRuntimeConfig {
@@ -30,6 +31,13 @@ export interface AgentRuntimeConfig {
 }
 
 export interface OpenAIProviderConfig {
+  readonly apiKey: string | null;
+  readonly baseUrl: string | null;
+  readonly defaultModel: string;
+  readonly timeoutMs: number | null;
+}
+
+export interface OpenRouterProviderConfig {
   readonly apiKey: string | null;
   readonly baseUrl: string | null;
   readonly defaultModel: string;
@@ -66,6 +74,12 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       baseUrl: parseUrl(env.MONET_OPENAI_BASE_URL) ?? parseUrl(env.OPENAI_BASE_URL),
       defaultModel: parseOptionalString(env.MONET_OPENAI_DEFAULT_MODEL) ?? "gpt-4.1-mini",
       timeoutMs: parseInteger(env.MONET_OPENAI_TIMEOUT_MS)
+    },
+    openrouter: {
+      apiKey: parseOptionalString(env.MONET_OPENROUTER_API_KEY) ?? parseOptionalString(env.OPENROUTER_API_KEY),
+      baseUrl: parseUrl(env.MONET_OPENROUTER_BASE_URL) ?? parseUrl(env.OPENROUTER_BASE_URL),
+      defaultModel: parseOptionalString(env.MONET_OPENROUTER_DEFAULT_MODEL) ?? "openai/gpt-4.1-mini",
+      timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
     }
   };
 }

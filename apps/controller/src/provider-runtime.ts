@@ -2,10 +2,11 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { streamText } from "ai";
 
 import type { ChatStorage, ProviderValidationResult, StoredProvider } from "./chat-storage";
-import type { OpenAIProviderConfig } from "./config";
+import type { OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
 import { createLogger } from "./logger";
 
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 const providerLogger = createLogger("controller", {
   component: "provider-runtime"
@@ -40,6 +41,7 @@ export interface ProviderRuntime {
 export function createProviderRuntime(options: {
   getChatStorage: () => ChatStorage;
   openai: OpenAIProviderConfig;
+  openrouter: OpenRouterProviderConfig;
 }): ProviderRuntime {
   return {
     async syncProviderCatalog(providerId) {
@@ -47,11 +49,11 @@ export function createProviderRuntime(options: {
       const providers = providerId ? [storage.getProvider(providerId)] : storage.listProviders();
 
       for (const provider of providers) {
-        if (provider.type === "openai") {
-          await syncOpenAIProviderCatalog({
+        if (provider.type === "openai" || provider.type === "openrouter") {
+          await syncOpenAICompatibleProviderCatalog({
             provider,
             storage,
-            config: options.openai
+            config: getProviderConfig(provider.type, options)
           });
         }
       }
@@ -61,16 +63,22 @@ export function createProviderRuntime(options: {
       const storage = options.getChatStorage();
       const provider = storage.getProvider(providerId);
 
-      if (provider.type === "openai") {
-        if (!options.openai.apiKey) {
-          return buildInvalidProviderValidation(provider, "missing_credentials", "OpenAI API key is not configured.");
+      if (provider.type === "openai" || provider.type === "openrouter") {
+        const providerConfig = getProviderConfig(provider.type, options);
+
+        if (!providerConfig.apiKey) {
+          return buildInvalidProviderValidation(
+            provider,
+            "missing_credentials",
+            `${provider.displayName} API key is not configured.`
+          );
         }
 
         try {
-          await syncOpenAIProviderCatalog({
+          await syncOpenAICompatibleProviderCatalog({
             provider,
             storage,
-            config: options.openai
+            config: providerConfig
           });
         } catch (error) {
           providerLogger.warn("providers.validate_failed", {
@@ -129,6 +137,27 @@ export function createProviderRuntime(options: {
 
           return openai.responses(model.modelName);
         }
+        case "openrouter": {
+          if (!options.openrouter.apiKey) {
+            throw new ProviderRuntimeError({
+              message: "OpenRouter API key is not configured.",
+              statusCode: 422,
+              errorCode: "provider_invalid_config"
+            });
+          }
+
+          const openrouter = createOpenAI({
+            name: "openrouter",
+            apiKey: options.openrouter.apiKey,
+            baseURL: resolveProviderBaseUrl(provider, options.openrouter),
+            headers: {
+              "X-Title": "Monet"
+            },
+            fetch: createFetchWithTimeout(provider.timeoutMs ?? options.openrouter.timeoutMs)
+          });
+
+          return openrouter.responses(model.modelName);
+        }
         default:
           throw new ProviderRuntimeError({
             message: `Unsupported provider type: ${provider.type}`,
@@ -140,10 +169,10 @@ export function createProviderRuntime(options: {
   };
 }
 
-async function syncOpenAIProviderCatalog(options: {
+async function syncOpenAICompatibleProviderCatalog(options: {
   provider: StoredProvider;
   storage: ChatStorage;
-  config: OpenAIProviderConfig;
+  config: OpenAIProviderConfig | OpenRouterProviderConfig;
 }) {
   if (!options.config.apiKey) {
     return;
@@ -154,7 +183,7 @@ async function syncOpenAIProviderCatalog(options: {
     baseUrl: resolveProviderBaseUrl(options.provider, options.config),
     timeoutMs: options.provider.timeoutMs ?? options.config.timeoutMs
   });
-  const filteredModels = models.filter((modelName) => isSupportedChatModel(modelName));
+  const filteredModels = models.filter((modelName) => isSupportedChatModel(options.provider.type, modelName));
 
   options.storage.replaceProviderCatalog({
     providerId: options.provider.id,
@@ -196,7 +225,21 @@ async function fetchOpenAIModels(options: { apiKey: string; baseUrl: string; tim
     .sort((left, right) => left.localeCompare(right));
 }
 
-function resolveProviderBaseUrl(provider: StoredProvider, config: OpenAIProviderConfig) {
+function getProviderConfig(
+  providerType: StoredProvider["type"],
+  options: { openai: OpenAIProviderConfig; openrouter: OpenRouterProviderConfig }
+) {
+  return providerType === "openrouter" ? options.openrouter : options.openai;
+}
+
+function resolveProviderBaseUrl(
+  provider: StoredProvider,
+  config: OpenAIProviderConfig | OpenRouterProviderConfig
+) {
+  if (provider.type === "openrouter") {
+    return provider.baseUrl ?? config.baseUrl ?? DEFAULT_OPENROUTER_BASE_URL;
+  }
+
   return provider.baseUrl ?? config.baseUrl ?? DEFAULT_OPENAI_BASE_URL;
 }
 
@@ -216,9 +259,13 @@ function buildInvalidProviderValidation(
   };
 }
 
-function isSupportedChatModel(modelName: string) {
+function isSupportedChatModel(providerType: StoredProvider["type"], modelName: string) {
   if (/(embedding|image|tts|transcri|whisper|moderation|omni-moderation|audio|realtime|search)/i.test(modelName)) {
     return false;
+  }
+
+  if (providerType === "openrouter") {
+    return true;
   }
 
   return /(^gpt|^o[1-9]|chatgpt|reason)/i.test(modelName);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
@@ -37,23 +37,27 @@ function deriveSessionTitle(input: string) {
 function SessionChatSurface({
   session,
   fallbackProviderTarget,
+  readyProviders,
   onRenameSession,
   onRefreshCurrentSession,
   onRefreshSessions
 }: {
   session: SessionDetailRecord;
   fallbackProviderTarget: ProviderReadinessTarget | null;
+  readyProviders: ProviderReadinessTarget[];
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onRefreshCurrentSession: () => Promise<void>;
   onRefreshSessions: () => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [approvalErrorText, setApprovalErrorText] = useState<string | undefined>(undefined);
+  const [overrideProviderTarget, setOverrideProviderTarget] = useState<ProviderReadinessTarget | null>(null);
   const pendingContinuationRef = useRef<PendingContinuationRequest | null>(null);
   const { config } = useControllerState();
   const controllerConfig = config;
-  const resolvedProviderId = fallbackProviderTarget?.providerId ?? null;
-  const resolvedModelId = fallbackProviderTarget?.modelId ?? null;
+  const activeProviderTarget = overrideProviderTarget ?? fallbackProviderTarget;
+  const resolvedProviderId = activeProviderTarget?.providerId ?? null;
+  const resolvedModelId = activeProviderTarget?.modelId ?? null;
   const initialMessages = useMemo(() => session.messages.map((message) => message.uiMessage), [session.id, session.messages]);
   const transport = useMemo(
     () =>
@@ -119,6 +123,34 @@ function SessionChatSurface({
   const composerDisabledReason = isArchived
     ? "This session is archived. Create a new session or switch to an active one to continue chatting."
     : "Complete provider setup in Model Settings before starting a chat.";
+
+  useEffect(() => {
+    if (!overrideProviderTarget) {
+      return;
+    }
+
+    const stillReady = readyProviders.some(
+      (target) => target.providerId === overrideProviderTarget.providerId && target.modelId === overrideProviderTarget.modelId
+    );
+
+    if (!stillReady) {
+      setOverrideProviderTarget(null);
+    }
+  }, [overrideProviderTarget, readyProviders]);
+
+  function handleChangeProviderTarget(target: ProviderReadinessTarget | null) {
+    if (
+      target &&
+      fallbackProviderTarget &&
+      target.providerId === fallbackProviderTarget.providerId &&
+      target.modelId === fallbackProviderTarget.modelId
+    ) {
+      setOverrideProviderTarget(null);
+      return;
+    }
+
+    setOverrideProviderTarget(target);
+  }
 
   async function handleSubmit() {
     const text = input.trim();
@@ -226,6 +258,10 @@ function SessionChatSurface({
           messageCount={messages.length}
           hasError={error != null || approvalErrorText != null}
           canRegenerate={canRegenerate && !isComposerDisabled}
+          readyProviders={readyProviders}
+          activeTarget={activeProviderTarget}
+          isTargetOverridden={overrideProviderTarget !== null}
+          onChangeTarget={handleChangeProviderTarget}
           onRegenerate={() => void handleRegenerate()}
           onStop={handleStop}
         />
@@ -355,6 +391,7 @@ export default function HomePage() {
     <SessionChatSurface
       key={currentSessionDetail.id}
       session={currentSessionDetail}
+      readyProviders={providerReadiness.data?.readyProviders ?? []}
       fallbackProviderTarget={
         providerReadiness.data?.readyProviders.find(
           (provider) => provider.providerId === currentSessionDetail.defaultProviderId && provider.modelId === currentSessionDetail.defaultModelId

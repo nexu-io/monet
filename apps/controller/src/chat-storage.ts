@@ -7,10 +7,13 @@ import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import type { UIMessage } from "ai";
 
 const DEFAULT_SESSION_TITLE = "New chat";
-const DEFAULT_PROVIDER_ID = "pro_b6m4q2r8t5v9x3z7k1n4p6s8";
-const DEFAULT_MODEL_ID = "mod_c7n5r3t9w2y6k4m8p1s5v7x9";
+const DEFAULT_OPENAI_PROVIDER_ID = "pro_b6m4q2r8t5v9x3z7k1n4p6s8";
+const DEFAULT_OPENAI_MODEL_ID = "mod_c7n5r3t9w2y6k4m8p1s5v7x9";
+const DEFAULT_OPENROUTER_PROVIDER_ID = "pro_q4w8e2r6t1y5u9i3o7p1a5s9";
+const DEFAULT_OPENROUTER_MODEL_ID = "mod_h3j7k1l5z9x3c7v1b5n9m3q7";
 const DEFAULT_PROVIDER_TYPE = "openai";
 const DEFAULT_PROVIDER_DISPLAY_NAME = "OpenAI";
+const DEFAULT_OPENROUTER_PROVIDER_DISPLAY_NAME = "OpenRouter";
 const CURRENT_UI_MESSAGE_SCHEMA_VERSION = "v1";
 const KNOWN_UI_MESSAGE_PART_TYPES = new Set([
   "text",
@@ -27,6 +30,11 @@ type ProviderType = "openai" | "openrouter";
 interface CreateChatStorageOptions {
   readonly databasePath: string;
   readonly openai: {
+    readonly baseUrl: string | null;
+    readonly defaultModel: string;
+    readonly timeoutMs: number | null;
+  };
+  readonly openrouter: {
     readonly baseUrl: string | null;
     readonly defaultModel: string;
     readonly timeoutMs: number | null;
@@ -331,7 +339,24 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   connection.exec("PRAGMA foreign_keys = ON");
 
   bootstrapSchema(connection);
-  ensureOpenAIProviderAndDefaultModel(connection, options.openai);
+  ensureProviderAndDefaultModel(connection, {
+    providerId: DEFAULT_OPENAI_PROVIDER_ID,
+    providerType: DEFAULT_PROVIDER_TYPE,
+    providerDisplayName: DEFAULT_PROVIDER_DISPLAY_NAME,
+    modelId: DEFAULT_OPENAI_MODEL_ID,
+    baseUrl: options.openai.baseUrl,
+    defaultModel: options.openai.defaultModel,
+    timeoutMs: options.openai.timeoutMs
+  });
+  ensureProviderAndDefaultModel(connection, {
+    providerId: DEFAULT_OPENROUTER_PROVIDER_ID,
+    providerType: "openrouter",
+    providerDisplayName: DEFAULT_OPENROUTER_PROVIDER_DISPLAY_NAME,
+    modelId: DEFAULT_OPENROUTER_MODEL_ID,
+    baseUrl: options.openrouter.baseUrl,
+    defaultModel: options.openrouter.defaultModel,
+    timeoutMs: options.openrouter.timeoutMs
+  });
 
   return {
     listAuthorizedDirectories() {
@@ -1190,9 +1215,13 @@ function splitMigrationStatements(sql: string, hasBreakpoints: boolean) {
   return statement.length > 0 ? [statement] : [];
 }
 
-function ensureOpenAIProviderAndDefaultModel(
+function ensureProviderAndDefaultModel(
   connection: DatabaseSync,
   options: {
+    readonly providerId: string;
+    readonly providerType: ProviderType;
+    readonly providerDisplayName: string;
+    readonly modelId: string;
     readonly baseUrl: string | null;
     readonly defaultModel: string;
     readonly timeoutMs: number | null;
@@ -1221,9 +1250,9 @@ function ensureOpenAIProviderAndDefaultModel(
         updated_at = excluded.updated_at`
     )
     .run(
-      DEFAULT_PROVIDER_ID,
-      DEFAULT_PROVIDER_TYPE,
-      DEFAULT_PROVIDER_DISPLAY_NAME,
+      options.providerId,
+      options.providerType,
+      options.providerDisplayName,
       options.baseUrl,
       options.defaultModel,
       options.timeoutMs,
@@ -1255,8 +1284,8 @@ function ensureOpenAIProviderAndDefaultModel(
         updated_at = excluded.updated_at`
     )
     .run(
-      DEFAULT_MODEL_ID,
-      DEFAULT_PROVIDER_ID,
+      options.modelId,
+      options.providerId,
       options.defaultModel,
       options.defaultModel,
       isReasoningModelName(options.defaultModel) ? 1 : 0,
@@ -1395,8 +1424,8 @@ function resolveProviderAndModel(
   }
 
   return {
-    providerId: DEFAULT_PROVIDER_ID,
-    modelId: DEFAULT_MODEL_ID
+    providerId: DEFAULT_OPENAI_PROVIDER_ID,
+    modelId: DEFAULT_OPENAI_MODEL_ID
   };
 }
 

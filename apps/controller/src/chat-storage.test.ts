@@ -33,6 +33,11 @@ function createStorage(databasePath: string) {
       baseUrl: null,
       defaultModel: "gpt-4.1-mini",
       timeoutMs: null
+    },
+    openrouter: {
+      baseUrl: null,
+      defaultModel: "openai/gpt-4.1-mini",
+      timeoutMs: null
     }
   });
 }
@@ -59,6 +64,37 @@ test("authorized directory allowlist persists across storage reopen", () => {
     assert.deepEqual(
       reopenedStorage.listAuthorizedDirectories().map((entry) => entry.path),
       [resolve(fixture.secondaryDir), resolve(fixture.workspaceDir)]
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("storage bootstraps OpenAI and OpenRouter providers", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const providers = storage.listProviders();
+
+    assert.deepEqual(
+      providers.map((provider) => ({
+        type: provider.type,
+        displayName: provider.displayName,
+        defaultModelName: provider.defaultModelName
+      })),
+      [
+        {
+          type: "openai",
+          displayName: "OpenAI",
+          defaultModelName: "gpt-4.1-mini"
+        },
+        {
+          type: "openrouter",
+          displayName: "OpenRouter",
+          defaultModelName: "openai/gpt-4.1-mini"
+        }
+      ]
     );
   } finally {
     fixture.cleanup();

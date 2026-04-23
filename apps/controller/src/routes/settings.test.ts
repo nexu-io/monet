@@ -36,6 +36,11 @@ function createStorage(databasePath: string) {
       baseUrl: null,
       defaultModel: "gpt-4.1-mini",
       timeoutMs: null
+    },
+    openrouter: {
+      baseUrl: null,
+      defaultModel: "openai/gpt-4.1-mini",
+      timeoutMs: null
     }
   });
 }

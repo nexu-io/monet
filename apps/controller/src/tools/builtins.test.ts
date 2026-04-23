@@ -24,6 +24,11 @@ function createTestFixture() {
       baseUrl: null,
       defaultModel: "gpt-4o-mini",
       timeoutMs: null
+    },
+    openrouter: {
+      baseUrl: null,
+      defaultModel: "openai/gpt-4o-mini",
+      timeoutMs: null
     }
   });
 

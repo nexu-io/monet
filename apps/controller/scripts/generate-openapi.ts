@@ -22,6 +22,12 @@ async function main() {
       defaultModel: "gpt-4.1-mini",
       timeoutMs: null
     },
+    openrouter: {
+      apiKey: null,
+      baseUrl: null,
+      defaultModel: "openai/gpt-4.1-mini",
+      timeoutMs: null
+    },
     port: 3030
   });
   const document = app.getOpenAPI31Document({

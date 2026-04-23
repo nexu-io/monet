@@ -15,7 +15,7 @@ import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createBuiltinToolDefinitions } from "./tools/builtins";
 import { createToolRegistry } from "./tools/registry";
-import type { AgentRuntimeConfig, OpenAIProviderConfig } from "./config";
+import type { AgentRuntimeConfig, OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
 
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
@@ -25,6 +25,7 @@ export interface CreateControllerAppOptions {
   readonly bearerToken: string;
   readonly databasePath: string;
   readonly openai: OpenAIProviderConfig;
+  readonly openrouter: OpenRouterProviderConfig;
   readonly port: number;
 }
 
@@ -71,11 +72,17 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       baseUrl: options.openai.baseUrl,
       defaultModel: options.openai.defaultModel,
       timeoutMs: options.openai.timeoutMs
+    },
+    openrouter: {
+      baseUrl: options.openrouter.baseUrl,
+      defaultModel: options.openrouter.defaultModel,
+      timeoutMs: options.openrouter.timeoutMs
     }
   });
   const providerRuntime = createProviderRuntime({
     getChatStorage,
-    openai: options.openai
+    openai: options.openai,
+    openrouter: options.openrouter
   });
   const persistedAllowedDirectories = chatStorage.listAuthorizedDirectories().map((entry) => entry.path);
   const effectiveAllowedToolDirectories =

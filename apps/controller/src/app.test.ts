@@ -34,6 +34,11 @@ function createStorage(databasePath: string) {
       baseUrl: null,
       defaultModel: "gpt-4.1-mini",
       timeoutMs: null
+    },
+    openrouter: {
+      baseUrl: null,
+      defaultModel: "openai/gpt-4.1-mini",
+      timeoutMs: null
     }
   });
 }
@@ -61,6 +66,12 @@ test("controller app keeps persisted authorized directories when env uses defaul
         apiKey: null,
         baseUrl: null,
         defaultModel: "gpt-4.1-mini",
+        timeoutMs: null
+      },
+      openrouter: {
+        apiKey: null,
+        baseUrl: null,
+        defaultModel: "openai/gpt-4.1-mini",
         timeoutMs: null
       },
       port: 3030
