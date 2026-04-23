@@ -420,7 +420,9 @@
               "disabled",
               "no_enabled_models",
               "missing_default_model",
-              "default_model_unresolved"
+              "default_model_unresolved",
+              "missing_credentials",
+              "provider_api_error"
             ],
             "example": "ok"
           },

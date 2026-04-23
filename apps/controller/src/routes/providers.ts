@@ -3,6 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { ControllerApp } from "../app";
 import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
 import { createLogger } from "../logger";
+import type { ProviderRuntime } from "../provider-runtime";
 import {
   ErrorResponseSchema,
   ListModelsResponseSchema,
@@ -145,7 +146,10 @@ function createProviderErrorResponse(error: unknown) {
   };
 }
 
-export function registerProviderRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
+export function registerProviderRoutes(
+  app: ControllerApp,
+  options: { getChatStorage: () => ChatStorage; providerRuntime: ProviderRuntime }
+) {
   app.openapi(listProvidersRoute, (context) => {
     return context.json(
       {
@@ -155,7 +159,16 @@ export function registerProviderRoutes(app: ControllerApp, options: { getChatSto
     );
   });
 
-  app.openapi(listModelsRoute, (context) => {
+  app.openapi(listModelsRoute, async (context) => {
+    try {
+      await options.providerRuntime.syncProviderCatalog();
+    } catch (error) {
+      providersLogger.warn("providers.sync_catalog_failed", {
+        scope: "all-models",
+        reason: error instanceof Error ? error.message : "unknown_error"
+      });
+    }
+
     return context.json(
       {
         models: options.getChatStorage().listModels()
@@ -164,8 +177,10 @@ export function registerProviderRoutes(app: ControllerApp, options: { getChatSto
     );
   });
 
-  app.openapi(listProviderModelsRoute, (context) => {
+  app.openapi(listProviderModelsRoute, async (context) => {
     try {
+      await options.providerRuntime.syncProviderCatalog(context.req.valid("param").providerId);
+
       return context.json(
         {
           models: options.getChatStorage().listModels(context.req.valid("param").providerId)
@@ -179,9 +194,9 @@ export function registerProviderRoutes(app: ControllerApp, options: { getChatSto
     }
   });
 
-  app.openapi(validateProviderRoute, (context) => {
+  app.openapi(validateProviderRoute, async (context) => {
     try {
-      return context.json(options.getChatStorage().validateProvider(context.req.valid("param").providerId), 200);
+      return context.json(await options.providerRuntime.validateProvider(context.req.valid("param").providerId), 200);
     } catch (error) {
       const response = createProviderErrorResponse(error);
 

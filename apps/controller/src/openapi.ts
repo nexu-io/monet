@@ -120,7 +120,15 @@ export const ValidateProviderResponseSchema = z
     provider: ProviderSchema,
     valid: z.boolean().openapi({ example: true }),
     reason: z
-      .enum(["ok", "disabled", "no_enabled_models", "missing_default_model", "default_model_unresolved"])
+      .enum([
+        "ok",
+        "disabled",
+        "no_enabled_models",
+        "missing_default_model",
+        "default_model_unresolved",
+        "missing_credentials",
+        "provider_api_error"
+      ])
       .openapi({ example: "ok" }),
     message: z.string().openapi({ example: "Provider configuration is valid." }),
     defaultModelId: z.string().nullable().openapi({ example: "mod_c7n5r3t9w2y6k4m8p1s5v7x9" }),

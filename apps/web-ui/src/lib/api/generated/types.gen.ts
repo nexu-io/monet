@@ -88,7 +88,7 @@ export type ListModelsResponse = {
 export type ValidateProviderResponse = {
     provider: Provider;
     valid: boolean;
-    reason: 'ok' | 'disabled' | 'no_enabled_models' | 'missing_default_model' | 'default_model_unresolved';
+    reason: 'ok' | 'disabled' | 'no_enabled_models' | 'missing_default_model' | 'default_model_unresolved' | 'missing_credentials' | 'provider_api_error';
     message: string;
     defaultModelId: string | null;
     defaultModelName: string | null;

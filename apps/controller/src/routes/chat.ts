@@ -1,9 +1,10 @@
 import { createId as createCuid2 } from "@paralleldrive/cuid2";
-import { simulateReadableStream, streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
+import { streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
 
 import type { ControllerApp } from "../app";
 import { ChatStorageResolutionError, type ChatStorage, type ResolvedChatRequest } from "../chat-storage";
 import { createLogger } from "../logger";
+import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
 import { getRequestId } from "../request-context";
 
 interface ChatRequestBody {
@@ -16,141 +17,18 @@ interface ChatRequestBody {
   };
 }
 
-const STREAM_CHUNK_DELAY_MS = 18;
 const chatLogger = createLogger("controller", {
   component: "chat-route"
 });
-
-function getLatestUserText(prompt: Array<{ role: string; content: unknown }>) {
-  for (let index = prompt.length - 1; index >= 0; index -= 1) {
-    const message = prompt[index];
-
-    if (!message || message.role !== "user" || !Array.isArray(message.content)) {
-      continue;
-    }
-
-    const text = message.content
-      .filter(
-        (part): part is { type: "text"; text: string } =>
-          typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
-      )
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
-
-    if (text) {
-      return text;
-    }
-  }
-
-  return "";
-}
-
-function buildStubReply(body: ChatRequestBody, prompt: string, resolved: ResolvedChatRequest) {
-  return [
-    "The controller chat route is now streaming through `streamText(...).toUIMessageStreamResponse()`.",
-    `Session: ${resolved.sessionId}`,
-    `Provider: ${resolved.providerId}`,
-    `Model: ${resolved.modelId}`,
-    body.runtimeOptions?.maxSteps != null ? `Max steps: ${body.runtimeOptions.maxSteps}` : null,
-    prompt ? `\nEchoing your last prompt:\n${prompt}` : "\nNo user text was found in the submitted UI messages."
-  ]
-    .filter((value): value is string => value != null)
-    .join("\n");
-}
-
-function splitReplyIntoChunks(reply: string) {
-  return reply.split(/(\s+)/).filter((chunk) => chunk.length > 0);
-}
-
-function createUsage(prompt: Array<{ role: string; content: unknown }>, reply: string) {
-  const inputCharacters = JSON.stringify(prompt).length;
-
-  return {
-    inputTokens: {
-      total: Math.max(1, Math.ceil(inputCharacters / 4)),
-      noCache: undefined,
-      cacheRead: undefined,
-      cacheWrite: undefined
-    },
-    outputTokens: {
-      total: Math.max(1, Math.ceil(reply.length / 4)),
-      text: Math.max(1, Math.ceil(reply.length / 4)),
-      reasoning: undefined
-    }
-  };
-}
-
-function createLocalChatModel(body: ChatRequestBody, resolved: ResolvedChatRequest): Parameters<typeof streamText>[0]["model"] {
-  const responseModelId = resolved.modelId;
-  const responseId = `resp_${Date.now()}`;
-
-  return {
-    specificationVersion: "v3",
-    provider: resolved.providerId,
-    modelId: responseModelId,
-    supportedUrls: {},
-    async doGenerate(options) {
-      const reply = buildStubReply(body, getLatestUserText(options.prompt), resolved);
-
-      return {
-        content: [{ type: "text", text: reply }],
-        finishReason: {
-          unified: "stop",
-          raw: "stop"
-        },
-        usage: createUsage(options.prompt, reply),
-        warnings: [],
-        response: {
-          id: responseId,
-          modelId: responseModelId,
-          timestamp: new Date()
-        }
-      };
-    },
-    async doStream(options) {
-      const reply = buildStubReply(body, getLatestUserText(options.prompt), resolved);
-      const textId = `txt_${Date.now()}`;
-
-      return {
-        stream: simulateReadableStream({
-          initialDelayInMs: null,
-          chunkDelayInMs: STREAM_CHUNK_DELAY_MS,
-          chunks: [
-            { type: "stream-start", warnings: [] },
-            {
-              type: "response-metadata",
-              id: responseId,
-              modelId: responseModelId,
-              timestamp: new Date()
-            },
-            { type: "text-start", id: textId },
-            ...splitReplyIntoChunks(reply).map((delta) => ({
-              type: "text-delta" as const,
-              id: textId,
-              delta
-            })),
-            { type: "text-end", id: textId },
-            {
-              type: "finish",
-              finishReason: {
-                unified: "stop" as const,
-                raw: "stop"
-              },
-              usage: createUsage(options.prompt, reply)
-            }
-          ]
-        })
-      };
-    }
-  };
-}
 
 function toModelMessages(messages: UIMessage[]) {
   return convertToModelMessages(messages.map(({ id: _id, ...message }) => message));
 }
 
-export function registerChatRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
+export function registerChatRoutes(
+  app: ControllerApp,
+  options: { getChatStorage: () => ChatStorage; providerRuntime: ProviderRuntime }
+) {
   app.post("/api/chat", async (context) => {
     const requestId = getRequestId(context);
     let body: ChatRequestBody;
@@ -256,8 +134,60 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
       messageCount: messages.length
     });
 
+    let model: Parameters<typeof streamText>[0]["model"];
+
+    try {
+      model = await options.providerRuntime.createChatModel(resolvedChatRequest.providerId, resolvedChatRequest.modelId);
+    } catch (error) {
+      if (error instanceof ProviderRuntimeError) {
+        const status = error.statusCode === 422 ? 422 : 500;
+
+        chatLogger.warn("chat.provider_resolution_failed", {
+          requestId,
+          runId: resolvedChatRequest.runId,
+          providerId: resolvedChatRequest.providerId,
+          modelId: resolvedChatRequest.modelId,
+          errorCode: error.errorCode,
+          status
+        });
+
+        options.getChatStorage().failRun({
+          runId: resolvedChatRequest.runId,
+          finishReason: error.message
+        });
+
+        return context.json(
+          {
+            error: error.errorCode,
+            message: error.message
+          },
+          status
+        );
+      }
+
+      options.getChatStorage().failRun({
+        runId: resolvedChatRequest.runId,
+        finishReason: error instanceof Error ? error.message : "provider_runtime_error"
+      });
+
+      chatLogger.error("chat.provider_resolution_unhandled", error, {
+        requestId,
+        runId: resolvedChatRequest.runId,
+        providerId: resolvedChatRequest.providerId,
+        modelId: resolvedChatRequest.modelId
+      });
+
+      return context.json(
+        {
+          error: "internal_error",
+          message: "Failed to initialize the provider model."
+        },
+        500
+      );
+    }
+
     const result = streamText({
-      model: createLocalChatModel(body, resolvedChatRequest),
+      model,
       messages: await toModelMessages(messages),
       onFinish: ({ finishReason }) => {
         try {

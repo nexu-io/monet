@@ -37,6 +37,7 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     allowedOrigins: config.allowedOrigins,
     bearerToken: config.bearerToken,
     databasePath: config.databasePath,
+    openai: config.openai,
     port: config.port
   });
 

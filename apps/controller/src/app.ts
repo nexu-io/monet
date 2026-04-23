@@ -3,16 +3,19 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { createChatStorage } from "./chat-storage";
 import { createRequestId, createLogger } from "./logger";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
+import { createProviderRuntime } from "./provider-runtime";
 import { getRequestId, requestIdKey } from "./request-context";
 import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerSessionRoutes } from "./routes/sessions";
+import type { OpenAIProviderConfig } from "./config";
 
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
   readonly bearerToken: string;
   readonly databasePath: string;
+  readonly openai: OpenAIProviderConfig;
   readonly port: number;
 }
 
@@ -53,7 +56,18 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       );
     }
   });
-  const chatStorage = createChatStorage({ databasePath: options.databasePath });
+  const chatStorage = createChatStorage({
+    databasePath: options.databasePath,
+    openai: {
+      baseUrl: options.openai.baseUrl,
+      defaultModel: options.openai.defaultModel,
+      timeoutMs: options.openai.timeoutMs
+    }
+  });
+  const providerRuntime = createProviderRuntime({
+    getChatStorage,
+    openai: options.openai
+  });
 
   function getChatStorage() {
     return chatStorage;
@@ -158,9 +172,9 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   registerHealthRoutes(app);
-  registerChatRoutes(app, { getChatStorage });
+  registerChatRoutes(app, { getChatStorage, providerRuntime });
   registerSessionRoutes(app, { getChatStorage });
-  registerProviderRoutes(app, { getChatStorage });
+  registerProviderRoutes(app, { getChatStorage, providerRuntime });
 
   return app;
 }

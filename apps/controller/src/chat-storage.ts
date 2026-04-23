@@ -10,9 +10,7 @@ const DEFAULT_SESSION_TITLE = "New chat";
 const DEFAULT_PROVIDER_ID = "pro_b6m4q2r8t5v9x3z7k1n4p6s8";
 const DEFAULT_MODEL_ID = "mod_c7n5r3t9w2y6k4m8p1s5v7x9";
 const DEFAULT_PROVIDER_TYPE = "openai";
-const DEFAULT_PROVIDER_DISPLAY_NAME = "Local Stub Provider";
-const DEFAULT_MODEL_NAME = "controller-echo";
-const DEFAULT_MODEL_DISPLAY_NAME = "Controller Echo";
+const DEFAULT_PROVIDER_DISPLAY_NAME = "OpenAI";
 const CURRENT_UI_MESSAGE_SCHEMA_VERSION = "v1";
 const KNOWN_UI_MESSAGE_PART_TYPES = new Set([
   "text",
@@ -28,6 +26,11 @@ type ProviderType = "openai" | "openrouter";
 
 interface CreateChatStorageOptions {
   readonly databasePath: string;
+  readonly openai: {
+    readonly baseUrl: string | null;
+    readonly defaultModel: string;
+    readonly timeoutMs: number | null;
+  };
 }
 
 interface MigrationJournal {
@@ -136,11 +139,26 @@ export interface StoredProviderModel {
 export interface ProviderValidationResult {
   readonly provider: StoredProvider;
   readonly valid: boolean;
-  readonly reason: "ok" | "disabled" | "no_enabled_models" | "missing_default_model" | "default_model_unresolved";
+  readonly reason:
+    | "ok"
+    | "disabled"
+    | "no_enabled_models"
+    | "missing_default_model"
+    | "default_model_unresolved"
+    | "missing_credentials"
+    | "provider_api_error";
   readonly message: string;
   readonly defaultModelId: string | null;
   readonly defaultModelName: string | null;
   readonly availableModelCount: number;
+}
+
+export interface ProviderCatalogModelInput {
+  readonly modelName: string;
+  readonly displayName: string;
+  readonly supportsTools: boolean;
+  readonly supportsReasoning: boolean;
+  readonly capabilitiesJson: string | null;
 }
 
 export interface ChatRequestPersistenceInput {
@@ -183,8 +201,15 @@ export interface ChatStorage {
   updateSessionTitle(input: { sessionId: string; title: string }): StoredSession;
   archiveSession(sessionId: string): StoredSession;
   listProviders(): StoredProvider[];
+  getProvider(providerId: string): StoredProvider;
   listModels(providerId?: string): StoredProviderModel[];
+  getModel(modelId: string): StoredProviderModel;
   validateProvider(providerId: string): ProviderValidationResult;
+  replaceProviderCatalog(input: {
+    providerId: string;
+    defaultModelName?: string | null;
+    models: ProviderCatalogModelInput[];
+  }): void;
   prepareChatRequest(input: ChatRequestPersistenceInput): ResolvedChatRequest;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
@@ -208,7 +233,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   connection.exec("PRAGMA foreign_keys = ON");
 
   bootstrapSchema(connection);
-  ensureStubProviderAndModel(connection);
+  ensureOpenAIProviderAndDefaultModel(connection, options.openai);
 
   return {
     listSessions() {
@@ -326,6 +351,20 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       return rows.map(mapProviderRow);
     },
 
+    getProvider(providerId) {
+      const provider = getProviderById(connection, providerId);
+
+      if (!provider) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown providerId: ${providerId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      return mapProviderRow(provider);
+    },
+
     listModels(providerId) {
       if (providerId) {
         const provider = getProviderById(connection, providerId);
@@ -357,6 +396,20 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
             .all() as unknown) as ProviderModelRow[]);
 
       return rows.map(mapProviderModelRow);
+    },
+
+    getModel(modelId) {
+      const model = getProviderModelById(connection, modelId);
+
+      if (!model) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown modelId: ${modelId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      return mapProviderModelRow(model);
     },
 
     validateProvider(providerId) {
@@ -439,6 +492,81 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         defaultModelName: defaultModel.model_name,
         availableModelCount: models.length
       };
+    },
+
+    replaceProviderCatalog({ providerId, defaultModelName, models }) {
+      const provider = getProviderById(connection, providerId);
+
+      if (!provider) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown providerId: ${providerId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const now = new Date().toISOString();
+      const disableModelsStatement = connection.prepare(
+        `UPDATE provider_models
+         SET enabled = 0, updated_at = ?
+         WHERE provider_id = ?`
+      );
+      const upsertModelStatement = connection.prepare(
+        `INSERT INTO provider_models (
+          id,
+          provider_id,
+          model_name,
+          display_name,
+          supports_tools,
+          supports_reasoning,
+          enabled,
+          capabilities_json,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+        ON CONFLICT(provider_id, model_name) DO UPDATE SET
+          display_name = excluded.display_name,
+          supports_tools = excluded.supports_tools,
+          supports_reasoning = excluded.supports_reasoning,
+          enabled = excluded.enabled,
+          capabilities_json = excluded.capabilities_json,
+          updated_at = excluded.updated_at`
+      );
+
+      connection.exec("BEGIN");
+
+      try {
+        connection
+          .prepare(
+            `UPDATE providers
+             SET default_model_name = ?, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(defaultModelName ?? provider.default_model_name, now, providerId);
+
+        disableModelsStatement.run(now, providerId);
+
+        for (const model of models) {
+          const existingModel = getProviderModelByProviderAndName(connection, providerId, model.modelName);
+
+          upsertModelStatement.run(
+            existingModel?.id ?? createPrefixedId("mod"),
+            providerId,
+            model.modelName,
+            model.displayName,
+            model.supportsTools ? 1 : 0,
+            model.supportsReasoning ? 1 : 0,
+            model.capabilitiesJson,
+            existingModel?.created_at ?? now,
+            now
+          );
+        }
+
+        connection.exec("COMMIT");
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
     },
 
     prepareChatRequest(input) {
@@ -599,7 +727,14 @@ function splitMigrationStatements(sql: string, hasBreakpoints: boolean) {
   return statement.length > 0 ? [statement] : [];
 }
 
-function ensureStubProviderAndModel(connection: DatabaseSync) {
+function ensureOpenAIProviderAndDefaultModel(
+  connection: DatabaseSync,
+  options: {
+    readonly baseUrl: string | null;
+    readonly defaultModel: string;
+    readonly timeoutMs: number | null;
+  }
+) {
   const now = new Date().toISOString();
 
   connection
@@ -614,16 +749,21 @@ function ensureStubProviderAndModel(connection: DatabaseSync) {
         timeout_ms,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, NULL, ?, 1, NULL, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        display_name = excluded.display_name,
+        base_url = excluded.base_url,
         default_model_name = excluded.default_model_name,
+        timeout_ms = excluded.timeout_ms,
         updated_at = excluded.updated_at`
     )
     .run(
       DEFAULT_PROVIDER_ID,
       DEFAULT_PROVIDER_TYPE,
       DEFAULT_PROVIDER_DISPLAY_NAME,
-      DEFAULT_MODEL_NAME,
+      options.baseUrl,
+      options.defaultModel,
+      options.timeoutMs,
       now,
       now
     );
@@ -641,14 +781,25 @@ function ensureStubProviderAndModel(connection: DatabaseSync) {
         capabilities_json,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, 0, 0, 1, NULL, ?, ?)
+      ) VALUES (?, ?, ?, ?, 1, ?, 1, NULL, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         provider_id = excluded.provider_id,
         model_name = excluded.model_name,
         display_name = excluded.display_name,
+        supports_tools = excluded.supports_tools,
+        supports_reasoning = excluded.supports_reasoning,
+        enabled = excluded.enabled,
         updated_at = excluded.updated_at`
     )
-    .run(DEFAULT_MODEL_ID, DEFAULT_PROVIDER_ID, DEFAULT_MODEL_NAME, DEFAULT_MODEL_DISPLAY_NAME, now, now);
+    .run(
+      DEFAULT_MODEL_ID,
+      DEFAULT_PROVIDER_ID,
+      options.defaultModel,
+      options.defaultModel,
+      isReasoningModelName(options.defaultModel) ? 1 : 0,
+      now,
+      now
+    );
 }
 
 function resolveProviderAndModel(
@@ -846,6 +997,17 @@ function getProviderModelById(connection: DatabaseSync, id: string) {
        LIMIT 1`
     )
     .get(id) as ProviderModelRow | undefined;
+}
+
+function getProviderModelByProviderAndName(connection: DatabaseSync, providerId: string, modelName: string) {
+  return connection
+    .prepare(
+      `SELECT id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at
+       FROM provider_models
+       WHERE provider_id = ? AND model_name = ?
+       LIMIT 1`
+    )
+    .get(providerId, modelName) as ProviderModelRow | undefined;
 }
 
 function getEnabledProviderModelByName(connection: DatabaseSync, providerId: string, modelName: string) {
@@ -1227,4 +1389,8 @@ function hasIdPrefix(value: string, prefix: string) {
 
 function createPrefixedId(prefix: string) {
   return `${prefix}_${createCuid2()}`;
+}
+
+function isReasoningModelName(modelName: string) {
+  return /^(o1|o3|o4)/i.test(modelName) || /reason/i.test(modelName);
 }

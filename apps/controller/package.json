@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^2.0.56",
     "@paralleldrive/cuid2": "^2.2.2",
     "@hono/node-server": "^1.14.1",
     "@hono/zod-openapi": "^0.19.4",

@@ -11,6 +11,14 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
+  readonly openai: OpenAIProviderConfig;
+}
+
+export interface OpenAIProviderConfig {
+  readonly apiKey: string | null;
+  readonly baseUrl: string | null;
+  readonly defaultModel: string;
+  readonly timeoutMs: number | null;
 }
 
 export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): ControllerConfig {
@@ -27,7 +35,13 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
     bearerToken,
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
-    databasePath: env.MONET_DATABASE_PATH?.trim() || defaultDatabasePath
+    databasePath: env.MONET_DATABASE_PATH?.trim() || defaultDatabasePath,
+    openai: {
+      apiKey: parseOptionalString(env.MONET_OPENAI_API_KEY) ?? parseOptionalString(env.OPENAI_API_KEY),
+      baseUrl: parseUrl(env.MONET_OPENAI_BASE_URL) ?? parseUrl(env.OPENAI_BASE_URL),
+      defaultModel: parseOptionalString(env.MONET_OPENAI_DEFAULT_MODEL) ?? "gpt-4.1-mini",
+      timeoutMs: parseInteger(env.MONET_OPENAI_TIMEOUT_MS)
+    }
   };
 }
 
@@ -74,4 +88,40 @@ function parseOrigin(value: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function parseOptionalString(value: string | undefined): string | null {
+  const normalized = value?.trim();
+
+  return normalized ? normalized : null;
+}
+
+function parseUrl(value: string | undefined): string | null {
+  const normalized = parseOptionalString(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return new URL(normalized).toString().replace(/\/$/, "");
+  } catch {
+    throw new Error(`Expected a valid URL, received: ${normalized}`);
+  }
+}
+
+function parseInteger(value: string | undefined): number | null {
+  const normalized = parseOptionalString(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`Expected a positive integer, received: ${normalized}`);
+  }
+
+  return parsed;
 }
