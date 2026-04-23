@@ -1,13 +1,9 @@
 "use client";
 
+import type { UIMessage } from "ai";
 import { Badge, Card } from "@nexu-design/ui-web";
 
-type ChatMessage = {
-  readonly id: string;
-  readonly role: "user" | "assistant" | "system";
-  readonly status?: "streaming" | "done";
-  readonly parts: readonly ChatMessagePart[];
-};
+type ChatMessage = UIMessage;
 
 type TextPart = { readonly type: "text"; readonly text: string };
 type ReasoningPart = { readonly type: "reasoning"; readonly text: string; readonly label?: string };
@@ -26,74 +22,6 @@ type ToolPart = {
 type UnknownPart = { readonly type: string; readonly [key: string]: unknown };
 
 type ChatMessagePart = TextPart | ReasoningPart | StepStartPart | FilePart | SourceUrlPart | SourceDocumentPart | ToolPart | UnknownPart;
-
-const sampleMessages: readonly ChatMessage[] = [
-  {
-    id: "msg-user-install-upgrade",
-    role: "user",
-    status: "done",
-    parts: [
-      {
-        type: "text",
-        text: "Implement the install and upgrade strategy spec, then show the chat canvas using AI SDK UI parts instead of placeholder cards."
-      }
-    ]
-  },
-  {
-    id: "msg-assistant-install-upgrade",
-    role: "assistant",
-    status: "streaming",
-    parts: [
-      {
-        type: "step-start",
-        title: "Inspect current shell and map the missing chat states"
-      },
-      {
-        type: "reasoning",
-        label: "Renderer plan",
-        text: "The shell already separates sidebar, header, body, and composer. The missing piece is a renderer that respects UIMessage.parts, keeps reasoning hidden by default, and degrades unknown parts without dropping them."
-      },
-      {
-        type: "text",
-        text: "I swapped the placeholder hero with a conversation thread that renders each message part individually, so the next iteration can plug `useChat` into the same surface with minimal churn."
-      },
-      {
-        type: "tool-read_file",
-        toolName: "read_file",
-        state: "output-available",
-        input: "apps/web-ui/src/app/page.tsx\napps/web-ui/src/components/app-shell.tsx",
-        output: "Confirmed the app shell already provides a dedicated scroll region and pinned composer rail."
-      },
-      {
-        type: "dynamic-tool",
-        toolName: "fetch_spec_context",
-        state: "running",
-        input: "specs/2026-04-23-initial-plan/spec.md#11.1"
-      },
-      {
-        type: "source-url",
-        title: "Chat UI rendering requirements",
-        url: "file:///Users/mrc/Projects/monet/specs/2026-04-23-initial-plan/spec.md",
-        host: "local spec"
-      },
-      {
-        type: "source-document",
-        title: "Implementation gap checklist",
-        snippet: "Chat UI needs parts[] rendering, reasoning collapse, stop/regenerate, and scroll affordances in later iterations."
-      },
-      {
-        type: "file",
-        filename: "apps/web-ui/src/components/chat-thread.tsx",
-        mediaType: "text/tsx"
-      },
-      {
-        type: "tool-unknown-state",
-        rawState: "buffering",
-        detail: "This intentionally exercises the fallback renderer so unsupported parts stay visible during development."
-      }
-    ]
-  }
-];
 
 function formatToolState(state: string) {
   switch (state) {
@@ -253,25 +181,55 @@ function renderPart(part: ChatMessagePart, index: number) {
   );
 }
 
-export function ChatThread() {
+export interface ChatThreadProps {
+  readonly messages: readonly ChatMessage[];
+  readonly status: "submitted" | "streaming" | "ready" | "error";
+  readonly errorText: string | undefined;
+}
+
+export function ChatThread({ messages, status, errorText }: ChatThreadProps) {
   return (
     <section className="chat-thread" aria-label="Conversation transcript">
-      {sampleMessages.map((message) => (
-        <article key={message.id} className="chat-message" data-role={message.role}>
-          <div className="chat-message-meta">
-            <Badge variant={message.role === "assistant" ? "secondary" : "accent"} size="sm" radius="full">
-              {getRoleLabel(message.role)}
-            </Badge>
-            {message.status === "streaming" ? (
-              <Badge variant="secondary" size="sm" radius="full">Streaming</Badge>
-            ) : null}
+      {messages.length === 0 ? (
+        <Card className="chat-empty-state">
+          <div className="stack-tight">
+            <span className="attachment-label">Ready for first prompt</span>
+            <strong>Send a message to verify the local chat stream.</strong>
+            <p className="muted">The web UI is now using `useChat`, and the next response should arrive from the controller instead of local sample data.</p>
           </div>
+        </Card>
+      ) : null}
 
-          <Card className="chat-message-card">
-            <div className="chat-message-parts">{message.parts.map((part, index) => renderPart(part, index))}</div>
-          </Card>
-        </article>
-      ))}
+      {messages.map((message, messageIndex) => {
+        const isStreamingAssistant = status === "streaming" && message.role === "assistant" && messageIndex === messages.length - 1;
+
+        return (
+          <article key={message.id} className="chat-message" data-role={message.role}>
+            <div className="chat-message-meta">
+              <Badge variant={message.role === "assistant" ? "secondary" : "accent"} size="sm" radius="full">
+                {getRoleLabel(message.role)}
+              </Badge>
+              {isStreamingAssistant ? (
+                <Badge variant="secondary" size="sm" radius="full">Streaming</Badge>
+              ) : null}
+            </div>
+
+            <Card className="chat-message-card">
+              <div className="chat-message-parts">{message.parts.map((part, index) => renderPart(part, index))}</div>
+            </Card>
+          </article>
+        );
+      })}
+
+      {errorText ? (
+        <Card className="chat-error-card">
+          <div className="stack-tight">
+            <span className="attachment-label">Request error</span>
+            <strong>Chat transport returned an error.</strong>
+            <p className="muted">{errorText}</p>
+          </div>
+        </Card>
+      ) : null}
     </section>
   );
 }

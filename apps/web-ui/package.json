@@ -10,8 +10,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.170",
     "@nexu-design/tokens": "^1.0.1",
     "@nexu-design/ui-web": "^1.0.2",
+    "ai": "^6.0.168",
     "next": "^15.3.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

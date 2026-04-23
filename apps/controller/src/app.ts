@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
+import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
 
 export interface CreateControllerAppOptions {
@@ -44,6 +45,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   registerHealthRoutes(app);
+  registerChatRoutes(app);
 
   return app;
 }
