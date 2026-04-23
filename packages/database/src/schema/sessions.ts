@@ -1,4 +1,4 @@
-import type { ProviderId, ProviderModelId, SessionId } from "@monet/shared";
+import { createMonetId, idPrefixes, type ProviderId, type ProviderModelId, type SessionId } from "@monet/shared";
 import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { providerModels } from "./provider-models";
@@ -7,7 +7,7 @@ import { providers } from "./providers";
 export const sessions = sqliteTable(
   "sessions",
   {
-    id: text("id").$type<SessionId>().primaryKey(),
+    id: text("id").$type<SessionId>().$defaultFn(() => createMonetId(idPrefixes.session)).primaryKey(),
     title: text("title").notNull(),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),

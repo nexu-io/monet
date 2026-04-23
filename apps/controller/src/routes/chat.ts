@@ -1,3 +1,4 @@
+import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import { simulateReadableStream, streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
 
 import type { ControllerApp } from "../app";
@@ -229,7 +230,7 @@ export function registerChatRoutes(app: ControllerApp, options: { getChatStorage
 
     return result.toUIMessageStreamResponse({
       originalMessages: messages,
-      generateMessageId: () => `msg_${Date.now()}${Math.random().toString(16).slice(2, 10)}`,
+      generateMessageId: () => `msg_${createCuid2()}`,
       onFinish: ({ responseMessage }) => {
         try {
           options.getChatStorage().persistAssistantMessage({

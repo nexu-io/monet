@@ -11,7 +11,7 @@ import {
 } from "../openapi";
 
 const providerIdParamSchema = z.object({
-  providerId: z.string().trim().min(1).openapi({ example: "pro_local-stub" })
+  providerId: z.string().trim().min(1).openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" })
 });
 
 const listProvidersRoute = createRoute({

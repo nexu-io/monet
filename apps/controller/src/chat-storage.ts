@@ -1,13 +1,13 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
+import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import type { UIMessage } from "ai";
 
 const DEFAULT_SESSION_TITLE = "New chat";
-const DEFAULT_PROVIDER_ID = "pro_local-stub";
-const DEFAULT_MODEL_ID = "mod_controller-echo";
+const DEFAULT_PROVIDER_ID = "pro_b6m4q2r8t5v9x3z7k1n4p6s8";
+const DEFAULT_MODEL_ID = "mod_c7n5r3t9w2y6k4m8p1s5v7x9";
 const DEFAULT_PROVIDER_TYPE = "openai";
 const DEFAULT_PROVIDER_DISPLAY_NAME = "Local Stub Provider";
 const DEFAULT_MODEL_NAME = "controller-echo";
@@ -881,14 +881,16 @@ function persistMessages(
   );
 
   for (const message of options.messages) {
+    const persistedMessage = normalizePersistedMessage(message);
+
     insertMessage.run(
-      message.id,
+      persistedMessage.id,
       options.sessionId,
       options.runId,
-      message.role,
-      JSON.stringify(message),
+      persistedMessage.message.role,
+      JSON.stringify(persistedMessage.message),
       DEFAULT_UI_MESSAGE_SCHEMA_VERSION,
-      message.id,
+      persistedMessage.idempotencyKey,
       options.createdAt
     );
   }
@@ -968,6 +970,24 @@ function parseStoredUiMessage(uiMessageJson: string) {
   }
 }
 
+function normalizePersistedMessage(message: UIMessage) {
+  const idempotencyKey = message.id?.trim() || createPrefixedId("msg");
+  const id = hasIdPrefix(idempotencyKey, "msg") ? idempotencyKey : createPrefixedId("msg");
+
+  return {
+    id,
+    idempotencyKey,
+    message: {
+      ...message,
+      id
+    }
+  };
+}
+
+function hasIdPrefix(value: string, prefix: string) {
+  return value.startsWith(`${prefix}_`) && value.length > prefix.length + 1;
+}
+
 function createPrefixedId(prefix: string) {
-  return `${prefix}_${randomUUID().replace(/-/g, "")}`;
+  return `${prefix}_${createCuid2()}`;
 }

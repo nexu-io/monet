@@ -1,4 +1,11 @@
-import type { RunId, ToolApprovalDecision, ToolCallId, ToolCallStatus } from "@monet/shared";
+import {
+  createMonetId,
+  idPrefixes,
+  type RunId,
+  type ToolApprovalDecision,
+  type ToolCallId,
+  type ToolCallStatus
+} from "@monet/shared";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { runs } from "./runs";
@@ -6,7 +13,7 @@ import { runs } from "./runs";
 export const toolCalls = sqliteTable(
   "tool_calls",
   {
-    id: text("id").$type<ToolCallId>().primaryKey(),
+    id: text("id").$type<ToolCallId>().$defaultFn(() => createMonetId(idPrefixes.toolCall)).primaryKey(),
     runId: text("run_id")
       .$type<RunId>()
       .notNull()

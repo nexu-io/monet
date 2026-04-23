@@ -1,4 +1,12 @@
-import type { ProviderId, ProviderModelId, RunId, RunStatus, SessionId } from "@monet/shared";
+import {
+  createMonetId,
+  idPrefixes,
+  type ProviderId,
+  type ProviderModelId,
+  type RunId,
+  type RunStatus,
+  type SessionId
+} from "@monet/shared";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { providerModels } from "./provider-models";
@@ -8,7 +16,7 @@ import { sessions } from "./sessions";
 export const runs = sqliteTable(
   "runs",
   {
-    id: text("id").$type<RunId>().primaryKey(),
+    id: text("id").$type<RunId>().$defaultFn(() => createMonetId(idPrefixes.run)).primaryKey(),
     sessionId: text("session_id")
       .$type<SessionId>()
       .notNull()

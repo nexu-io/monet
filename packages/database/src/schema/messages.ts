@@ -1,4 +1,4 @@
-import type { MessageId, MessageRole, RunId, SessionId } from "@monet/shared";
+import { createMonetId, idPrefixes, type MessageId, type MessageRole, type RunId, type SessionId } from "@monet/shared";
 import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { runs } from "./runs";
@@ -7,7 +7,7 @@ import { sessions } from "./sessions";
 export const messages = sqliteTable(
   "messages",
   {
-    id: text("id").$type<MessageId>().primaryKey(),
+    id: text("id").$type<MessageId>().$defaultFn(() => createMonetId(idPrefixes.message)).primaryKey(),
     sessionId: text("session_id")
       .$type<SessionId>()
       .notNull()

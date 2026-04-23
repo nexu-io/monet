@@ -1,10 +1,10 @@
-import type { ProviderId, ProviderType } from "@monet/shared";
+import { createMonetId, idPrefixes, type ProviderId, type ProviderType } from "@monet/shared";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const providers = sqliteTable(
   "providers",
   {
-    id: text("id").$type<ProviderId>().primaryKey(),
+    id: text("id").$type<ProviderId>().$defaultFn(() => createMonetId(idPrefixes.provider)).primaryKey(),
     type: text("type").$type<ProviderType>().notNull(),
     displayName: text("display_name").notNull(),
     baseUrl: text("base_url"),

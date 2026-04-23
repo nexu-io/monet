@@ -22,8 +22,8 @@ export const SessionSchema = z
     createdAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" }),
     updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" }),
     archivedAt: z.string().datetime().nullable().openapi({ example: null }),
-    defaultProviderId: z.string().nullable().openapi({ example: "pro_local-stub" }),
-    defaultModelId: z.string().nullable().openapi({ example: "mod_controller-echo" })
+    defaultProviderId: z.string().nullable().openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" }),
+    defaultModelId: z.string().nullable().openapi({ example: "mod_c7n5r3t9w2y6k4m8p1s5v7x9" })
   })
   .openapi("Session");
 
@@ -76,7 +76,7 @@ export const ArchiveSessionResponseSchema = z
 
 export const ProviderSchema = z
   .object({
-    id: z.string().openapi({ example: "pro_local-stub" }),
+    id: z.string().openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" }),
     type: z.enum(["openai", "openrouter"]).openapi({ example: "openai" }),
     displayName: z.string().openapi({ example: "Local Stub Provider" }),
     baseUrl: z.string().url().nullable().openapi({ example: null }),
@@ -90,8 +90,8 @@ export const ProviderSchema = z
 
 export const ProviderModelSchema = z
   .object({
-    id: z.string().openapi({ example: "mod_controller-echo" }),
-    providerId: z.string().openapi({ example: "pro_local-stub" }),
+    id: z.string().openapi({ example: "mod_c7n5r3t9w2y6k4m8p1s5v7x9" }),
+    providerId: z.string().openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" }),
     modelName: z.string().openapi({ example: "controller-echo" }),
     displayName: z.string().openapi({ example: "Controller Echo" }),
     supportsTools: z.boolean().openapi({ example: false }),
@@ -123,7 +123,7 @@ export const ValidateProviderResponseSchema = z
       .enum(["ok", "disabled", "no_enabled_models", "missing_default_model", "default_model_unresolved"])
       .openapi({ example: "ok" }),
     message: z.string().openapi({ example: "Provider configuration is valid." }),
-    defaultModelId: z.string().nullable().openapi({ example: "mod_controller-echo" }),
+    defaultModelId: z.string().nullable().openapi({ example: "mod_c7n5r3t9w2y6k4m8p1s5v7x9" }),
     defaultModelName: z.string().nullable().openapi({ example: "controller-echo" }),
     availableModelCount: z.number().int().nonnegative().openapi({ example: 1 })
   })

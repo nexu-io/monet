@@ -53,8 +53,8 @@ function SessionChatSurface({
         },
         body: {
           sessionId: session.id,
-          providerId: session.defaultProviderId ?? "pro_local-stub",
-          modelId: session.defaultModelId ?? "mod_controller-echo"
+          providerId: session.defaultProviderId ?? "pro_b6m4q2r8t5v9x3z7k1n4p6s8",
+          modelId: session.defaultModelId ?? "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
         }
       }),
     [controllerConfig.apiBase, controllerConfig.bearerToken, session.defaultModelId, session.defaultProviderId, session.id]

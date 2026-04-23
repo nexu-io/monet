@@ -83,14 +83,14 @@
               "string",
               "null"
             ],
-            "example": "pro_local-stub"
+            "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
           },
           "defaultModelId": {
             "type": [
               "string",
               "null"
             ],
-            "example": "mod_controller-echo"
+            "example": "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
           }
         },
         "required": [
@@ -250,7 +250,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "example": "pro_local-stub"
+            "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
           },
           "type": {
             "type": "string",
@@ -332,11 +332,11 @@
         "properties": {
           "id": {
             "type": "string",
-            "example": "mod_controller-echo"
+            "example": "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
           },
           "providerId": {
             "type": "string",
-            "example": "pro_local-stub"
+            "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
           },
           "modelName": {
             "type": "string",
@@ -433,7 +433,7 @@
               "string",
               "null"
             ],
-            "example": "mod_controller-echo"
+            "example": "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
           },
           "defaultModelName": {
             "type": [
@@ -791,7 +791,7 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "example": "pro_local-stub"
+              "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
             },
             "required": true,
             "name": "providerId",
@@ -844,7 +844,7 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "example": "pro_local-stub"
+              "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
             },
             "required": true,
             "name": "providerId",
