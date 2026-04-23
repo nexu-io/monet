@@ -11,6 +11,7 @@ export function PageFrame({
   description,
   header,
   composer,
+  onDesktopStopShortcut,
   children
 }: {
   pathname: string;
@@ -18,6 +19,7 @@ export function PageFrame({
   description: string;
   header?: ReactNode;
   composer?: ReactNode;
+  onDesktopStopShortcut?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -25,6 +27,7 @@ export function PageFrame({
       pathname={pathname}
       header={header ?? <PageHeader title={title} description={description} density="shell" className="page-intro" />}
       composer={composer}
+      onDesktopStopShortcut={onDesktopStopShortcut}
     >
       {children}
     </AppShell>

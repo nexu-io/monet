@@ -22,8 +22,7 @@ export interface ProviderSecretStorageSnapshot {
 }
 
 export type MonetDesktopApi = {
-  readonly apiBase?: string;
-  readonly bearerToken?: string;
+  readonly platform?: NodeJS.Platform;
   readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretStorageSnapshot>;
   readonly getControllerState?: () => ControllerStatePayload;
   readonly getProviderSecretStorage?: () => Promise<ProviderSecretStorageSnapshot>;
@@ -32,6 +31,7 @@ export type MonetDesktopApi = {
     readonly bearerToken?: string;
   };
   readonly onControllerStateChange?: (listener: (payload: ControllerStatePayload) => void) => () => void;
+  readonly onShortcut?: (listener: (payload: { action: "new-session" | "open-settings" }) => void) => () => void;
   readonly restartController?: () => Promise<{ restarted: boolean; apiBase?: string; reason?: string }>;
   readonly saveProviderSecret?: (payload: {
     providerType: ProviderType;
@@ -62,8 +62,8 @@ const defaultApiBase = "http://127.0.0.1:3030";
 export function getMonetClientConfig(): MonetClientConfig {
   const desktopApi = typeof window !== "undefined" ? window.monetDesktop : undefined;
   const runtimeInfo = desktopApi?.getRuntimeInfo?.();
-  const preloadApiBase = runtimeInfo?.apiBase ?? desktopApi?.apiBase;
-  const preloadBearerToken = runtimeInfo?.bearerToken ?? desktopApi?.bearerToken;
+  const preloadApiBase = runtimeInfo?.apiBase;
+  const preloadBearerToken = runtimeInfo?.bearerToken;
 
   if (preloadApiBase) {
     return {

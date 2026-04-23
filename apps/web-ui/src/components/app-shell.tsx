@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Badge, Button, Card, NavItem, StatusDot } from "@nexu-design/ui-web";
@@ -52,12 +52,14 @@ export function AppShell({
   children,
   pathname,
   header,
-  composer
+  composer,
+  onDesktopStopShortcut
 }: {
   children: ReactNode;
   pathname: string;
   header?: ReactNode;
   composer?: ReactNode;
+  onDesktopStopShortcut?: () => void;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -68,6 +70,7 @@ export function AppShell({
   const isProviderReadinessLoading = providerReadiness.loading;
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const { controllerState, isDesktop } = useControllerState();
+  const desktopPlatform = typeof window === "undefined" ? undefined : window.monetDesktop?.platform;
   const controllerBadge = controllerState?.state === "ready"
     ? { variant: "success" as const, status: "success" as const, label: "Ready" }
     : controllerState?.state === "starting"
@@ -105,9 +108,72 @@ export function AppShell({
     await archiveSession(sessionId);
   }
 
+  useEffect(() => {
+    const desktopApi = typeof window === "undefined" ? undefined : window.monetDesktop;
+
+    if (!desktopApi?.onShortcut) {
+      return;
+    }
+
+    return desktopApi.onShortcut(({ action }) => {
+      if (action === "new-session") {
+        void handleCreateSession();
+        return;
+      }
+
+      if (action === "open-settings") {
+        router.push(getSettingsHref(pathname, searchParams, activeSettingsPanel ?? "models"));
+      }
+    });
+  }, [activeSettingsPanel, onDesktopStopShortcut, pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (!isDesktop) {
+      return;
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      const isStopShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === ".";
+
+      if (isStopShortcut) {
+        event.preventDefault();
+        onDesktopStopShortcut?.();
+        return;
+      }
+
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (activeSettingsPanel) {
+        router.push(getSettingsHref(pathname, searchParams, null));
+        return;
+      }
+
+      onDesktopStopShortcut?.();
+
+      const activeElement = document.activeElement;
+
+      if (!(activeElement instanceof HTMLElement) || activeElement === document.body) {
+        return;
+      }
+
+      activeElement.blur();
+    }
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [activeSettingsPanel, isDesktop, onDesktopStopShortcut, pathname, router, searchParams]);
+
   return (
-    <div className="shell">
+    <div className="shell" data-desktop-shell={isDesktop ? "true" : "false"} data-desktop-platform={desktopPlatform}>
       <aside className="sidebar">
+        {isDesktop ? <div className="sidebar-drag-region" aria-hidden="true" /> : null}
         <div className="sidebar-top">
           <Card variant="muted" className="card brand-card">
             <div className="brand">

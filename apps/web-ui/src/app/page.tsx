@@ -14,7 +14,6 @@ import { PageFrame } from "../components/page-frame";
 import { getSettingsHref } from "../components/settings-panel-content";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { useControllerState } from "../lib/controller-state";
-import { getMonetClientConfig } from "../lib/monet-client";
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
 
@@ -51,17 +50,18 @@ function SessionChatSurface({
   const [input, setInput] = useState("");
   const [approvalErrorText, setApprovalErrorText] = useState<string | undefined>(undefined);
   const pendingContinuationRef = useRef<PendingContinuationRequest | null>(null);
-  const controllerConfig = getMonetClientConfig();
+  const { config } = useControllerState();
+  const controllerConfig = config;
   const resolvedProviderId = fallbackProviderTarget?.providerId ?? null;
   const resolvedModelId = fallbackProviderTarget?.modelId ?? null;
   const initialMessages = useMemo(() => session.messages.map((message) => message.uiMessage), [session.id, session.messages]);
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
-        api: `${controllerConfig.apiBase}/api/chat`,
+        api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:3030"}/api/chat`,
         credentials: "omit",
         headers: (): Record<string, string> => {
-          if (!controllerConfig.bearerToken) {
+          if (!controllerConfig?.bearerToken) {
             return {};
           }
 
@@ -87,7 +87,7 @@ function SessionChatSurface({
           }
 
           return {
-            api: `${controllerConfig.apiBase}/api/runs/${pendingContinuation.runId}/continue`,
+            api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:3030"}/api/runs/${pendingContinuation.runId}/continue`,
             headers,
             credentials,
             body: {
@@ -97,7 +97,7 @@ function SessionChatSurface({
           };
         }
       }),
-    [controllerConfig.apiBase, controllerConfig.bearerToken, resolvedModelId, resolvedProviderId, session.id]
+    [controllerConfig?.apiBase, controllerConfig?.bearerToken, resolvedModelId, resolvedProviderId, session.id]
   );
   const { messages, sendMessage, regenerate, stop, status, error, clearError, addToolApprovalResponse } = useChat({
     id: session.id,
@@ -180,11 +180,11 @@ function SessionChatSurface({
       "content-type": "application/json"
     });
 
-    if (controllerConfig.bearerToken) {
+    if (controllerConfig?.bearerToken) {
       headers.set("Authorization", `Bearer ${controllerConfig.bearerToken}`);
     }
 
-    const response = await fetch(`${controllerConfig.apiBase}/api/tools/confirm`, {
+    const response = await fetch(`${controllerConfig?.apiBase ?? "http://127.0.0.1:3030"}/api/tools/confirm`, {
       method: "POST",
       headers,
       credentials: "omit",
@@ -217,6 +217,7 @@ function SessionChatSurface({
       pathname="/"
       title="Agent Chat"
       description="Desktop-first chat shell wired for a local Hono controller and ready for AI SDK UI message rendering."
+      onDesktopStopShortcut={handleStop}
       header={(
         <ConversationHeader
           sessionTitle={session.title}

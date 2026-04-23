@@ -16,6 +16,8 @@ interface PreloadRequestResult {
   readonly body: string;
 }
 
+type DesktopShortcutAction = "new-session" | "open-settings";
+
 type ProviderType = "openai" | "openrouter";
 
 interface ProviderSecretStorageSnapshot {
@@ -71,8 +73,7 @@ ipcRenderer.on("monet:controller-state", (_event, payload: ControllerStatePayloa
 });
 
 contextBridge.exposeInMainWorld("monetDesktop", {
-  apiBase,
-  bearerToken,
+  platform: process.platform,
   getControllerState() {
     return controllerState;
   },
@@ -128,6 +129,17 @@ contextBridge.exposeInMainWorld("monetDesktop", {
 
     return () => {
       ipcRenderer.removeListener("monet:controller-state", wrappedListener);
+    };
+  },
+  onShortcut(listener: (payload: { action: DesktopShortcutAction }) => void) {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, payload: { action: DesktopShortcutAction }) => {
+      listener(payload);
+    };
+
+    ipcRenderer.on("monet:shortcut", wrappedListener);
+
+    return () => {
+      ipcRenderer.removeListener("monet:shortcut", wrappedListener);
     };
   }
 });

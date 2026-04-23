@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 
-import { BrowserWindow, app, dialog, ipcMain, safeStorage, shell, utilityProcess } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, safeStorage, screen, shell, utilityProcess } from "electron";
 
 import { createLogger } from "./logger";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
@@ -26,11 +26,28 @@ interface ControllerStatePayload {
   readonly restartAvailable?: boolean;
 }
 
+type DesktopShortcutAction = "new-session" | "open-settings";
+
+interface WindowStateSnapshot {
+  readonly width: number;
+  readonly height: number;
+  readonly x?: number;
+  readonly y?: number;
+  readonly isMaximized: boolean;
+}
+
 const controllerHost = "127.0.0.1";
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 const logger = createLogger("desktop", {
   component: "main"
 });
+const defaultWindowState = {
+  width: 1440,
+  height: 960,
+  minWidth: 1080,
+  minHeight: 720
+} as const;
+const windowStateFilePath = path.join(app.getPath("userData"), "window-state.json");
 
 let mainWindow: BrowserWindow | null = null;
 let controllerRuntime: ControllerRuntime | null = null;
@@ -39,6 +56,7 @@ let providerSecretStore:
   | ReturnType<typeof createProviderSecretStore>
   | null = null;
 const intentionallyStoppedControllerPids = new Set<number>();
+let pendingWindowStateSave: NodeJS.Timeout | null = null;
 
 if (!gotSingleInstanceLock) {
   logger.warn("desktop.single_instance_denied");
@@ -184,15 +202,19 @@ async function bootstrap() {
 async function createMainWindow(runtime: ControllerRuntime) {
   const preloadPath = path.join(__dirname, "preload.js");
   await assertFileExists(preloadPath, "desktop preload bundle");
+  const windowState = await loadWindowState();
 
   const window = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    minWidth: 1080,
-    minHeight: 720,
+    width: windowState.width,
+    height: windowState.height,
+    ...(windowState.x !== undefined ? { x: windowState.x } : {}),
+    ...(windowState.y !== undefined ? { y: windowState.y } : {}),
+    minWidth: defaultWindowState.minWidth,
+    minHeight: defaultWindowState.minHeight,
     show: false,
     backgroundColor: "#0b1020",
     title: "Monet",
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -222,7 +244,28 @@ async function createMainWindow(runtime: ControllerRuntime) {
     void shell.openExternal(url);
   });
 
+  window.webContents.on("before-input-event", (event, input) => {
+    if (!matchesShortcut(input, "n") && !matchesShortcut(input, ",")) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (matchesShortcut(input, "n")) {
+      dispatchDesktopShortcut(window, "new-session");
+      return;
+    }
+
+    if (matchesShortcut(input, ",")) {
+      dispatchDesktopShortcut(window, "open-settings");
+    }
+  });
+
   window.once("ready-to-show", () => {
+    if (windowState.isMaximized) {
+      window.maximize();
+    }
+
     window.show();
   });
   await loadLoadingScreen(window);
@@ -248,6 +291,18 @@ async function createMainWindow(runtime: ControllerRuntime) {
     if (mainWindow === window) {
       mainWindow = null;
     }
+  });
+
+  window.on("resize", () => {
+    scheduleWindowStateSave(window);
+  });
+
+  window.on("move", () => {
+    scheduleWindowStateSave(window);
+  });
+
+  window.on("close", () => {
+    void saveWindowState(window);
   });
 
   return window;
@@ -546,6 +601,12 @@ function broadcastControllerState(payload: ControllerStatePayload) {
   mainWindow?.webContents.send("monet:controller-state", payload);
 }
 
+function dispatchDesktopShortcut(window: BrowserWindow, action: DesktopShortcutAction) {
+  window.webContents.send("monet:shortcut", {
+    action
+  });
+}
+
 async function waitForControllerReady(apiBase: string, bearerToken: string) {
   const healthUrl = `${apiBase}/api/health`;
 
@@ -599,6 +660,111 @@ function reserveEphemeralPort() {
       });
     });
   });
+}
+
+async function loadWindowState(): Promise<WindowStateSnapshot> {
+  try {
+    const serialized = await readFile(windowStateFilePath, "utf8");
+    const parsed = JSON.parse(serialized) as Partial<WindowStateSnapshot>;
+    const width = clampWindowDimension(parsed.width, defaultWindowState.width, defaultWindowState.minWidth);
+    const height = clampWindowDimension(parsed.height, defaultWindowState.height, defaultWindowState.minHeight);
+    const normalized: WindowStateSnapshot = {
+      width,
+      height,
+      isMaximized: parsed.isMaximized === true,
+      ...(typeof parsed.x === "number" ? { x: parsed.x } : {}),
+      ...(typeof parsed.y === "number" ? { y: parsed.y } : {})
+    };
+
+    return ensureWindowStateVisible(normalized);
+  } catch {
+    return {
+      width: defaultWindowState.width,
+      height: defaultWindowState.height,
+      isMaximized: false
+    };
+  }
+}
+
+function scheduleWindowStateSave(window: BrowserWindow) {
+  if (pendingWindowStateSave) {
+    clearTimeout(pendingWindowStateSave);
+  }
+
+  pendingWindowStateSave = setTimeout(() => {
+    pendingWindowStateSave = null;
+    void saveWindowState(window);
+  }, 200);
+}
+
+async function saveWindowState(window: BrowserWindow) {
+  if (window.isDestroyed()) {
+    return;
+  }
+
+  const bounds = window.isMaximized() ? window.getNormalBounds() : window.getBounds();
+  const payload: WindowStateSnapshot = {
+    width: clampWindowDimension(bounds.width, defaultWindowState.width, defaultWindowState.minWidth),
+    height: clampWindowDimension(bounds.height, defaultWindowState.height, defaultWindowState.minHeight),
+    x: bounds.x,
+    y: bounds.y,
+    isMaximized: window.isMaximized()
+  };
+
+  await mkdir(path.dirname(windowStateFilePath), {
+    recursive: true
+  });
+  await writeFile(windowStateFilePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function ensureWindowStateVisible(state: WindowStateSnapshot): WindowStateSnapshot {
+  if (state.x === undefined || state.y === undefined) {
+    return {
+      ...state,
+      width: Math.min(state.width, screen.getPrimaryDisplay().workArea.width),
+      height: Math.min(state.height, screen.getPrimaryDisplay().workArea.height)
+    };
+  }
+
+  const display = screen.getDisplayMatching({
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height
+  });
+  const { x, y, width, height } = display.workArea;
+  const horizontallyVisible = state.x < x + width - 80 && state.x + state.width > x + 80;
+  const verticallyVisible = state.y < y + height - 80 && state.y + state.height > y + 80;
+
+  if (horizontallyVisible && verticallyVisible) {
+    return {
+      ...state,
+      width: Math.min(state.width, width),
+      height: Math.min(state.height, height)
+    };
+  }
+
+  return {
+    width: Math.min(state.width, width),
+    height: Math.min(state.height, height),
+    isMaximized: state.isMaximized
+  };
+}
+
+function clampWindowDimension(value: number | undefined, fallback: number, minimum: number) {
+  return Math.max(minimum, Math.round(typeof value === "number" ? value : fallback));
+}
+
+function matchesShortcut(input: Electron.Input, key: string) {
+  if (input.type !== "keyDown") {
+    return false;
+  }
+
+  if (!(input.meta || input.control) || input.shift || input.alt) {
+    return false;
+  }
+
+  return input.key.toLowerCase() === key;
 }
 
 async function assertFileExists(filePath: string, label: string) {

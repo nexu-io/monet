@@ -75,6 +75,22 @@ textarea {
   padding: calc(var(--spacing) * 6) calc(var(--spacing) * 4.5);
 }
 
+.shell[data-desktop-shell="true"] .sidebar {
+  padding-top: calc(var(--spacing) * 3.5);
+}
+
+.sidebar-drag-region {
+  display: none;
+}
+
+.shell[data-desktop-shell="true"] .sidebar-drag-region {
+  display: block;
+  min-height: 32px;
+  margin-bottom: calc(var(--spacing) * 1.5);
+  border-radius: var(--radius-lg);
+  -webkit-app-region: drag;
+}
+
 .sidebar-top,
 .sidebar-bottom {
   display: grid;
