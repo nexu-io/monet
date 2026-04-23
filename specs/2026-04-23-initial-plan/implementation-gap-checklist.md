@@ -56,7 +56,7 @@
 - [x] 已有首页路由
 - [x] 已有 sessions 页面骨架
 - [x] 已有 settings 页面骨架
-- [ ] 已优先接入 `@nexu-design/tokens`
+- [x] 已优先接入 `@nexu-design/tokens`
 - [ ] 已优先接入 `@nexu-design/ui-web`
 - [ ] 已建立 UI 实现优先复用 Nexu 设计系统的约束
 - [ ] 已落地三段式 App Shell（Sidebar / Main Canvas / Composer）
@@ -80,6 +80,8 @@
 - `apps/web-ui/src/app/sessions/page.tsx`
 - `apps/web-ui/src/app/settings/models/page.tsx`
 - `apps/web-ui/src/app/settings/general/page.tsx`
+- `apps/web-ui/src/app/layout.tsx`
+- `apps/web-ui/src/app/globals.css`
 
 ### 2.4 Hono Controller
 
@@ -238,7 +240,7 @@
 - [x] 接入 Electron + Next.js + Hono + TypeScript
 - [x] 建立 SQLite / Drizzle 基础设施
 - [x] 接入 shadcn/ui 基础骨架
-- [ ] 接入 `@nexu-design/tokens`
+- [x] 接入 `@nexu-design/tokens`
 - [ ] 接入 `@nexu-design/ui-web`
 - [ ] 打通完整 dev/prod 启动链路
 - [ ] controller 启动时自动执行 migration 并完整验证
