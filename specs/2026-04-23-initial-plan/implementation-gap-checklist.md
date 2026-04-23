@@ -59,9 +59,12 @@
 - [ ] 已优先接入 `@nexu-design/tokens`
 - [ ] 已优先接入 `@nexu-design/ui-web`
 - [ ] 已建立 UI 实现优先复用 Nexu 设计系统的约束
+- [ ] 已落地三段式 App Shell（Sidebar / Main Canvas / Composer）
 - [ ] 已实现真实 chat UI
 - [ ] 已实现真实 session 数据渲染
 - [ ] 已实现真实 provider 配置交互
+- [ ] 已实现 Settings modal route / sheet 交互
+- [ ] 已实现 controller 启动中 / 异常状态 UI
 
 设计系统约束：
 
@@ -156,6 +159,11 @@
 - [ ] web-ui 已真实接入 `useChat`
 - [ ] 已完成消息持久化
 - [ ] 已完成 providerId / modelId 解析与落库
+- [ ] 已实现基于 `UIMessage.parts[]` 的消息渲染
+- [ ] 已实现 reasoning 折叠显示
+- [ ] 已实现 stop / regenerate 交互
+- [ ] 已实现 composer 多行输入与发送态
+- [ ] 已实现自动吸底 / 回到底部交互
 
 ### 5.2 Sessions
 
@@ -164,6 +172,8 @@
 - [ ] 已实现 `GET /api/sessions/:id`
 - [ ] 已实现 `POST /api/sessions/:id/archive`
 - [ ] web-ui 已接入 session 列表与详情
+- [ ] 已实现 session 高亮 / 自动标题更新
+- [ ] 已实现 rename / archive 交互入口
 
 ### 5.3 Providers / Models
 
@@ -173,6 +183,8 @@
 - [ ] 已接入 OpenAI
 - [ ] 已接入 OpenRouter
 - [ ] web-ui 已接入 provider / model 配置页
+- [ ] 已实现 validate 交互与状态反馈
+- [ ] 已实现“无 provider”空态引导
 
 ---
 
@@ -194,6 +206,8 @@
 - [ ] 已实现 `confirmationToken` 校验
 - [ ] 已实现 `/api/runs/:runId/continue`
 - [ ] 已实现 `write_file` 内联同步确认闭环
+- [ ] 已实现 ToolCallCard 四态（preparing / awaiting-confirm / running / completed-failed）
+- [ ] 已实现 `write_file` 路径 + 内容预览
 
 ### 6.3 Run Lifecycle / Recovery
 
@@ -236,6 +250,7 @@
 - [ ] 持久化 sessions / messages
 - [ ] 实现会话列表与详情页
 - [ ] 完成 run lifecycle 与中断恢复基础状态
+- [ ] 落地 MVP App Shell 与 Chat 交互结构
 
 ### Milestone 2
 
@@ -264,6 +279,8 @@
 建议优先做：
 
 - [ ] 实现 `/api/chat` + `useChat` 最小对话闭环
+- [ ] 先接入 `@nexu-design/tokens` / `@nexu-design/ui-web`
+- [ ] 落地 App Shell（Sidebar / Main Canvas / Composer）
 - [ ] 补 Session API
 - [ ] 接入 OpenAI provider
 - [ ] 落地 `fetch_url` / `read_file` / `write_file`

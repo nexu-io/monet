@@ -789,6 +789,70 @@ Wire schema 约定：
 
 ## 11. 前端交互设计重点
 
+## 11.0 产品界面规划
+
+主信息架构采用 **两级结构**：
+
+- 全局应用壳（App Shell）
+- 当前会话（Session）
+
+MVP 不引入 dashboard、多级工作台或复杂多面板模式。
+
+主要界面范围：
+
+- 左侧会话列表
+- 中间主聊天画布
+- 设置面板（以 modal route / sheet 方式出现）
+- 工具确认卡片（内联出现在消息流中）
+- controller 启动 / 异常状态提示
+
+MVP 默认行为：
+
+- 启动应用后直接进入最近一次活跃会话
+- 若无会话，则进入空白新会话态
+- 若没有可用 provider，则优先引导进入 provider 配置
+
+## 11.0.1 App Shell 布局
+
+采用三段式布局：
+
+1. **左侧 Sidebar**
+   - 应用名称 / Logo
+   - `+ New session`
+   - 会话列表
+   - 底部状态区（settings / controller health）
+2. **中间主画布**
+   - 会话头部
+   - 消息流
+   - 底部 composer
+3. **右侧面板**
+   - MVP 不启用
+   - 预留给后续 tool inspector / run detail
+
+细节约束：
+
+- Sidebar 可折叠，可后续支持 resize
+- Conversation header 采用轻量单行结构
+- Composer 固定在底部，消息流独立滚动
+
+## 11.0.2 页面 / 视图清单
+
+MVP 必须具备：
+
+- Chat 主视图
+- Session Sidebar
+- Settings › Models
+- Settings › General
+- 首次启动空态 / 无 provider 空态
+- Controller 启动中 / controller 不可用错误态
+
+后续再加：
+
+- `/sessions` 全页会话浏览器
+- Tool / Run detail drawer
+- Activity / logs 视图
+- 快捷键帮助面板
+
 ## 11.1 Chat 主界面
 
 需要重点支持以下 UI 状态：
@@ -803,7 +867,108 @@ Wire schema 约定：
 8. 中止生成 / 重新生成
 9. controller 未启动 / 本地服务异常状态
 
-## 11.2 shadcn/ui 组件建议
+消息流组织原则：
+
+- 基于 `UIMessage.parts[]` 渲染，不按纯文本拼接
+- `reasoning` 默认折叠显示
+- `tool-*` 统一渲染为 ToolCallCard，而不是普通文本
+- `step-start` 只作为轻量分隔符显示
+- 未识别 part 不能静默丢弃，需降级展示
+
+Composer 交互要求：
+
+- 多行输入
+- 发送中支持 stop
+- 无 provider / controller 异常时展示禁用原因
+- 支持会话级模型切换入口
+
+滚动行为：
+
+- 流式输出时默认跟随到底部
+- 用户主动向上滚动后停止自动吸底
+- 出现“回到底部”快捷入口
+
+## 11.1.1 Tool / Confirm 卡片模式
+
+ToolCallCard 建议统一支持四种状态：
+
+1. preparing / input-streaming
+2. awaiting-confirm
+3. running
+4. completed / failed
+
+其中 `write_file` 确认卡片必须展示：
+
+- 目标路径
+- 风险提示
+- 截断后的内容预览或 diff 预览
+- Approve / Reject 按钮
+
+按钮点击后需立即进入 disabled / pending 状态，避免重复确认。
+
+## 11.1.2 Session List 交互
+
+Sidebar 中的 session list 建议支持：
+
+- 新建会话
+- 切换会话
+- 当前会话高亮
+- 自动标题更新
+- rename
+- archive
+
+MVP 暂不强制支持：
+
+- 搜索
+- pin
+- tags
+- 拖拽排序
+
+## 11.1.3 Settings UX
+
+Settings 不建议做独立应用态，建议用 modal route / sheet 呈现。
+
+MVP 至少包括两个分组：
+
+- Models
+- General
+
+Models 视图建议包括：
+
+- provider 列表
+- provider 状态（validated / invalid / disabled）
+- API key / base URL / default model 配置
+- validate 按钮
+
+General 视图建议包括：
+
+- 授权目录管理
+- 数据目录展示
+- theme 设置
+
+## 11.1.4 桌面端体验细节
+
+建议补充以下桌面体验要求：
+
+- 单窗口模式
+- 记住窗口大小与位置
+- macOS 下优先 hiddenInset 风格标题栏
+- Sidebar 顶部可作为 drag region
+- 提供基础快捷键：
+  - `⌘N` 新会话
+  - `⌘,` 打开设置
+  - `⌘Enter` 发送
+  - `⌘.` 停止生成
+  - `Esc` 关闭弹层 / 退出确认焦点
+
+## 11.2 设计系统与组件建议
+
+优先使用：
+
+- `@nexu-design/tokens`
+- `@nexu-design/ui-web`
+
+建议优先复用的组件类型：
 
 - Sidebar：会话列表
 - Tabs：设置页切换
@@ -811,6 +976,16 @@ Wire schema 约定：
 - Card：tool call / confirm / 状态展示
 - Form：provider 配置表单
 - Alert：controller 启动失败 / 本地服务异常提示
+- ScrollArea：会话列表与消息流滚动容器
+- DropdownMenu：session / provider 操作菜单
+
+本地补充组件建议：
+
+- `MessageBubble`
+- `ToolCallCard`
+- `InlineConfirmCard`
+- `ConversationHeader`
+- `Composer`
 
 ---
 
