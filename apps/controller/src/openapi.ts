@@ -62,11 +62,72 @@ export const CreateSessionRequestSchema = z
   })
   .openapi("CreateSessionRequest");
 
+export const UpdateSessionRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200)
+  })
+  .openapi("UpdateSessionRequest");
+
 export const ArchiveSessionResponseSchema = z
   .object({
     session: SessionSchema
   })
   .openapi("ArchiveSessionResponse");
+
+export const ProviderSchema = z
+  .object({
+    id: z.string().openapi({ example: "pro_local-stub" }),
+    type: z.enum(["openai", "openrouter"]).openapi({ example: "openai" }),
+    displayName: z.string().openapi({ example: "Local Stub Provider" }),
+    baseUrl: z.string().url().nullable().openapi({ example: null }),
+    defaultModelName: z.string().nullable().openapi({ example: "controller-echo" }),
+    enabled: z.boolean().openapi({ example: true }),
+    timeoutMs: z.number().int().nullable().openapi({ example: null }),
+    createdAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" }),
+    updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" })
+  })
+  .openapi("Provider");
+
+export const ProviderModelSchema = z
+  .object({
+    id: z.string().openapi({ example: "mod_controller-echo" }),
+    providerId: z.string().openapi({ example: "pro_local-stub" }),
+    modelName: z.string().openapi({ example: "controller-echo" }),
+    displayName: z.string().openapi({ example: "Controller Echo" }),
+    supportsTools: z.boolean().openapi({ example: false }),
+    supportsReasoning: z.boolean().openapi({ example: false }),
+    enabled: z.boolean().openapi({ example: true }),
+    capabilitiesJson: z.string().nullable().openapi({ example: null }),
+    createdAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" }),
+    updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" })
+  })
+  .openapi("ProviderModel");
+
+export const ListProvidersResponseSchema = z
+  .object({
+    providers: z.array(ProviderSchema)
+  })
+  .openapi("ListProvidersResponse");
+
+export const ListModelsResponseSchema = z
+  .object({
+    models: z.array(ProviderModelSchema)
+  })
+  .openapi("ListModelsResponse");
+
+export const ValidateProviderResponseSchema = z
+  .object({
+    provider: ProviderSchema,
+    valid: z.boolean().openapi({ example: true }),
+    reason: z
+      .enum(["ok", "disabled", "no_enabled_models", "missing_default_model", "default_model_unresolved"])
+      .openapi({ example: "ok" }),
+    message: z.string().openapi({ example: "Provider configuration is valid." }),
+    defaultModelId: z.string().nullable().openapi({ example: "mod_controller-echo" }),
+    defaultModelName: z.string().nullable().openapi({ example: "controller-echo" }),
+    availableModelCount: z.number().int().nonnegative().openapi({ example: 1 })
+  })
+  .openapi("ValidateProviderResponse");
 
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;

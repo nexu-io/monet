@@ -23,6 +23,10 @@ async function main() {
       {
         name: "Sessions",
         description: "Session lifecycle and history endpoints."
+      },
+      {
+        name: "Providers",
+        description: "Provider, model catalog, and validation endpoints."
       }
     ]
   });

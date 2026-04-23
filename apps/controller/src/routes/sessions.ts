@@ -8,6 +8,7 @@ import {
   ListSessionsResponseSchema,
   SessionDetailSchema,
   SessionSchema,
+  UpdateSessionRequestSchema,
   createErrorResponse
 } from "../openapi";
 import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
@@ -114,6 +115,59 @@ const getSessionDetailRoute = createRoute({
     },
     500: {
       description: "The session detail could not be loaded.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const updateSessionRoute = createRoute({
+  method: "patch",
+  path: "/api/sessions/{sessionId}",
+  tags: ["Sessions"],
+  summary: "Update session",
+  description: "Updates mutable session fields such as the title.",
+  request: {
+    params: sessionIdParamSchema,
+    body: {
+      required: true,
+      content: {
+        "application/json": {
+          schema: UpdateSessionRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Session updated successfully.",
+      content: {
+        "application/json": {
+          schema: SessionSchema
+        }
+      }
+    },
+    400: {
+      description: "Request body is invalid.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "The requested session was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The session could not be updated.",
       content: {
         "application/json": {
           schema: ErrorResponseSchema
@@ -244,6 +298,36 @@ export function registerSessionRoutes(app: ControllerApp, options: { getChatStor
   app.openapi(getSessionDetailRoute, (context) => {
     try {
       return context.json(options.getChatStorage().getSessionDetail(context.req.valid("param").sessionId), 200);
+    } catch (error) {
+      const response = createSessionLookupErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(updateSessionRoute, async (context) => {
+    let payload: unknown = {};
+
+    try {
+      payload = await context.req.json();
+    } catch {
+      payload = {};
+    }
+
+    const parsedBody = UpdateSessionRequestSchema.safeParse(payload);
+
+    if (!parsedBody.success) {
+      return context.json(createErrorResponse("invalid_request", "Request validation failed."), 400);
+    }
+
+    try {
+      return context.json(
+        options.getChatStorage().updateSessionTitle({
+          sessionId: context.req.valid("param").sessionId,
+          title: parsedBody.data.title
+        }),
+        200
+      );
     } catch (error) {
       const response = createSessionLookupErrorResponse(error);
 

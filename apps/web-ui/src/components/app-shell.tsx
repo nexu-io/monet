@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Badge, Button, Card, NavItem, StatusDot } from "@nexu-design/ui-web";
 
+import { useSessions } from "./session-provider";
+
 type NavigationItem = {
   href: string;
   label: string;
@@ -28,26 +30,16 @@ const navigationItems: NavigationItem[] = [
   }
 ];
 
-const recentSessions = [
-  {
-    id: "session-current",
-    title: "Install and upgrade strategy",
-    preview: "App shell iteration and chat scaffolding",
-    active: true
-  },
-  {
-    id: "session-tools",
-    title: "Tool approval UX",
-    preview: "Awaiting inline confirm card work",
-    active: false
-  },
-  {
-    id: "session-settings",
-    title: "Provider settings",
-    preview: "OpenAI and OpenRouter validation flows",
-    active: false
-  }
-];
+function formatSessionPreview(updatedAt: string) {
+  const value = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(updatedAt));
+
+  return `Updated ${value}`;
+}
 
 export function AppShell({
   children,
@@ -60,6 +52,31 @@ export function AppShell({
   header?: ReactNode;
   composer?: ReactNode;
 }) {
+  const { archiveSession, buildSessionHref, createSession, currentSessionId, isSessionsLoading, openSession, renameSession, sessions } = useSessions();
+  const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 6);
+
+  async function handleCreateSession() {
+    await createSession({ pathname: "/" });
+  }
+
+  async function handleRenameSession(sessionId: string, currentTitle: string) {
+    const nextTitle = window.prompt("Rename session", currentTitle)?.trim();
+
+    if (!nextTitle || nextTitle === currentTitle) {
+      return;
+    }
+
+    await renameSession(sessionId, nextTitle);
+  }
+
+  async function handleArchiveSession(sessionId: string, title: string) {
+    if (!window.confirm(`Archive \"${title}\"?`)) {
+      return;
+    }
+
+    await archiveSession(sessionId);
+  }
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -74,7 +91,7 @@ export function AppShell({
             </div>
           </Card>
 
-          <Button type="button" variant="primary" className="new-session-button">
+          <Button type="button" variant="primary" className="new-session-button" onClick={() => void handleCreateSession()}>
             + New session
           </Button>
 
@@ -102,17 +119,36 @@ export function AppShell({
             </div>
 
             <div className="session-preview-list">
-              {recentSessions.map((session) => (
-                <article
-                  key={session.id}
-                  className="session-preview"
-                  data-active={session.active ? "true" : "false"}
-                  aria-current={session.active ? "page" : undefined}
-                >
-                  <strong>{session.title}</strong>
-                  <span>{session.preview}</span>
-                </article>
-              ))}
+              {isSessionsLoading ? <p className="muted">Loading sessions...</p> : null}
+              {!isSessionsLoading && recentSessions.length === 0 ? <p className="muted">No active sessions yet.</p> : null}
+              {recentSessions.map((session) => {
+                const isActive = session.id === currentSessionId;
+
+                return (
+                  <article
+                    key={session.id}
+                    className="session-preview"
+                    data-active={isActive ? "true" : "false"}
+                    aria-current={isActive ? "page" : undefined}
+                  >
+                    <button type="button" className="session-preview-trigger" onClick={() => openSession(session.id, "/") }>
+                      <strong>{session.title}</strong>
+                      <span>{formatSessionPreview(session.updatedAt)}</span>
+                    </button>
+                    <div className="session-preview-actions">
+                      <Link href={buildSessionHref("/sessions", session.id)} className="session-preview-link">
+                        Details
+                      </Link>
+                      <button type="button" className="session-preview-link" onClick={() => void handleRenameSession(session.id, session.title)}>
+                        Rename
+                      </button>
+                      <button type="button" className="session-preview-link" onClick={() => void handleArchiveSession(session.id, session.title)}>
+                        Archive
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
         </div>

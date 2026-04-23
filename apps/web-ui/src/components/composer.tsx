@@ -7,13 +7,19 @@ export interface ComposerProps {
   readonly value: string;
   readonly status: "submitted" | "streaming" | "ready" | "error";
   readonly canRegenerate: boolean;
+  readonly disabled?: boolean;
+  readonly disabledReason?: string;
   readonly onValueChange: (value: string) => void;
   readonly onSubmit: () => void;
   readonly onRegenerate: () => void;
   readonly onStop: () => void;
 }
 
-function getStatusHint(status: ComposerProps["status"]) {
+function getStatusHint(status: ComposerProps["status"], disabledReason?: string) {
+  if (disabledReason) {
+    return disabledReason;
+  }
+
   switch (status) {
     case "submitted":
       return "Sending prompt to /api/chat...";
@@ -26,8 +32,9 @@ function getStatusHint(status: ComposerProps["status"]) {
   }
 }
 
-export function Composer({ value, status, canRegenerate, onValueChange, onSubmit, onRegenerate, onStop }: ComposerProps) {
+export function Composer({ value, status, canRegenerate, disabled = false, disabledReason, onValueChange, onSubmit, onRegenerate, onStop }: ComposerProps) {
   const isBusy = status === "submitted" || status === "streaming";
+  const isDisabled = disabled || isBusy;
   const sendLabel = status === "submitted" ? "Sending..." : status === "streaming" ? "Streaming..." : "Send";
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -63,26 +70,26 @@ export function Composer({ value, status, canRegenerate, onValueChange, onSubmit
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        disabled={isBusy}
+        disabled={isDisabled}
       />
 
       <div className="composer-footer">
         <div className="composer-hints">
           <span>Shift+Enter adds a newline. Ctrl/Cmd+Enter sends.</span>
-          <span>{getStatusHint(status)}</span>
+          <span>{getStatusHint(status, disabledReason)}</span>
         </div>
 
         <div className="composer-actions">
           <Button type="button" variant="secondary" disabled>
             Attach context
           </Button>
-          <Button type="button" variant="secondary" onClick={onRegenerate} disabled={!canRegenerate}>
+          <Button type="button" variant="secondary" onClick={onRegenerate} disabled={disabled || !canRegenerate}>
             Regenerate
           </Button>
-          <Button type="button" variant="secondary" onClick={onStop} disabled={!isBusy}>
+          <Button type="button" variant="secondary" onClick={onStop} disabled={disabled || !isBusy}>
             Stop
           </Button>
-          <Button type="submit" variant="primary" disabled={isBusy || value.trim().length === 0}>
+          <Button type="submit" variant="primary" disabled={isDisabled || value.trim().length === 0}>
             {sendLabel}
           </Button>
         </div>

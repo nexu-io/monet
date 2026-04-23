@@ -3,6 +3,8 @@
 import { Badge, Button } from "@nexu-design/ui-web";
 
 export interface ConversationHeaderProps {
+  readonly sessionTitle: string;
+  readonly sessionId: string;
   readonly status: "submitted" | "streaming" | "ready" | "error";
   readonly messageCount: number;
   readonly hasError: boolean;
@@ -24,7 +26,7 @@ function getStatusLabel(status: ConversationHeaderProps["status"]) {
   }
 }
 
-export function ConversationHeader({ status, messageCount, hasError, canRegenerate, onRegenerate, onStop }: ConversationHeaderProps) {
+export function ConversationHeader({ sessionTitle, sessionId, status, messageCount, hasError, canRegenerate, onRegenerate, onStop }: ConversationHeaderProps) {
   const isBusy = status === "submitted" || status === "streaming";
 
   return (
@@ -32,9 +34,9 @@ export function ConversationHeader({ status, messageCount, hasError, canRegenera
       <div className="conversation-header-copy">
         <div className="stack-tight">
           <span className="eyebrow">Current session</span>
-          <h1>Install and upgrade strategy</h1>
+          <h1>{sessionTitle}</h1>
         </div>
-        <p>The center canvas is now wired through `useChat` to the local controller, and assistant replies stream back into the same UIMessage parts renderer.</p>
+        <p>Streaming conversation for <code>{sessionId}</code>, backed by persisted session detail from the local controller.</p>
       </div>
 
       <div className="conversation-header-actions">

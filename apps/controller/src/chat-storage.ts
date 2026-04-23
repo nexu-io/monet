@@ -14,6 +14,8 @@ const DEFAULT_MODEL_NAME = "controller-echo";
 const DEFAULT_MODEL_DISPLAY_NAME = "Controller Echo";
 const DEFAULT_UI_MESSAGE_SCHEMA_VERSION = "v1";
 
+type ProviderType = "openai" | "openrouter";
+
 interface CreateChatStorageOptions {
   readonly databasePath: string;
 }
@@ -30,12 +32,27 @@ interface SessionRow {
 
 interface ProviderRow {
   readonly id: string;
+  readonly type: ProviderType;
+  readonly display_name: string;
+  readonly base_url: string | null;
   readonly default_model_name: string | null;
+  readonly enabled: number;
+  readonly timeout_ms: number | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 interface ProviderModelRow {
   readonly id: string;
   readonly provider_id: string;
+  readonly model_name: string;
+  readonly display_name: string;
+  readonly supports_tools: number;
+  readonly supports_reasoning: number;
+  readonly enabled: number;
+  readonly capabilities_json: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 interface MessageRow {
@@ -68,6 +85,41 @@ export interface StoredSessionMessage {
 
 export interface StoredSessionDetail extends StoredSession {
   readonly messages: StoredSessionMessage[];
+}
+
+export interface StoredProvider {
+  readonly id: string;
+  readonly type: ProviderType;
+  readonly displayName: string;
+  readonly baseUrl: string | null;
+  readonly defaultModelName: string | null;
+  readonly enabled: boolean;
+  readonly timeoutMs: number | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface StoredProviderModel {
+  readonly id: string;
+  readonly providerId: string;
+  readonly modelName: string;
+  readonly displayName: string;
+  readonly supportsTools: boolean;
+  readonly supportsReasoning: boolean;
+  readonly enabled: boolean;
+  readonly capabilitiesJson: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface ProviderValidationResult {
+  readonly provider: StoredProvider;
+  readonly valid: boolean;
+  readonly reason: "ok" | "disabled" | "no_enabled_models" | "missing_default_model" | "default_model_unresolved";
+  readonly message: string;
+  readonly defaultModelId: string | null;
+  readonly defaultModelName: string | null;
+  readonly availableModelCount: number;
 }
 
 export interface ChatRequestPersistenceInput {
@@ -107,7 +159,11 @@ export interface ChatStorage {
   listSessions(): StoredSession[];
   createSession(input: CreateSessionInput): StoredSession;
   getSessionDetail(sessionId: string): StoredSessionDetail;
+  updateSessionTitle(input: { sessionId: string; title: string }): StoredSession;
   archiveSession(sessionId: string): StoredSession;
+  listProviders(): StoredProvider[];
+  listModels(providerId?: string): StoredProviderModel[];
+  validateProvider(providerId: string): ProviderValidationResult;
   prepareChatRequest(input: ChatRequestPersistenceInput): ResolvedChatRequest;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
@@ -187,6 +243,30 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       };
     },
 
+    updateSessionTitle({ sessionId, title }) {
+      const session = getSession(connection, sessionId);
+
+      if (!session) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown sessionId: ${sessionId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const now = new Date().toISOString();
+
+      connection
+        .prepare(
+          `UPDATE sessions
+           SET title = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(title.trim(), now, sessionId);
+
+      return getSessionOrThrow(connection, sessionId);
+    },
+
     archiveSession(sessionId) {
       const session = getSession(connection, sessionId);
 
@@ -209,6 +289,133 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .run(now, now, sessionId);
 
       return getSessionOrThrow(connection, sessionId);
+    },
+
+    listProviders() {
+      const rows = connection
+        .prepare(
+          `SELECT id, type, display_name, base_url, default_model_name, enabled, timeout_ms, created_at, updated_at
+           FROM providers
+           ORDER BY enabled DESC, display_name ASC, created_at ASC`
+        )
+        .all() as unknown as ProviderRow[];
+
+      return rows.map(mapProviderRow);
+    },
+
+    listModels(providerId) {
+      if (providerId) {
+        const provider = getProviderById(connection, providerId);
+
+        if (!provider) {
+          throw new ChatStorageResolutionError({
+            message: `Unknown providerId: ${providerId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+      }
+
+      const rows = providerId
+        ? ((connection
+            .prepare(
+              `SELECT id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at
+               FROM provider_models
+               WHERE provider_id = ?
+               ORDER BY enabled DESC, display_name ASC, created_at ASC`
+            )
+            .all(providerId) as unknown) as ProviderModelRow[])
+        : ((connection
+            .prepare(
+              `SELECT id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at
+               FROM provider_models
+               ORDER BY enabled DESC, provider_id ASC, display_name ASC, created_at ASC`
+            )
+            .all() as unknown) as ProviderModelRow[]);
+
+      return rows.map(mapProviderModelRow);
+    },
+
+    validateProvider(providerId) {
+      const provider = getProviderById(connection, providerId);
+
+      if (!provider) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown providerId: ${providerId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const models = connection
+        .prepare(
+          `SELECT id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at
+           FROM provider_models
+           WHERE provider_id = ? AND enabled = 1
+           ORDER BY display_name ASC, created_at ASC`
+        )
+        .all(providerId) as unknown as ProviderModelRow[];
+      const defaultModel = provider.default_model_name
+        ? models.find((model) => model.model_name === provider.default_model_name) ?? null
+        : null;
+
+      if (!provider.enabled) {
+        return {
+          provider: mapProviderRow(provider),
+          valid: false,
+          reason: "disabled",
+          message: "Provider is disabled.",
+          defaultModelId: null,
+          defaultModelName: provider.default_model_name,
+          availableModelCount: models.length
+        };
+      }
+
+      if (models.length === 0) {
+        return {
+          provider: mapProviderRow(provider),
+          valid: false,
+          reason: "no_enabled_models",
+          message: "Provider does not have any enabled models.",
+          defaultModelId: null,
+          defaultModelName: provider.default_model_name,
+          availableModelCount: 0
+        };
+      }
+
+      if (!provider.default_model_name) {
+        return {
+          provider: mapProviderRow(provider),
+          valid: false,
+          reason: "missing_default_model",
+          message: "Provider is missing a default model configuration.",
+          defaultModelId: null,
+          defaultModelName: null,
+          availableModelCount: models.length
+        };
+      }
+
+      if (!defaultModel) {
+        return {
+          provider: mapProviderRow(provider),
+          valid: false,
+          reason: "default_model_unresolved",
+          message: "Provider default model could not be resolved from enabled models.",
+          defaultModelId: null,
+          defaultModelName: provider.default_model_name,
+          availableModelCount: models.length
+        };
+      }
+
+      return {
+        provider: mapProviderRow(provider),
+        valid: true,
+        reason: "ok",
+        message: "Provider configuration is valid.",
+        defaultModelId: defaultModel.id,
+        defaultModelName: defaultModel.model_name,
+        availableModelCount: models.length
+      };
     },
 
     prepareChatRequest(input) {
@@ -377,15 +584,27 @@ function resolveProviderAndModel(
   }
 ) {
   if (options.providerId && options.modelId) {
-    const provider = getProvider(connection, options.providerId);
-    const model = getProviderModel(connection, options.modelId);
+    const provider = getEnabledProvider(connection, options.providerId);
+    const model = getEnabledProviderModel(connection, options.modelId);
 
     if (!provider) {
-      throw new ChatStorageResolutionError({ message: `Unknown providerId: ${options.providerId}` });
+      const existingProvider = getProviderById(connection, options.providerId);
+
+      throw new ChatStorageResolutionError({
+        message: existingProvider ? `Provider is disabled: ${options.providerId}` : `Unknown providerId: ${options.providerId}`,
+        statusCode: existingProvider ? 422 : 400,
+        errorCode: existingProvider ? "provider_disabled" : "invalid_request"
+      });
     }
 
     if (!model) {
-      throw new ChatStorageResolutionError({ message: `Unknown modelId: ${options.modelId}` });
+      const existingModel = getProviderModelById(connection, options.modelId);
+
+      throw new ChatStorageResolutionError({
+        message: existingModel ? `Model is disabled: ${options.modelId}` : `Unknown modelId: ${options.modelId}`,
+        statusCode: existingModel ? 422 : 400,
+        errorCode: existingModel ? "model_disabled" : "invalid_request"
+      });
     }
 
     if (model.provider_id !== provider.id) {
@@ -399,10 +618,16 @@ function resolveProviderAndModel(
   }
 
   if (options.modelId) {
-    const model = getProviderModel(connection, options.modelId);
+    const model = getEnabledProviderModel(connection, options.modelId);
 
     if (!model) {
-      throw new ChatStorageResolutionError({ message: `Unknown modelId: ${options.modelId}` });
+      const existingModel = getProviderModelById(connection, options.modelId);
+
+      throw new ChatStorageResolutionError({
+        message: existingModel ? `Model is disabled: ${options.modelId}` : `Unknown modelId: ${options.modelId}`,
+        statusCode: existingModel ? 422 : 400,
+        errorCode: existingModel ? "model_disabled" : "invalid_request"
+      });
     }
 
     return {
@@ -412,14 +637,20 @@ function resolveProviderAndModel(
   }
 
   if (options.providerId) {
-    const provider = getProvider(connection, options.providerId);
+    const provider = getEnabledProvider(connection, options.providerId);
 
     if (!provider) {
-      throw new ChatStorageResolutionError({ message: `Unknown providerId: ${options.providerId}` });
+      const existingProvider = getProviderById(connection, options.providerId);
+
+      throw new ChatStorageResolutionError({
+        message: existingProvider ? `Provider is disabled: ${options.providerId}` : `Unknown providerId: ${options.providerId}`,
+        statusCode: existingProvider ? 422 : 400,
+        errorCode: existingProvider ? "provider_disabled" : "invalid_request"
+      });
     }
 
     const preferredModel = options.session?.default_model_id
-      ? getProviderModel(connection, options.session.default_model_id)
+      ? getEnabledProviderModel(connection, options.session.default_model_id)
       : undefined;
 
     if (preferredModel && preferredModel.provider_id === provider.id) {
@@ -430,7 +661,7 @@ function resolveProviderAndModel(
     }
 
     const defaultModel = provider.default_model_name
-      ? getProviderModelByName(connection, provider.id, provider.default_model_name)
+      ? getEnabledProviderModelByName(connection, provider.id, provider.default_model_name)
       : undefined;
 
     if (!defaultModel) {
@@ -448,7 +679,7 @@ function resolveProviderAndModel(
   }
 
   if (options.session?.default_model_id) {
-    const model = getProviderModel(connection, options.session.default_model_id);
+    const model = getEnabledProviderModel(connection, options.session.default_model_id);
 
     if (model) {
       return {
@@ -459,10 +690,10 @@ function resolveProviderAndModel(
   }
 
   if (options.session?.default_provider_id) {
-    const provider = getProvider(connection, options.session.default_provider_id);
+    const provider = getEnabledProvider(connection, options.session.default_provider_id);
 
     if (provider?.default_model_name) {
-      const defaultModel = getProviderModelByName(connection, provider.id, provider.default_model_name);
+      const defaultModel = getEnabledProviderModelByName(connection, provider.id, provider.default_model_name);
 
       if (defaultModel) {
         return {
@@ -497,21 +728,58 @@ function getSessionOrThrow(connection: DatabaseSync, id: string) {
   return mapSessionRow(session);
 }
 
-function getProvider(connection: DatabaseSync, id: string) {
+function getEnabledProvider(connection: DatabaseSync, id: string) {
   return connection
-    .prepare("SELECT id, default_model_name FROM providers WHERE id = ? AND enabled = 1 LIMIT 1")
+    .prepare(
+      `SELECT id, type, display_name, base_url, default_model_name, enabled, timeout_ms, created_at, updated_at
+       FROM providers
+       WHERE id = ? AND enabled = 1
+       LIMIT 1`
+    )
     .get(id) as ProviderRow | undefined;
 }
 
-function getProviderModel(connection: DatabaseSync, id: string) {
+function getProviderById(connection: DatabaseSync, id: string) {
   return connection
-    .prepare("SELECT id, provider_id FROM provider_models WHERE id = ? AND enabled = 1 LIMIT 1")
+    .prepare(
+      `SELECT id, type, display_name, base_url, default_model_name, enabled, timeout_ms, created_at, updated_at
+       FROM providers
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(id) as ProviderRow | undefined;
+}
+
+function getEnabledProviderModel(connection: DatabaseSync, id: string) {
+  return connection
+    .prepare(
+      `SELECT id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at
+       FROM provider_models
+       WHERE id = ? AND enabled = 1
+       LIMIT 1`
+    )
     .get(id) as ProviderModelRow | undefined;
 }
 
-function getProviderModelByName(connection: DatabaseSync, providerId: string, modelName: string) {
+function getProviderModelById(connection: DatabaseSync, id: string) {
   return connection
-    .prepare("SELECT id, provider_id FROM provider_models WHERE provider_id = ? AND model_name = ? AND enabled = 1 LIMIT 1")
+    .prepare(
+      `SELECT id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at
+       FROM provider_models
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(id) as ProviderModelRow | undefined;
+}
+
+function getEnabledProviderModelByName(connection: DatabaseSync, providerId: string, modelName: string) {
+  return connection
+    .prepare(
+      `SELECT id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at
+       FROM provider_models
+       WHERE provider_id = ? AND model_name = ? AND enabled = 1
+       LIMIT 1`
+    )
     .get(providerId, modelName) as ProviderModelRow | undefined;
 }
 
@@ -657,6 +925,35 @@ function mapSessionRow(row: SessionRow): StoredSession {
     archivedAt: row.archived_at,
     defaultProviderId: row.default_provider_id,
     defaultModelId: row.default_model_id
+  };
+}
+
+function mapProviderRow(row: ProviderRow): StoredProvider {
+  return {
+    id: row.id,
+    type: row.type,
+    displayName: row.display_name,
+    baseUrl: row.base_url,
+    defaultModelName: row.default_model_name,
+    enabled: Boolean(row.enabled),
+    timeoutMs: row.timeout_ms,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapProviderModelRow(row: ProviderModelRow): StoredProviderModel {
+  return {
+    id: row.id,
+    providerId: row.provider_id,
+    modelName: row.model_name,
+    displayName: row.display_name,
+    supportsTools: Boolean(row.supports_tools),
+    supportsReasoning: Boolean(row.supports_reasoning),
+    enabled: Boolean(row.enabled),
+    capabilitiesJson: row.capabilities_json,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 

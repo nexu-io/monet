@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react";
 
+import { SessionProvider } from "../components/session-provider";
+
 export function AppProviders({ children }: { children: ReactNode }) {
-  return children;
+  return <SessionProvider>{children}</SessionProvider>;
 }

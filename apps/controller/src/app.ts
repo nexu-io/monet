@@ -4,6 +4,7 @@ import { createChatStorage, type ChatStorage } from "./chat-storage";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
 import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
+import { registerProviderRoutes } from "./routes/providers";
 import { registerSessionRoutes } from "./routes/sessions";
 
 export interface CreateControllerAppOptions {
@@ -54,6 +55,10 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       {
         name: "Sessions",
         description: "Session lifecycle and history endpoints."
+      },
+      {
+        name: "Providers",
+        description: "Provider, model catalog, and validation endpoints."
       }
     ]
   });
@@ -61,6 +66,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerHealthRoutes(app);
   registerChatRoutes(app, { getChatStorage });
   registerSessionRoutes(app, { getChatStorage });
+  registerProviderRoutes(app, { getChatStorage });
 
   return app;
 }

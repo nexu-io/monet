@@ -13,6 +13,10 @@
     {
       "name": "Sessions",
       "description": "Session lifecycle and history endpoints."
+    },
+    {
+      "name": "Providers",
+      "description": "Provider, model catalog, and validation endpoints."
     }
   ],
   "components": {
@@ -217,6 +221,19 @@
           }
         ]
       },
+      "UpdateSessionRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "title"
+        ]
+      },
       "ArchiveSessionResponse": {
         "type": "object",
         "properties": {
@@ -226,6 +243,219 @@
         },
         "required": [
           "session"
+        ]
+      },
+      "Provider": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "pro_local-stub"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "openai",
+              "openrouter"
+            ],
+            "example": "openai"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Local Stub Provider"
+          },
+          "baseUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "example": null
+          },
+          "defaultModelName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "controller-echo"
+          },
+          "enabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "timeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "example": null
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "displayName",
+          "baseUrl",
+          "defaultModelName",
+          "enabled",
+          "timeoutMs",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ListProvidersResponse": {
+        "type": "object",
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Provider"
+            }
+          }
+        },
+        "required": [
+          "providers"
+        ]
+      },
+      "ProviderModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "mod_controller-echo"
+          },
+          "providerId": {
+            "type": "string",
+            "example": "pro_local-stub"
+          },
+          "modelName": {
+            "type": "string",
+            "example": "controller-echo"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Controller Echo"
+          },
+          "supportsTools": {
+            "type": "boolean",
+            "example": false
+          },
+          "supportsReasoning": {
+            "type": "boolean",
+            "example": false
+          },
+          "enabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "capabilitiesJson": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": null
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "providerId",
+          "modelName",
+          "displayName",
+          "supportsTools",
+          "supportsReasoning",
+          "enabled",
+          "capabilitiesJson",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ListModelsResponse": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderModel"
+            }
+          }
+        },
+        "required": [
+          "models"
+        ]
+      },
+      "ValidateProviderResponse": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "valid": {
+            "type": "boolean",
+            "example": true
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "disabled",
+              "no_enabled_models",
+              "missing_default_model",
+              "default_model_unresolved"
+            ],
+            "example": "ok"
+          },
+          "message": {
+            "type": "string",
+            "example": "Provider configuration is valid."
+          },
+          "defaultModelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "mod_controller-echo"
+          },
+          "defaultModelName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "controller-echo"
+          },
+          "availableModelCount": {
+            "type": "integer",
+            "minimum": 0,
+            "example": 1
+          }
+        },
+        "required": [
+          "provider",
+          "valid",
+          "reason",
+          "message",
+          "defaultModelId",
+          "defaultModelName",
+          "availableModelCount"
         ]
       }
     },
@@ -383,6 +613,76 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Update session",
+        "description": "Updates mutable session fields such as the title.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "ses_123"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested session was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The session could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/sessions/{sessionId}/archive": {
@@ -426,6 +726,154 @@
           },
           "500": {
             "description": "The session could not be archived.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "List providers",
+        "description": "Returns persisted providers ordered by enabled status and name.",
+        "responses": {
+          "200": {
+            "description": "Providers fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListProvidersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "List models",
+        "description": "Returns all persisted provider models ordered by enabled status and provider.",
+        "responses": {
+          "200": {
+            "description": "Models fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListModelsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/{providerId}/models": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "List models for provider",
+        "description": "Returns persisted models for a single provider.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "pro_local-stub"
+            },
+            "required": true,
+            "name": "providerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider models fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListModelsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested provider was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider models could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/{providerId}/validate": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Validate provider",
+        "description": "Validates a persisted provider against current local configuration and enabled models.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "pro_local-stub"
+            },
+            "required": true,
+            "name": "providerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider validation completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateProviderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested provider was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider validation could not be completed.",
             "content": {
               "application/json": {
                 "schema": {
