@@ -38,6 +38,38 @@ interface ProviderModelRow {
   readonly provider_id: string;
 }
 
+interface MessageRow {
+  readonly id: string;
+  readonly session_id: string;
+  readonly run_id: string | null;
+  readonly role: string;
+  readonly ui_message_json: string;
+  readonly created_at: string;
+}
+
+export interface StoredSession {
+  readonly id: string;
+  readonly title: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly archivedAt: string | null;
+  readonly defaultProviderId: string | null;
+  readonly defaultModelId: string | null;
+}
+
+export interface StoredSessionMessage {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly runId: string | null;
+  readonly role: string;
+  readonly createdAt: string;
+  readonly uiMessage: unknown;
+}
+
+export interface StoredSessionDetail extends StoredSession {
+  readonly messages: StoredSessionMessage[];
+}
+
 export interface ChatRequestPersistenceInput {
   readonly sessionId?: string;
   readonly providerId?: string;
@@ -53,6 +85,12 @@ export interface ResolvedChatRequest {
   readonly runId: string;
 }
 
+export interface CreateSessionInput {
+  readonly title?: string;
+  readonly providerId?: string;
+  readonly modelId?: string;
+}
+
 export class ChatStorageResolutionError extends Error {
   readonly statusCode: number;
   readonly errorCode: string;
@@ -66,6 +104,10 @@ export class ChatStorageResolutionError extends Error {
 }
 
 export interface ChatStorage {
+  listSessions(): StoredSession[];
+  createSession(input: CreateSessionInput): StoredSession;
+  getSessionDetail(sessionId: string): StoredSessionDetail;
+  archiveSession(sessionId: string): StoredSession;
   prepareChatRequest(input: ChatRequestPersistenceInput): ResolvedChatRequest;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
@@ -90,6 +132,85 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   ensureStubProviderAndModel(connection);
 
   return {
+    listSessions() {
+      const rows = connection
+        .prepare(
+          `SELECT id, title, created_at, updated_at, archived_at, default_provider_id, default_model_id
+           FROM sessions
+           ORDER BY archived_at IS NOT NULL ASC, updated_at DESC, created_at DESC`
+        )
+        .all() as unknown as SessionRow[];
+
+      return rows.map(mapSessionRow);
+    },
+
+    createSession(input) {
+      const now = new Date().toISOString();
+      const sessionId = createPrefixedId("ses");
+      const resolvedProviderId = input.providerId?.trim();
+      const resolvedModelId = input.modelId?.trim();
+      const target =
+        resolvedProviderId || resolvedModelId
+          ? resolveProviderAndModel(connection, {
+              ...(resolvedProviderId ? { providerId: resolvedProviderId } : {}),
+              ...(resolvedModelId ? { modelId: resolvedModelId } : {}),
+              session: undefined
+            })
+          : null;
+
+      upsertSession(connection, {
+        id: sessionId,
+        title: input.title?.trim() || DEFAULT_SESSION_TITLE,
+        createdAt: now,
+        updatedAt: now,
+        defaultProviderId: target?.providerId ?? null,
+        defaultModelId: target?.modelId ?? null
+      });
+
+      return getSessionOrThrow(connection, sessionId);
+    },
+
+    getSessionDetail(sessionId) {
+      const session = getSession(connection, sessionId);
+
+      if (!session) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown sessionId: ${sessionId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      return {
+        ...mapSessionRow(session),
+        messages: listSessionMessages(connection, sessionId)
+      };
+    },
+
+    archiveSession(sessionId) {
+      const session = getSession(connection, sessionId);
+
+      if (!session) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown sessionId: ${sessionId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const now = new Date().toISOString();
+
+      connection
+        .prepare(
+          `UPDATE sessions
+           SET archived_at = COALESCE(archived_at, ?), updated_at = ?
+           WHERE id = ?`
+        )
+        .run(now, now, sessionId);
+
+      return getSessionOrThrow(connection, sessionId);
+    },
+
     prepareChatRequest(input) {
       const now = new Date().toISOString();
       const sessionId = input.sessionId?.trim() || createPrefixedId("ses");
@@ -362,6 +483,20 @@ function getSession(connection: DatabaseSync, id: string) {
   return connection.prepare("SELECT * FROM sessions WHERE id = ? LIMIT 1").get(id) as SessionRow | undefined;
 }
 
+function getSessionOrThrow(connection: DatabaseSync, id: string) {
+  const session = getSession(connection, id);
+
+  if (!session) {
+    throw new ChatStorageResolutionError({
+      message: `Unknown sessionId: ${id}`,
+      statusCode: 404,
+      errorCode: "not_found"
+    });
+  }
+
+  return mapSessionRow(session);
+}
+
 function getProvider(connection: DatabaseSync, id: string) {
   return connection
     .prepare("SELECT id, default_model_name FROM providers WHERE id = ? AND enabled = 1 LIMIT 1")
@@ -387,8 +522,8 @@ function upsertSession(
     title: string;
     createdAt: string;
     updatedAt: string;
-    defaultProviderId: string;
-    defaultModelId: string;
+    defaultProviderId: string | null;
+    defaultModelId: string | null;
   }
 ) {
   connection
@@ -491,6 +626,49 @@ function persistMessages(
   }
 
   updateSession.run(options.createdAt, options.sessionId);
+}
+
+function listSessionMessages(connection: DatabaseSync, sessionId: string) {
+  const rows = connection
+    .prepare(
+      `SELECT id, session_id, run_id, role, ui_message_json, created_at
+       FROM messages
+       WHERE session_id = ?
+       ORDER BY created_at ASC, rowid ASC`
+    )
+    .all(sessionId) as unknown as MessageRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    sessionId: row.session_id,
+    runId: row.run_id,
+    role: row.role,
+    createdAt: row.created_at,
+    uiMessage: parseStoredUiMessage(row.ui_message_json)
+  }));
+}
+
+function mapSessionRow(row: SessionRow): StoredSession {
+  return {
+    id: row.id,
+    title: row.title,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
+    defaultProviderId: row.default_provider_id,
+    defaultModelId: row.default_model_id
+  };
+}
+
+function parseStoredUiMessage(uiMessageJson: string) {
+  try {
+    return JSON.parse(uiMessageJson) as unknown;
+  } catch {
+    return {
+      invalid: true,
+      raw: uiMessageJson
+    };
+  }
 }
 
 function createPrefixedId(prefix: string) {

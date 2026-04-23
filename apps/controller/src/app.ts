@@ -4,6 +4,7 @@ import { createChatStorage, type ChatStorage } from "./chat-storage";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
 import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
+import { registerSessionRoutes } from "./routes/sessions";
 
 export interface CreateControllerAppOptions {
   readonly bearerToken: string;
@@ -49,12 +50,17 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       {
         name: "System",
         description: "Health and controller metadata endpoints."
+      },
+      {
+        name: "Sessions",
+        description: "Session lifecycle and history endpoints."
       }
     ]
   });
 
   registerHealthRoutes(app);
   registerChatRoutes(app, { getChatStorage });
+  registerSessionRoutes(app, { getChatStorage });
 
   return app;
 }

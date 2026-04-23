@@ -4,7 +4,10 @@ import { resolve } from "node:path";
 import { createControllerApp } from "../src/app";
 
 async function main() {
-  const app = createControllerApp({ bearerToken: "openapi-generation-token" });
+  const app = createControllerApp({
+    bearerToken: "openapi-generation-token",
+    databasePath: "/tmp/monet-openapi.sqlite"
+  });
   const document = app.getOpenAPI31Document({
     openapi: "3.1.0",
     info: {
@@ -16,11 +19,15 @@ async function main() {
       {
         name: "System",
         description: "Health and controller metadata endpoints."
+      },
+      {
+        name: "Sessions",
+        description: "Session lifecycle and history endpoints."
       }
     ]
   });
 
-  const outputPath = resolve(import.meta.dirname, "..", "openapi.json");
+  const outputPath = resolve(__dirname, "..", "openapi.json");
 
   await writeFile(outputPath, JSON.stringify(document, null, 2) + "\n", "utf8");
 }

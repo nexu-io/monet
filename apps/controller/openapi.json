@@ -9,6 +9,10 @@
     {
       "name": "System",
       "description": "Health and controller metadata endpoints."
+    },
+    {
+      "name": "Sessions",
+      "description": "Session lifecycle and history endpoints."
     }
   ],
   "components": {
@@ -40,6 +44,189 @@
           "service",
           "version"
         ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ses_123"
+          },
+          "title": {
+            "type": "string",
+            "example": "New chat"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:05:00.000Z"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "example": null
+          },
+          "defaultProviderId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "pro_local-stub"
+          },
+          "defaultModelId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "mod_controller-echo"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "createdAt",
+          "updatedAt",
+          "archivedAt",
+          "defaultProviderId",
+          "defaultModelId"
+        ]
+      },
+      "ListSessionsResponse": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Session"
+            }
+          }
+        },
+        "required": [
+          "sessions"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "unauthorized"
+          },
+          "message": {
+            "type": "string",
+            "example": "Missing or invalid bearer token."
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "CreateSessionRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "modelId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "SessionMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "msg_123"
+          },
+          "sessionId": {
+            "type": "string",
+            "example": "ses_123"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "run_123"
+          },
+          "role": {
+            "type": "string",
+            "example": "user"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:05:00.000Z"
+          },
+          "uiMessage": {
+            "example": {
+              "id": "msg_123",
+              "role": "user",
+              "parts": [
+                {
+                  "type": "text",
+                  "text": "Hello"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "runId",
+          "role",
+          "createdAt"
+        ]
+      },
+      "SessionDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Session"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "messages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionMessage"
+                }
+              }
+            },
+            "required": [
+              "messages"
+            ]
+          }
+        ]
+      },
+      "ArchiveSessionResponse": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/Session"
+          }
+        },
+        "required": [
+          "session"
+        ]
       }
     },
     "parameters": {}
@@ -59,6 +246,190 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "List sessions",
+        "description": "Returns persisted sessions ordered by recent activity.",
+        "responses": {
+          "200": {
+            "description": "Sessions fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSessionsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Create session",
+        "description": "Creates a blank session with optional provider and model defaults.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Session created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request body or provider/model selection is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The requested provider could not resolve a model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The session could not be created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{sessionId}": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Get session detail",
+        "description": "Returns a single session and its persisted message history.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "ses_123"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session detail fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested session was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The session detail could not be loaded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{sessionId}/archive": {
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Archive session",
+        "description": "Marks a session as archived without deleting its history.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "ses_123"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session archived successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested session was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The session could not be archived.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
