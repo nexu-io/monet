@@ -220,9 +220,9 @@
 
 ## 7. OpenAPI / SDK Checklist
 
-- [ ] 已建立 `apps/controller/src/openapi.ts`
-- [ ] 已建立 `@hono/zod-openapi` schema 定义
-- [ ] 已建立 `apps/controller/openapi.json` 生成脚本
+- [x] 已建立 `apps/controller/src/openapi.ts`
+- [x] 已建立 `@hono/zod-openapi` schema 定义
+- [x] 已建立 `apps/controller/openapi.json` 生成脚本
 - [ ] 已建立 `openapi-ts.config.ts`
 - [ ] 已建立 hey-api 生成目录
 - [ ] 已启用 TanStack Query options / keys generation
