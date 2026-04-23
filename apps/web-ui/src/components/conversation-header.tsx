@@ -10,12 +10,12 @@ export function ConversationHeader() {
           <span className="eyebrow">Current session</span>
           <h1>Install and upgrade strategy</h1>
         </div>
-        <p>Three-part shell in place now; next iterations can swap the placeholder stream for real AI SDK chat messages.</p>
+        <p>The center canvas now renders AI SDK-style message parts directly, including collapsed reasoning and tool cards.</p>
       </div>
 
       <div className="conversation-header-actions">
-        <Badge variant="secondary" size="sm" radius="full">OpenAI pending</Badge>
-        <Badge variant="secondary" size="sm" radius="full">gpt-4.1 planned</Badge>
+        <Badge variant="secondary" size="sm" radius="full">UIMessage parts ready</Badge>
+        <Badge variant="secondary" size="sm" radius="full">Reasoning collapsed</Badge>
         <Button type="button" variant="secondary">Session settings</Button>
       </div>
     </div>
