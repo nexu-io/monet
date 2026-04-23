@@ -22,16 +22,42 @@
 
 ## 2. 全局约定
 
+实现栈建议：
+
+- Driver：`better-sqlite3`
+- 查询层：`drizzle-orm/better-sqlite3`
+- Migration：`drizzle-kit`
+
+约定：
+
+- schema 定义放在 `packages/database/schema`
+- migration 文件放在 `packages/database/migrations`
+- repository 层作为唯一数据库访问入口
+
 ### 2.1 数据库配置
 
 - 数据库：SQLite
 - 模式：WAL
 - 字符集：UTF-8
-- 时间字段：统一存 ISO 8601 字符串或 unix epoch milliseconds，项目内保持一致
+- 时间字段：统一存 ISO 8601 字符串
 
 ### 2.2 主键策略
 
-首期建议所有主键使用字符串 ID（如 cuid2 / nanoid / uuidv7），避免本地合并或未来同步时的整数主键冲突。
+首期建议所有主键使用 **带语义前缀的 cuid2**，避免本地合并或未来同步时的整数主键冲突，同时提升日志与调试可读性。
+
+建议前缀：
+
+- `sessions.id` → `ses_${cuid2}`
+- `messages.id` → `msg_${cuid2}`
+- `runs.id` → `run_${cuid2}`
+- `tool_calls.id` → `tcl_${cuid2}`
+- `providers.id` → `pro_${cuid2}`
+- `provider_models.id` → `mod_${cuid2}`
+
+说明：
+
+- 前缀是稳定协议的一部分，API / DB / OpenAPI 示例需要保持一致
+- 前缀提升可读性，但不替代 FK 约束
 
 ### 2.3 删除策略
 
@@ -64,6 +90,8 @@ sessions
   └─< runs
         └─< tool_calls
 
+messages.run_id            -> runs.id (nullable)
+
 providers
   └─< provider_models
 
@@ -93,8 +121,8 @@ runs.model_id                -> provider_models.id
 
 约束：
 
-- `default_provider_id` → `providers.id`
-- `default_model_id` → `provider_models.id`
+- `default_provider_id` → `providers.id ON DELETE SET NULL`
+- `default_model_id` → `provider_models.id ON DELETE SET NULL`
 
 索引建议：
 
@@ -114,6 +142,7 @@ runs.model_id                -> provider_models.id
 
 - `id` TEXT PRIMARY KEY
 - `session_id` TEXT NOT NULL
+- `run_id` TEXT NULL
 - `role` TEXT NOT NULL
 - `ui_message_json` TEXT NOT NULL
 - `ui_message_schema_version` TEXT NOT NULL
@@ -123,6 +152,7 @@ runs.model_id                -> provider_models.id
 约束：
 
 - `session_id` → `sessions.id ON DELETE CASCADE`
+- `run_id` → `runs.id ON DELETE SET NULL`
 - `(session_id, idempotency_key)` UNIQUE
 
 索引建议：
@@ -135,6 +165,7 @@ runs.model_id                -> provider_models.id
 - `role` 是索引友好冗余列，写入时从 `ui_message_json` 派生
 - `ui_message_schema_version` 用于 read-side upcast
 - 读取历史消息时若出现未知 part，保留原始 JSON，不做隐式覆盖
+- `idempotency_key` 由客户端按用户消息生成，服务端用于幂等去重
 
 ## 4.3 runs
 
@@ -150,7 +181,7 @@ runs.model_id                -> provider_models.id
 - `current_step` INTEGER NOT NULL DEFAULT 0
 - `max_steps` INTEGER NOT NULL
 - `max_tokens_per_run` INTEGER NULL
-- `wall_clock_deadline_ms` INTEGER NULL
+- `wall_clock_deadline_at` TEXT NULL
 - `finish_reason` TEXT NULL
 - `started_at` TEXT NOT NULL
 - `ended_at` TEXT NULL
@@ -194,6 +225,7 @@ runs.model_id                -> provider_models.id
 - `output_size_bytes` INTEGER NULL
 - `approval_decision` TEXT NULL
 - `approval_decided_at` TEXT NULL
+- `confirmation_token_hash` TEXT NULL
 - `status` TEXT NOT NULL
 - `error_message` TEXT NULL
 - `started_at` TEXT NOT NULL
@@ -301,18 +333,22 @@ CREATE TABLE sessions (
   updated_at TEXT NOT NULL,
   archived_at TEXT,
   default_provider_id TEXT,
-  default_model_id TEXT
+  default_model_id TEXT,
+  FOREIGN KEY (default_provider_id) REFERENCES providers(id) ON DELETE SET NULL,
+  FOREIGN KEY (default_model_id) REFERENCES provider_models(id) ON DELETE SET NULL
 );
 
 CREATE TABLE messages (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
+  run_id TEXT,
   role TEXT NOT NULL,
   ui_message_json TEXT NOT NULL,
   ui_message_schema_version TEXT NOT NULL,
   idempotency_key TEXT NOT NULL,
   created_at TEXT NOT NULL,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE SET NULL,
   UNIQUE (session_id, idempotency_key)
 );
 
@@ -352,7 +388,7 @@ CREATE TABLE runs (
   current_step INTEGER NOT NULL DEFAULT 0,
   max_steps INTEGER NOT NULL,
   max_tokens_per_run INTEGER,
-  wall_clock_deadline_ms INTEGER,
+  wall_clock_deadline_at TEXT,
   finish_reason TEXT,
   started_at TEXT NOT NULL,
   ended_at TEXT,
@@ -371,6 +407,7 @@ CREATE TABLE tool_calls (
   output_size_bytes INTEGER,
   approval_decision TEXT,
   approval_decided_at TEXT,
+  confirmation_token_hash TEXT,
   status TEXT NOT NULL,
   error_message TEXT,
   started_at TEXT NOT NULL,
@@ -381,6 +418,7 @@ CREATE TABLE tool_calls (
 CREATE INDEX idx_sessions_updated_at ON sessions(updated_at DESC);
 CREATE INDEX idx_sessions_archived_at ON sessions(archived_at);
 CREATE INDEX idx_messages_session_id_created_at ON messages(session_id, created_at);
+CREATE INDEX idx_messages_run_id ON messages(run_id);
 CREATE INDEX idx_runs_session_id_started_at ON runs(session_id, started_at DESC);
 CREATE INDEX idx_runs_status ON runs(status);
 CREATE INDEX idx_tool_calls_run_id_started_at ON tool_calls(run_id, started_at);
@@ -400,6 +438,7 @@ CREATE INDEX idx_provider_models_enabled ON provider_models(enabled);
 1. schema 变更统一通过 migration 管理
 2. 所有 migration 保持可重放、可审计
 3. 不在读请求中隐式做 schema 修复
+4. migration 文件使用 drizzle-kit 生成并提交到仓库
 
 ### 6.2 UIMessage 迁移
 

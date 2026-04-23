@@ -248,7 +248,7 @@ renderer 注入建议：
 │  └─ controller/              # Hono server / agent runtime
 ├─ packages/
 │  ├─ shared/                  # 通用类型、schema、常量
-│  ├─ database/                # SQLite schema + migrations + repository
+│  ├─ database/                # Drizzle schema + migrations + repository
 │  ├─ agent-core/              # runtime / loop control / run lifecycle
 │  ├─ tools/                   # 内置工具与 tool registry
 │  ├─ providers/               # OpenAI / OpenRouter provider factory
@@ -367,6 +367,7 @@ Monorepo 约定：
 - **消息持久化以 AI SDK v5 `UIMessage[]` 为准**
 - `messages` 表增加 `ui_message_schema_version`
 - `messages` 表增加 `idempotency_key`
+- `messages` 表增加可空 `run_id`
 - SQLite 开启 WAL 模式
 - 大 tool output 只存摘要或截断结果，避免数据库膨胀
 
@@ -375,6 +376,58 @@ Monorepo 约定：
 - 读取历史 `UIMessage` 时先按 `ui_message_schema_version` 做 read-side upcast
 - 遇到未知 part 类型时不静默覆盖原数据，而是按“未知 part”保留并降级展示
 - 不在读请求中隐式重写历史消息行
+
+### 5.4.1 数据访问层选型
+
+推荐组合：
+
+- 查询/ORM：**Drizzle ORM**
+- SQLite 驱动：**better-sqlite3**
+- 迁移工具：**drizzle-kit**
+
+落地方式：
+
+- `packages/database` 维护 Drizzle schema、repository 与 migration
+- migration 产物使用可审查的 SQL 文件并提交到仓库
+- controller 启动时自动执行待执行 migration，失败则阻止 ready 信号
+- repository 层统一封装查询，上层不直接拼接 ad-hoc SQL
+
+选型理由：
+
+- 比 raw SQL 更省基础设施成本，同时保留 SQL-first 的可控性
+- 比 Prisma 更适合 Electron + SQLite，本地打包成本更低
+- 与 `better-sqlite3` 同步 API 配合更自然，适合本地桌面应用
+- 迁移文件是普通 SQL，便于 review、回滚和审计
+
+实现约束：
+
+- JSON 字段在 repository 边界做 zod 校验
+- `drizzle-kit` 仅作为 dev dependency
+- 运行时只依赖 `drizzle-orm` + `better-sqlite3`
+
+### 5.4.2 ID 生成约定
+
+所有主键使用 **带语义前缀的 cuid2**。
+
+建议前缀：
+
+- session: `ses_`
+- message: `msg_`
+- run: `run_`
+- tool call: `tcl_`
+- provider: `pro_`
+- provider model: `mod_`
+
+示例：
+
+- `ses_xxxxx`
+- `msg_xxxxx`
+- `run_xxxxx`
+
+约束：
+
+- 前缀仅用于可读性和调试，不替代 FK 与类型约束
+- API 示例、OpenAPI schema、数据库写入逻辑都必须统一使用该约定
 
 ---
 
@@ -387,13 +440,13 @@ Monorepo 约定：
 主流程：
 
 1. 前端通过 `useChat` 发起请求
-2. `prepareRequest` 附带 `sessionId`、provider、model、metadata
+2. `prepareSendMessagesRequest` 附带 `sessionId`、provider、model、metadata
 3. Hono chat route 读取当前 session 历史与 run 状态
 4. Controller 组装 system prompt、上下文、可用工具集
 5. 基于 AI SDK `tool()` 注册工具
 6. 使用 `streamText` 执行模型调用
 7. 使用 `stopWhen` / `maxSteps` 控制多步执行
-8. 为每个 run 增加 `maxTokensPerRun`、`wallClockDeadlineMs`、单工具调用次数上限
+8. 为每个 run 增加 `maxTokensPerRun`、`wallClockDeadlineAt`、单工具调用次数上限
 9. 通过 `toUIMessageStreamResponse()` 输出给前端
 10. 在服务端保存 `originalMessages + generated messages`
 
@@ -494,10 +547,11 @@ v0.1 不做完整 approvals 系统，改为 **内联同步审批**。
 
 1. 模型产生 tool call
 2. Controller 判断工具是否需要审批
-3. 若需要，则在 `tool-input-available` 后暂停当前 step
-4. 前端展示确认卡片
-5. 用户批准/拒绝
-6. Runtime 基于决策结果继续或终止执行
+3. 若需要，则在 `tool-input-available` 后结束当前流式响应，并返回继续执行所需的确认上下文
+4. 前端展示确认卡片，并拿到服务端生成的 `confirmationToken`
+5. 用户批准/拒绝后，前端调用确认接口提交 `{ runId, toolCallId, decision, confirmationToken }`
+6. Controller 校验 token、写回 `tool_calls`，再基于持久化状态启动新的 continuation request
+7. Runtime 基于决策结果继续或终止执行
 
 实现建议：
 
@@ -507,137 +561,21 @@ v0.1 不做完整 approvals 系统，改为 **内联同步审批**。
 - 决策结果直接写回 `tool_calls`
 - `tool_calls` 增加：`approval_decision`、`approval_decided_at`
 - 用户长时间不确认时默认拒绝
+- `confirmationToken` 由服务端生成并绑定到当前 `toolCallId`
 
 边界声明：
 
-- 本方案中的“继续执行”仅指 **当前会话内的同步确认后继续执行**
+- 本方案中的“继续执行”仅指 **当前会话内的同步确认后重新发起 continuation request**
 - **不包含独立审批队列，也不包含 mid-stream 网络断流恢复**
 - 后续若需要异步审批，再把 `tool_calls` 上的审批字段抽成独立表
 
-## 7.3 Bash Tool MVP 设计
+## 7.3 Bash Tool（后续）
 
-`bash` 工具建议 **自研**，不直接依赖通用 bash-tool library 作为核心执行层。
+`bash` 不属于当前 MVP。详细设计建议移到后续独立文档（如 `future/bash-tool.md`），当前只保留以下约束：
 
-### 7.3.1 目标
-
-在桌面端提供真实的命令执行能力，用于：
-
-- 项目分析
-- 运行测试 / build
-- git 状态检查
-- 代码搜索与本地自动化
-
-### 7.3.2 非目标
-
-首版 `bash` 不支持：
-
-- 交互式 stdin
-- 长时间后台守护进程
-- 持久 shell session 状态
-- root / sudo 提权
-- 跨会话共享环境变量
-
-### 7.3.3 执行方式
-
-建议在 Electron main 或 utility process 中通过宿主机真实 shell 执行：
-
-- `child_process.spawn("bash", ["-lc", command])`
-
-关键约束：
-
-- 每次调用都是独立进程
-- 必须显式传入 `cwd`
-- 必须支持 timeout / cancel / output cap
-- stdout / stderr 需要实时流式返回给 controller / UI
-
-### 7.3.4 输入输出
-
-建议 `bash` tool 输入：
-
-- `command`: string
-- `cwd`: string
-- `timeoutMs`: number（可选，受系统上限约束）
-
-建议输出：
-
-- `stdout`: string
-- `stderr`: string
-- `exitCode`: number
-- `timedOut`: boolean
-- `durationMs`: number
-- `outputTruncated`: boolean
-
-### 7.3.5 安全分级
-
-`bash` 必须按命令风险分级，而不是一律自动执行。
-
-建议首版规则：
-
-1. **只读命令** 可直接执行，例如：
-   - `pwd`
-   - `ls`
-   - `git status`
-   - `git diff`
-   - `find` / `grep` / `rg` / `cat`（仅读）
-2. **写操作 / 网络 / 进程类命令** 必须确认，例如：
-   - `rm`
-   - `mv`
-   - `cp`
-   - `sed -i`
-   - `tee > file`
-   - `git commit`
-   - `git push`
-   - `curl` / `wget`
-   - `npm install`
-3. **高风险命令** 默认拒绝，例如：
-   - `sudo`
-   - 修改系统目录
-   - 明显危险的删除命令
-
-说明：
-
-- 首版应采用 **只读 allowlist + 其他命令默认确认/拒绝**
-- 不依赖黑名单做安全控制
-
-### 7.3.6 工作目录与边界
-
-- `cwd` 必须位于用户授权的工作目录内
-- 执行前先做 `realpath` 校验，防止路径逃逸
-- 默认禁止访问应用数据目录、系统敏感目录和 controller 自身工作目录
-
-### 7.3.7 运行控制
-
-首版至少支持：
-
-- 单命令超时
-- 用户手动取消
-- 最大输出长度限制
-- 命令审计日志
-- 返回 exit code
-
-### 7.3.8 UI 设计
-
-前端需要支持：
-
-- 命令执行中状态
-- stdout / stderr 区分展示
-- 确认卡片（当命令不在只读 allowlist 内）
-- 超时 / 取消 / 失败提示
-
-### 7.3.9 与现有工具的关系
-
-- `read_file` / `write_file` 仍然是首选文件工具
-- `bash` 是增强工具，不替代结构化文件工具
-- 若同一任务可以用结构化工具完成，优先不用 `bash`
-
-### 7.3.10 引入时机
-
-建议在以下条件满足后再引入 `bash`：
-
-1. chat 主链路稳定
-2. `fetch_url` / `read_file` / `write_file` 已稳定
-3. 内联确认卡片已验证可用
-4. 日志与错误展示已具备基本可用性
+- `bash` 不进入 v0.1 demo slice
+- 若后续引入，必须使用只读 allowlist + confirm 模式
+- 不替代 `read_file` / `write_file` 这类结构化工具
 
 ---
 
@@ -659,6 +597,7 @@ v0.1 不做完整 approvals 系统，改为 **内联同步审批**。
 - `messages`
   - `id`
   - `session_id`
+  - `run_id`
   - `role`
   - `ui_message_json`
   - `ui_message_schema_version`
@@ -673,6 +612,7 @@ v0.1 不做完整 approvals 系统，改为 **内联同步审批**。
   - `model_id`
   - `current_step`
   - `max_steps`
+  - `wall_clock_deadline_at`
   - `finish_reason`
   - `started_at`
   - `ended_at`
@@ -687,6 +627,7 @@ v0.1 不做完整 approvals 系统，改为 **内联同步审批**。
   - `output_size_bytes`
   - `approval_decision`
   - `approval_decided_at`
+  - `confirmation_token_hash`
   - `status`
   - `error_message`
 
@@ -701,6 +642,7 @@ v0.1 不做完整 approvals 系统，改为 **内联同步审批**。
 - `messages.session_id`, `runs.session_id`, `tool_calls.run_id` 建立索引
 - 外键明确使用 `ON DELETE CASCADE`（仅 hard delete 路径触发）
 - `messages.idempotency_key` 在 session 维度内唯一
+- `messages.idempotency_key` 由客户端按用户消息生成，服务端用于幂等去重
 
 ## 8.3 会话能力
 
@@ -748,6 +690,12 @@ Controller 内保留的最小接口：
 - `createModelInstance()`
 - `listConfiguredModels()`
 
+模型解析规则：
+
+- API 层优先接收 `providerId` + `modelId`
+- 若 UI 当前只有 `modelName`，则必须先经 provider/models 接口解析成 `modelId`
+- `runs` 持久化时统一写入 `provider_id` / `model_id`
+
 ## 9.2 配置项
 
 每个 provider 配置至少包括：
@@ -774,10 +722,27 @@ Controller 内保留的最小接口：
 
 ## 10. API 设计草案
 
+详细接口设计见：[api-design.md](./api-design.md)
+
 ## 10.1 Chat
 
 - `POST /api/chat`
-  - 输入：`sessionId`, `messages`, `model`, `provider`, `attachments`, `runtimeOptions`
+  - 输入：`sessionId`, `messages`, `providerId`, `modelId`, `attachments`, `runtimeOptions`
+  - 输出：AI SDK UI Message Stream
+
+Wire schema 约定：
+
+- `messages` 采用 AI SDK v5 `UIMessage[]` 结构
+- 每条 message 至少包含：`id`, `role`, `parts[]`
+- `/api/chat` 为流式接口，前端通过 `useChat` + `DefaultChatTransport` 消费
+- 该接口不要求通过 hey-api 生成 SDK 调用
+
+- `POST /api/runs/:runId/stop`
+  - 输入：`runId`
+  - 输出：`{ ok: true }`
+
+- `POST /api/runs/:runId/continue`
+  - 输入：`runId`, `toolCallId`, `decision`, `confirmationToken`
   - 输出：AI SDK UI Message Stream
 
 ## 10.2 Sessions
@@ -798,6 +763,22 @@ Controller 内保留的最小接口：
 约束：
 
 - 首期只返回 OpenAI / OpenRouter 相关 provider
+
+说明：
+
+- `GET /api/models` 返回可选模型列表
+- chat 请求最终应提交 `providerId` / `modelId`
+
+## 10.4 Tools
+
+- `GET /api/tools`
+- `POST /api/tools/confirm`
+
+说明：
+
+- `GET /api/tools` 从 in-process tool registry 读取，不走数据库
+- `POST /api/tools/confirm` 仅用于当前会话内同步确认
+- 请求体至少包含：`runId`, `toolCallId`, `decision`, `confirmationToken`
 
 ## 11. 前端交互设计重点
 
@@ -852,12 +833,14 @@ Controller 内保留的最小接口：
 4. Hono 中间件校验 Authorization header
 5. 拒绝未知 origin
 6. 校验 `Host` header，仅允许 `127.0.0.1:<port>` / `localhost:<port>`
+7. 不返回 `Access-Control-Allow-Origin`，不使用 cookie 作为认证方式
 
 token 约束：
 
 - token 不写入日志
 - renderer reload 后重新注入
 - 不通过普通全局变量暴露，而是通过 preload 暴露最小请求接口
+- 所有业务请求统一使用 `Authorization` header
 
 ## 12.2 高风险工具安全边界
 
@@ -932,9 +915,11 @@ token 约束：
 工程建议：
 
 - 优先采用 `electron-builder`
-- 若使用 `better-sqlite3`，需提前规划 Electron 原生模块 rebuild 流程
+- 使用 `better-sqlite3` + `@electron/rebuild`，在 `apps/desktop` 的 postinstall 中对齐 Electron ABI
 - 应用更新前应优雅停止 controller，并把 in-flight run 标记为 `interrupted`
 - 打包时将 Next.js `out/` 目录作为 renderer 静态资源一起分发
+- 启用 Electron fuses（禁用 `RunAsNode`、关闭不必要的 inspect/debug 能力、仅允许从打包产物加载）
+- SQLite 文件默认放在 `app.getPath('userData')` 下，并以仅当前用户可读写权限创建
 
 ---
 
@@ -944,12 +929,13 @@ token 约束：
 
 - 初始化 pnpm monorepo workspace
 - 接入 Electron + Next.js + Hono + TypeScript
-- 建立 SQLite schema / migration
+- 建立 SQLite schema（Drizzle）与 drizzle-kit migration 流程
 - 接入 shadcn/ui
 - 打通 Electron 启动本地 controller + 静态导出的 web-ui
 - 明确 dev 使用 `next dev`、prod 使用静态导出产物
 - 完成 single-instance lock
 - 完成本地 bearer token 鉴权
+- controller 启动时自动执行待执行 migration，失败阻塞 ready 信号
 
 交付标准：
 
