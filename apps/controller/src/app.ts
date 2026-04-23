@@ -9,10 +9,11 @@ import { registerChatRoutes } from "./routes/chat";
 import { registerHealthRoutes } from "./routes/health";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerSessionRoutes } from "./routes/sessions";
-import type { OpenAIProviderConfig } from "./config";
+import type { AgentRuntimeConfig, OpenAIProviderConfig } from "./config";
 
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
+  readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly databasePath: string;
   readonly openai: OpenAIProviderConfig;
@@ -172,7 +173,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   registerHealthRoutes(app);
-  registerChatRoutes(app, { getChatStorage, providerRuntime });
+  registerChatRoutes(app, { getChatStorage, providerRuntime, runtime: options.agentRuntime });
   registerSessionRoutes(app, { getChatStorage });
   registerProviderRoutes(app, { getChatStorage, providerRuntime });
 

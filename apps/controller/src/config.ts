@@ -4,14 +4,26 @@ const defaultControllerPort = 3030;
 const defaultControllerHost = "127.0.0.1";
 const defaultDatabasePath = resolve(process.cwd(), "sqlite", "monet.db");
 const defaultAllowedOrigins = ["null", "app://monet"] as const;
+const defaultAgentMaxStepsPerRun = 8;
+const defaultAgentMaxTokensPerRun = 32_768;
+const defaultAgentWallClockBudgetMs = 60_000;
+const defaultAgentMaxToolCallsPerRun = 16;
 
 export interface ControllerConfig {
   readonly allowedOrigins: readonly string[];
+  readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
   readonly openai: OpenAIProviderConfig;
+}
+
+export interface AgentRuntimeConfig {
+  readonly maxStepsPerRun: number;
+  readonly maxTokensPerRun: number;
+  readonly wallClockBudgetMs: number;
+  readonly maxToolCallsPerRun: number;
 }
 
 export interface OpenAIProviderConfig {
@@ -32,6 +44,12 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
 
   return {
     allowedOrigins: parseAllowedOrigins(env),
+    agentRuntime: {
+      maxStepsPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_STEPS_PER_RUN, defaultAgentMaxStepsPerRun),
+      maxTokensPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_TOKENS_PER_RUN, defaultAgentMaxTokensPerRun),
+      wallClockBudgetMs: parseIntegerWithDefault(env.MONET_AGENT_WALL_CLOCK_BUDGET_MS, defaultAgentWallClockBudgetMs),
+      maxToolCallsPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_TOOL_CALLS_PER_RUN, defaultAgentMaxToolCallsPerRun)
+    },
     bearerToken,
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
@@ -124,4 +142,8 @@ function parseInteger(value: string | undefined): number | null {
   }
 
   return parsed;
+}
+
+function parseIntegerWithDefault(value: string | undefined, fallback: number): number {
+  return parseInteger(value) ?? fallback;
 }

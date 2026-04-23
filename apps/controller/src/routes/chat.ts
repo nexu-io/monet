@@ -1,8 +1,17 @@
 import { createId as createCuid2 } from "@paralleldrive/cuid2";
-import { streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
+import { stepCountIs, streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
 
+import {
+  countUsageTokens,
+  describeRunFinishReason,
+  isRunBudgetFinishReason,
+  resolveRunBudget,
+  shouldCompleteRunForFinishReason,
+  type RunFinishReason
+} from "../agent-runtime";
 import type { ControllerApp } from "../app";
 import { ChatStorageResolutionError, type ChatStorage, type ResolvedChatRequest } from "../chat-storage";
+import type { AgentRuntimeConfig } from "../config";
 import { createLogger } from "../logger";
 import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
 import { getRequestId } from "../request-context";
@@ -27,7 +36,7 @@ function toModelMessages(messages: UIMessage[]) {
 
 export function registerChatRoutes(
   app: ControllerApp,
-  options: { getChatStorage: () => ChatStorage; providerRuntime: ProviderRuntime }
+  options: { getChatStorage: () => ChatStorage; providerRuntime: ProviderRuntime; runtime: AgentRuntimeConfig }
 ) {
   app.post("/api/chat", async (context) => {
     const requestId = getRequestId(context);
@@ -70,6 +79,13 @@ export function registerChatRoutes(
       );
     }
 
+    const runBudget = resolveRunBudget(
+      {
+        requestedMaxSteps: body.runtimeOptions?.maxSteps
+      },
+      options.runtime
+    );
+
     let resolvedChatRequest: ResolvedChatRequest;
 
     try {
@@ -78,7 +94,9 @@ export function registerChatRoutes(
         ...(body.providerId ? { providerId: body.providerId } : {}),
         ...(body.modelId ? { modelId: body.modelId } : {}),
         messages,
-        ...(body.runtimeOptions?.maxSteps != null ? { maxSteps: body.runtimeOptions.maxSteps } : {})
+        maxSteps: runBudget.maxSteps,
+        maxTokensPerRun: runBudget.maxTokensPerRun,
+        wallClockDeadlineAt: runBudget.wallClockDeadlineAt
       });
     } catch (error) {
       if (error instanceof ChatStorageResolutionError) {
@@ -130,8 +148,11 @@ export function registerChatRoutes(
     const startedAt = Date.now();
 
     runtimeLogger.info("chat.run_started", {
-      maxSteps: body.runtimeOptions?.maxSteps ?? null,
-      messageCount: messages.length
+      maxSteps: resolvedChatRequest.maxSteps,
+      maxTokensPerRun: resolvedChatRequest.maxTokensPerRun,
+      maxToolCallsPerRun: options.runtime.maxToolCallsPerRun,
+      messageCount: messages.length,
+      wallClockDeadlineAt: resolvedChatRequest.wallClockDeadlineAt
     });
 
     let model: Parameters<typeof streamText>[0]["model"];
@@ -186,20 +207,142 @@ export function registerChatRoutes(
       );
     }
 
+    const abortController = new AbortController();
+    const requestSignal = context.req.raw.signal;
+    const wallClockDeadlineAt = new Date(resolvedChatRequest.wallClockDeadlineAt ?? runBudget.wallClockDeadlineAt).getTime();
+    const wallClockBudgetMs = Math.max(0, wallClockDeadlineAt - startedAt);
+    let runFinishReason: RunFinishReason | null = null;
+    let observedStepCount = 0;
+    let observedTokenCount = 0;
+    let observedToolCallCount = 0;
+    let finalizedRun = false;
+
+    const abortRun = (reason: RunFinishReason) => {
+      if (runFinishReason == null) {
+        runFinishReason = reason;
+      }
+
+      runtimeLogger.warn("chat.run_aborted", {
+        currentStep: observedStepCount,
+        reason,
+        totalTokens: observedTokenCount,
+        totalToolCalls: observedToolCallCount
+      });
+
+      if (!abortController.signal.aborted) {
+        abortController.abort(new Error(describeRunFinishReason(reason)));
+      }
+    };
+
+    const wallClockTimer =
+      wallClockBudgetMs > 0
+        ? setTimeout(() => {
+            abortRun("wall_clock_budget_exceeded");
+          }, wallClockBudgetMs)
+        : null;
+
+    const abortRequestHandler = () => {
+      abortRun("request_aborted");
+    };
+
+    if (requestSignal.aborted) {
+      abortRequestHandler();
+    } else {
+      requestSignal.addEventListener("abort", abortRequestHandler, { once: true });
+    }
+
+    const cleanupRunResources = () => {
+      if (wallClockTimer) {
+        clearTimeout(wallClockTimer);
+      }
+
+      requestSignal.removeEventListener("abort", abortRequestHandler);
+    };
+
+    const finalizeRun = (status: "completed" | "failed", finishReason: string | null) => {
+      if (finalizedRun) {
+        return;
+      }
+
+      finalizedRun = true;
+      cleanupRunResources();
+
+      if (status === "completed") {
+        options.getChatStorage().completeRun({
+          runId: resolvedChatRequest.runId,
+          finishReason
+        });
+
+        runtimeLogger.info("chat.run_completed", {
+          currentStep: observedStepCount,
+          durationMs: Date.now() - startedAt,
+          finishReason
+        });
+
+        return;
+      }
+
+      options.getChatStorage().failRun({
+        runId: resolvedChatRequest.runId,
+        finishReason: finishReason ?? "stream_error"
+      });
+
+      runtimeLogger.warn("chat.run_failed", {
+        currentStep: observedStepCount,
+        durationMs: Date.now() - startedAt,
+        finishReason: finishReason ?? "stream_error"
+      });
+    };
+
     const result = streamText({
       model,
+      abortSignal: abortController.signal,
       messages: await toModelMessages(messages),
+      stopWhen: [stepCountIs(resolvedChatRequest.maxSteps)],
+      onStepFinish: ({ stepNumber, toolCalls, usage }) => {
+        const currentStep = stepNumber + 1;
+
+        observedStepCount = Math.max(observedStepCount, currentStep);
+        observedTokenCount += countUsageTokens(usage);
+        observedToolCallCount += toolCalls.length;
+
+        options.getChatStorage().updateRunProgress({
+          runId: resolvedChatRequest.runId,
+          currentStep: observedStepCount
+        });
+
+        runtimeLogger.info("chat.run_step_finished", {
+          stepNumber: currentStep,
+          stepToolCalls: toolCalls.length,
+          totalTokens: observedTokenCount,
+          totalToolCalls: observedToolCallCount
+        });
+
+        if (
+          typeof resolvedChatRequest.maxTokensPerRun === "number" &&
+          observedTokenCount > resolvedChatRequest.maxTokensPerRun
+        ) {
+          abortRun("token_budget_exceeded");
+          return;
+        }
+
+        if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
+          abortRun("tool_call_budget_exceeded");
+        }
+      },
+      onAbort: () => {
+        try {
+          finalizeRun(
+            shouldCompleteRunForFinishReason(runFinishReason) ? "completed" : "failed",
+            runFinishReason
+          );
+        } catch (error) {
+          runtimeLogger.error("chat.abort_finalize_failed", error);
+        }
+      },
       onFinish: ({ finishReason }) => {
         try {
-          options.getChatStorage().completeRun({
-            runId: resolvedChatRequest.runId,
-            finishReason: finishReason ?? null
-          });
-
-          runtimeLogger.info("chat.run_completed", {
-            durationMs: Date.now() - startedAt,
-            finishReason: finishReason ?? null
-          });
+          finalizeRun("completed", finishReason ?? null);
         } catch (error) {
           runtimeLogger.error("chat.complete_run_failed", error);
         }
@@ -231,10 +374,15 @@ export function registerChatRoutes(
       },
       onError: (error) => {
         try {
-          options.getChatStorage().failRun({
-            runId: resolvedChatRequest.runId,
-            finishReason: error instanceof Error ? error.message : "stream_error"
-          });
+          const finishReason =
+            runFinishReason ??
+            (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
+            (error instanceof Error ? error.message : "stream_error");
+
+          finalizeRun(
+            shouldCompleteRunForFinishReason(finishReason) ? "completed" : "failed",
+            finishReason
+          );
         } catch (persistError) {
           runtimeLogger.error("chat.fail_run_persist_failed", persistError);
         }
@@ -242,6 +390,10 @@ export function registerChatRoutes(
         runtimeLogger.error("chat.stream_failed", error, {
           durationMs: Date.now() - startedAt
         });
+
+        if (isRunBudgetFinishReason(runFinishReason)) {
+          return describeRunFinishReason(runFinishReason);
+        }
 
         return "An error occurred.";
       }

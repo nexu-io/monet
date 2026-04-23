@@ -167,6 +167,8 @@ export interface ChatRequestPersistenceInput {
   readonly modelId?: string;
   readonly messages: UIMessage[];
   readonly maxSteps?: number;
+  readonly maxTokensPerRun?: number | null;
+  readonly wallClockDeadlineAt?: string | null;
 }
 
 export interface ResolvedChatRequest {
@@ -174,6 +176,9 @@ export interface ResolvedChatRequest {
   readonly providerId: string;
   readonly modelId: string;
   readonly runId: string;
+  readonly maxSteps: number;
+  readonly maxTokensPerRun: number | null;
+  readonly wallClockDeadlineAt: string | null;
 }
 
 export interface CreateSessionInput {
@@ -211,6 +216,7 @@ export interface ChatStorage {
     models: ProviderCatalogModelInput[];
   }): void;
   prepareChatRequest(input: ChatRequestPersistenceInput): ResolvedChatRequest;
+  updateRunProgress(options: { runId: string; currentStep: number }): void;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
   persistAssistantMessage(options: {
@@ -597,6 +603,8 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         providerId: target.providerId,
         modelId: target.modelId,
         maxSteps: Math.max(1, input.maxSteps ?? 1),
+        maxTokensPerRun: input.maxTokensPerRun ?? null,
+        wallClockDeadlineAt: input.wallClockDeadlineAt ?? null,
         startedAt: now
       });
 
@@ -611,8 +619,26 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         sessionId,
         providerId: target.providerId,
         modelId: target.modelId,
-        runId
+        runId,
+        maxSteps: Math.max(1, input.maxSteps ?? 1),
+        maxTokensPerRun: input.maxTokensPerRun ?? null,
+        wallClockDeadlineAt: input.wallClockDeadlineAt ?? null
       };
+    },
+
+    updateRunProgress({ runId, currentStep }) {
+      const normalizedCurrentStep = Math.max(0, currentStep);
+
+      connection
+        .prepare(
+          `UPDATE runs
+           SET current_step = CASE
+             WHEN current_step > ? THEN current_step
+             ELSE ?
+           END
+           WHERE id = ?`
+        )
+        .run(normalizedCurrentStep, normalizedCurrentStep, runId);
     },
 
     completeRun({ runId, finishReason }) {
@@ -622,7 +648,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .prepare(
           `UPDATE runs
            SET status = 'completed', finish_reason = ?, ended_at = ?
-           WHERE id = ?`
+           WHERE id = ? AND status = 'running'`
         )
         .run(finishReason, endedAt, runId);
     },
@@ -634,7 +660,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .prepare(
           `UPDATE runs
            SET status = 'failed', finish_reason = ?, ended_at = ?
-           WHERE id = ?`
+           WHERE id = ? AND status = 'running'`
         )
         .run(finishReason, endedAt, runId);
     },
@@ -1066,6 +1092,8 @@ function insertRun(
     providerId: string;
     modelId: string;
     maxSteps: number;
+    maxTokensPerRun: number | null;
+    wallClockDeadlineAt: string | null;
     startedAt: string;
   }
 ) {
@@ -1084,9 +1112,18 @@ function insertRun(
         finish_reason,
         started_at,
         ended_at
-      ) VALUES (?, ?, 'running', ?, ?, 0, ?, NULL, NULL, NULL, ?, NULL)`
+      ) VALUES (?, ?, 'running', ?, ?, 0, ?, ?, ?, NULL, ?, NULL)`
     )
-    .run(run.id, run.sessionId, run.providerId, run.modelId, run.maxSteps, run.startedAt);
+    .run(
+      run.id,
+      run.sessionId,
+      run.providerId,
+      run.modelId,
+      run.maxSteps,
+      run.maxTokensPerRun,
+      run.wallClockDeadlineAt,
+      run.startedAt
+    );
 }
 
 function persistMessages(

@@ -35,6 +35,7 @@ export function startControllerServer(options: StartControllerServerOptions = {}
 
   const app = createControllerApp({
     allowedOrigins: config.allowedOrigins,
+    agentRuntime: config.agentRuntime,
     bearerToken: config.bearerToken,
     databasePath: config.databasePath,
     openai: config.openai,
