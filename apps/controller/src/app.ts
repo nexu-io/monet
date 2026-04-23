@@ -10,6 +10,7 @@ import { registerHealthRoutes } from "./routes/health";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerRunRoutes } from "./routes/runs";
 import { registerSessionRoutes } from "./routes/sessions";
+import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createToolRegistry } from "./tools/registry";
 import type { AgentRuntimeConfig, OpenAIProviderConfig } from "./config";
@@ -140,6 +141,10 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       {
         name: "Runs",
         description: "Run lifecycle endpoints such as interruption."
+      },
+      {
+        name: "Tools",
+        description: "In-process tool registry and confirmation endpoints."
       }
     ]
   });
@@ -189,6 +194,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerRunRoutes(app, { getChatStorage, runRegistry });
   registerSessionRoutes(app, { getChatStorage });
   registerProviderRoutes(app, { getChatStorage, providerRuntime });
+  registerToolRoutes(app, { toolRegistry });
 
   return app;
 }

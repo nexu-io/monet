@@ -137,6 +137,20 @@ export const ValidateProviderResponseSchema = z
   })
   .openapi("ValidateProviderResponse");
 
+export const ToolSchema = z
+  .object({
+    name: z.string().openapi({ example: "read_file" }),
+    description: z.string().openapi({ example: "Reads a UTF-8 text file from an authorized directory." }),
+    requiresConfirmation: z.boolean().openapi({ example: true })
+  })
+  .openapi("Tool");
+
+export const ListToolsResponseSchema = z
+  .object({
+    tools: z.array(ToolSchema)
+  })
+  .openapi("ListToolsResponse");
+
 export const StopRunResponseSchema = z
   .object({
     ok: z.literal(true).openapi({ example: true })

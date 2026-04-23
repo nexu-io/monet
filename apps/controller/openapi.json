@@ -478,6 +478,42 @@
           "defaultModelName",
           "availableModelCount"
         ]
+      },
+      "Tool": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "read_file"
+          },
+          "description": {
+            "type": "string",
+            "example": "Reads a UTF-8 text file from an authorized directory."
+          },
+          "requiresConfirmation": {
+            "type": "boolean",
+            "example": true
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "requiresConfirmation"
+        ]
+      },
+      "ListToolsResponse": {
+        "type": "object",
+        "properties": {
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tool"
+            }
+          }
+        },
+        "required": [
+          "tools"
+        ]
       }
     },
     "parameters": {}
@@ -951,6 +987,27 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "List tools",
+        "description": "Returns tools available from the in-process controller tool registry.",
+        "responses": {
+          "200": {
+            "description": "Tools fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListToolsResponse"
                 }
               }
             }
