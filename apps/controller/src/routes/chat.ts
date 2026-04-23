@@ -1,28 +1,32 @@
-import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from "ai";
+import { simulateReadableStream, streamText, convertToModelMessages, validateUIMessages, type UIMessage } from "ai";
 
 import type { ControllerApp } from "../app";
 
 interface ChatRequestBody {
-  readonly messages?: UIMessage[];
+  readonly messages?: unknown;
   readonly sessionId?: string;
   readonly providerId?: string;
   readonly modelId?: string;
+  readonly runtimeOptions?: {
+    readonly maxSteps?: number;
+  };
 }
 
-function sleep(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
+const STREAM_CHUNK_DELAY_MS = 18;
 
-function getLatestUserText(messages: readonly UIMessage[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
+function getLatestUserText(prompt: Array<{ role: string; content: unknown }>) {
+  for (let index = prompt.length - 1; index >= 0; index -= 1) {
+    const message = prompt[index];
 
-    if (!message || message.role !== "user") {
+    if (!message || message.role !== "user" || !Array.isArray(message.content)) {
       continue;
     }
 
-    const text = message.parts
-      .filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
+    const text = message.content
+      .filter(
+        (part): part is { type: "text"; text: string } =>
+          typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
+      )
       .map((part) => part.text)
       .join("\n")
       .trim();
@@ -37,39 +41,147 @@ function getLatestUserText(messages: readonly UIMessage[]) {
 
 function buildStubReply(body: ChatRequestBody, prompt: string) {
   return [
-    "The local controller chat route is now wired.",
+    "The controller chat route is now streaming through `streamText(...).toUIMessageStreamResponse()`.",
     `Session: ${body.sessionId ?? "ses_local-shell"}`,
     `Provider: ${body.providerId ?? "pro_local-stub"}`,
     `Model: ${body.modelId ?? "mod_controller-echo"}`,
+    body.runtimeOptions?.maxSteps != null ? `Max steps: ${body.runtimeOptions.maxSteps}` : null,
     prompt ? `\nEchoing your last prompt:\n${prompt}` : "\nNo user text was found in the submitted UI messages."
-  ].join("\n");
+  ]
+    .filter((value): value is string => value != null)
+    .join("\n");
+}
+
+function splitReplyIntoChunks(reply: string) {
+  return reply.split(/(\s+)/).filter((chunk) => chunk.length > 0);
+}
+
+function createUsage(prompt: Array<{ role: string; content: unknown }>, reply: string) {
+  const inputCharacters = JSON.stringify(prompt).length;
+
+  return {
+    inputTokens: {
+      total: Math.max(1, Math.ceil(inputCharacters / 4)),
+      noCache: undefined,
+      cacheRead: undefined,
+      cacheWrite: undefined
+    },
+    outputTokens: {
+      total: Math.max(1, Math.ceil(reply.length / 4)),
+      text: Math.max(1, Math.ceil(reply.length / 4)),
+      reasoning: undefined
+    }
+  };
+}
+
+function createLocalChatModel(body: ChatRequestBody): Parameters<typeof streamText>[0]["model"] {
+  const responseModelId = body.modelId ?? "mod_controller-echo";
+  const responseId = `resp_${Date.now()}`;
+
+  return {
+    specificationVersion: "v3",
+    provider: body.providerId ?? "pro_local-stub",
+    modelId: responseModelId,
+    supportedUrls: {},
+    async doGenerate(options) {
+      const reply = buildStubReply(body, getLatestUserText(options.prompt));
+
+      return {
+        content: [{ type: "text", text: reply }],
+        finishReason: {
+          unified: "stop",
+          raw: "stop"
+        },
+        usage: createUsage(options.prompt, reply),
+        warnings: [],
+        response: {
+          id: responseId,
+          modelId: responseModelId,
+          timestamp: new Date()
+        }
+      };
+    },
+    async doStream(options) {
+      const reply = buildStubReply(body, getLatestUserText(options.prompt));
+      const textId = `txt_${Date.now()}`;
+
+      return {
+        stream: simulateReadableStream({
+          initialDelayInMs: null,
+          chunkDelayInMs: STREAM_CHUNK_DELAY_MS,
+          chunks: [
+            { type: "stream-start", warnings: [] },
+            {
+              type: "response-metadata",
+              id: responseId,
+              modelId: responseModelId,
+              timestamp: new Date()
+            },
+            { type: "text-start", id: textId },
+            ...splitReplyIntoChunks(reply).map((delta) => ({
+              type: "text-delta" as const,
+              id: textId,
+              delta
+            })),
+            { type: "text-end", id: textId },
+            {
+              type: "finish",
+              finishReason: {
+                unified: "stop" as const,
+                raw: "stop"
+              },
+              usage: createUsage(options.prompt, reply)
+            }
+          ]
+        })
+      };
+    }
+  };
+}
+
+function toModelMessages(messages: UIMessage[]) {
+  return convertToModelMessages(messages.map(({ id: _id, ...message }) => message));
 }
 
 export function registerChatRoutes(app: ControllerApp) {
   app.post("/api/chat", async (context) => {
-    const body = (await context.req.json()) as ChatRequestBody;
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    const reply = buildStubReply(body, getLatestUserText(messages));
-    const stream = createUIMessageStream({
-      originalMessages: messages,
-      async execute({ writer }) {
-        const textId = `txt_${Date.now()}`;
+    let body: ChatRequestBody;
 
-        writer.write({ type: "text-start", id: textId });
+    try {
+      body = (await context.req.json()) as ChatRequestBody;
+    } catch {
+      return context.json(
+        {
+          error: "invalid_request",
+          message: "Request body must be valid JSON."
+        },
+        400
+      );
+    }
 
-        for (const token of reply.split(/(\s+)/)) {
-          if (!token) {
-            continue;
-          }
+    let messages: UIMessage[];
 
-          writer.write({ type: "text-delta", id: textId, delta: token });
-          await sleep(18);
-        }
+    try {
+      messages = await validateUIMessages({
+        messages: Array.isArray(body.messages) ? body.messages : []
+      });
+    } catch {
+      return context.json(
+        {
+          error: "invalid_request",
+          message: "`messages` must be a valid AI SDK UIMessage[] payload."
+        },
+        400
+      );
+    }
 
-        writer.write({ type: "text-end", id: textId });
-      }
+    const result = streamText({
+      model: createLocalChatModel(body),
+      messages: await toModelMessages(messages)
     });
 
-    return createUIMessageStreamResponse({ stream });
+    return result.toUIMessageStreamResponse({
+      originalMessages: messages
+    });
   });
 }
