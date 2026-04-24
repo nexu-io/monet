@@ -202,9 +202,19 @@ function getArgumentValue(prefix: string) {
 }
 
 function normalizeRequestPath(input: string) {
-  if (/^https?:\/\//.test(input)) {
-    return input;
+  const normalizedInput = input.trim();
+
+  if (!normalizedInput) {
+    throw new Error("Monet desktop requests require a controller-relative path.");
   }
 
-  return input.startsWith("/") ? input : `/${input}`;
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(normalizedInput) || normalizedInput.startsWith("//")) {
+    throw new Error("Monet desktop requests must use a controller-relative path.");
+  }
+
+  if (normalizedInput.startsWith("?") || normalizedInput.startsWith("#")) {
+    return `/${normalizedInput}`;
+  }
+
+  return normalizedInput.startsWith("/") ? normalizedInput : `/${normalizedInput}`;
 }

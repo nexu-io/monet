@@ -80,6 +80,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     error: null
   });
   const hasForcedProviderSetupRef = useRef(false);
+  const latestSessionDetailRequestIdRef = useRef(0);
+  const currentSessionIdRef = useRef<string | null>(currentSessionId);
+
+  currentSessionIdRef.current = currentSessionId;
 
   function buildSessionHref(targetPathname: string, sessionId: string | null) {
     const params = new URLSearchParams(searchParams.toString());
@@ -117,7 +121,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshCurrentSession() {
-    if (!currentSessionId) {
+    const requestSessionId = currentSessionId;
+    const requestId = latestSessionDetailRequestIdRef.current + 1;
+    latestSessionDetailRequestIdRef.current = requestId;
+
+    if (!requestSessionId) {
       setCurrentSessionDetail(null);
       setIsCurrentSessionLoading(false);
       return;
@@ -126,16 +134,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setIsCurrentSessionLoading(true);
 
     try {
-      const detail = await getSessionDetail(currentSessionId);
+      const detail = await getSessionDetail(requestSessionId);
+
+      if (latestSessionDetailRequestIdRef.current !== requestId || currentSessionIdRef.current !== requestSessionId) {
+        return;
+      }
 
       setCurrentSessionDetail(detail);
       setSessions((current) => upsertSession(current, detail));
       setSessionsError(null);
     } catch (error) {
+      if (latestSessionDetailRequestIdRef.current !== requestId || currentSessionIdRef.current !== requestSessionId) {
+        return;
+      }
+
       setCurrentSessionDetail(null);
       setSessionsError(error instanceof Error ? error.message : "Failed to load the selected session.");
     } finally {
-      setIsCurrentSessionLoading(false);
+      if (latestSessionDetailRequestIdRef.current === requestId && currentSessionIdRef.current === requestSessionId) {
+        setIsCurrentSessionLoading(false);
+      }
     }
   }
 
