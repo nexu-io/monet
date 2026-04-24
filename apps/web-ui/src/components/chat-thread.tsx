@@ -37,6 +37,29 @@ type UnknownPart = { readonly type: string; readonly [key: string]: unknown };
 
 type ChatMessagePart = TextPart | ReasoningPart | StepStartPart | FilePart | SourceUrlPart | SourceDocumentPart | ToolPart | UnknownPart;
 
+const partCardClassName = "flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3";
+const partTitleClassName = "text-text-heading";
+const partLabelClassName = "text-xs font-semibold uppercase tracking-[0.08em] text-accent";
+const toolSectionClassName = "flex flex-col gap-1.5";
+const toolPreClassName = "m-0 overflow-auto whitespace-pre-wrap rounded-md bg-surface-0 p-2.5 font-mono text-sm text-text-secondary";
+const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
+
+function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
+  switch (phase) {
+    case "awaiting-confirm":
+      return `${partCardClassName} border-[hsl(var(--accent)/0.4)] bg-[hsl(var(--accent)/0.06)]`;
+    case "preparing":
+    case "running":
+      return `${partCardClassName} border-[hsl(var(--warning)/0.35)]`;
+    case "completed":
+      return `${partCardClassName} border-[hsl(var(--success)/0.35)]`;
+    case "failed":
+      return `${partCardClassName} border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.05)]`;
+    default:
+      return partCardClassName;
+  }
+}
+
 function formatToolState(state: string) {
   switch (state) {
     case "input-available":
@@ -185,17 +208,17 @@ function renderPart(
 
   if (isReasoningPart(part)) {
     return (
-      <details key={`${part.type}-${index}`} className="reasoning-block">
+      <details key={`${part.type}-${index}`} className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3 [&>summary]:cursor-pointer [&>summary]:font-semibold [&>summary]:text-text-heading">
         <summary>{part.label ?? "Reasoning"}</summary>
-        <p>{part.text}</p>
+        <p className="m-0 whitespace-pre-wrap text-text-secondary">{part.text}</p>
       </details>
     );
   }
 
   if (isStepStartPart(part)) {
     return (
-      <div key={`${part.type}-${index}`} className="step-start">
-        <span />
+      <div key={`${part.type}-${index}`} className="flex items-center gap-2 text-sm text-text-tertiary">
+        <span className="inline-flex h-px min-w-6 flex-1 bg-border" />
         <strong>{part.title ?? "Step"}</strong>
       </div>
     );
@@ -203,20 +226,20 @@ function renderPart(
 
   if (isFilePart(part)) {
     return (
-      <div key={`${part.type}-${index}`} className="attachment-card">
-        <span className="attachment-label">File</span>
-        <strong>{part.filename ?? "Attachment"}</strong>
+      <div key={`${part.type}-${index}`} className={partCardClassName}>
+        <span className={partLabelClassName}>File</span>
+        <strong className={partTitleClassName}>{part.filename ?? "Attachment"}</strong>
         <span>{part.mediaType ?? "Unknown type"}</span>
-        {part.url ? <span className="mono">{part.url}</span> : null}
+        {part.url ? <span className="mono overflow-auto [overflow-wrap:anywhere]">{part.url}</span> : null}
       </div>
     );
   }
 
   if (isSourceUrlPart(part)) {
     return (
-      <a key={`${part.type}-${index}`} className="source-card" href={part.url}>
-        <span className="attachment-label">Source URL</span>
-        <strong>{part.title ?? part.url}</strong>
+      <a key={`${part.type}-${index}`} className={partCardClassName} href={part.url}>
+        <span className={partLabelClassName}>Source URL</span>
+        <strong className={`${partTitleClassName} [overflow-wrap:anywhere]`}>{part.title ?? part.url}</strong>
         <span>{part.host ?? part.url}</span>
       </a>
     );
@@ -224,9 +247,9 @@ function renderPart(
 
   if (isSourceDocumentPart(part)) {
     return (
-      <div key={`${part.type}-${index}`} className="source-card">
-        <span className="attachment-label">Source document</span>
-        <strong>{part.title ?? "Document"}</strong>
+      <div key={`${part.type}-${index}`} className={partCardClassName}>
+        <span className={partLabelClassName}>Source document</span>
+        <strong className={partTitleClassName}>{part.title ?? "Document"}</strong>
         {part.snippet ? <span>{part.snippet}</span> : null}
       </div>
     );
@@ -246,54 +269,54 @@ function renderPart(
     const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
 
     return (
-      <div key={`${part.type}-${index}`} className="tool-card" data-tool-phase={toolStateMeta.phase}>
-        <div className="tool-card-header">
+      <div key={`${part.type}-${index}`} className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
+        <div className="flex items-start justify-between gap-3 max-[960px]:flex-col max-[960px]:items-start">
           <div className="flex flex-col gap-1">
-            <span className="attachment-label">Tool call</span>
-            <strong>{part.toolName}</strong>
+            <span className={partLabelClassName}>Tool call</span>
+            <strong className={partTitleClassName}>{part.toolName}</strong>
           </div>
           <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
         </div>
 
         {isWriteFileCall ? (
           <>
-            <div className="tool-card-section">
-              <span className="attachment-label">Target path</span>
-              <div className="tool-card-path mono">{part.input.path}</div>
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Target path</span>
+              <div className="mono overflow-auto rounded-md bg-surface-0 p-2.5 text-sm text-text-heading [overflow-wrap:anywhere]">{part.input.path}</div>
             </div>
 
-            <div className="tool-card-section">
-              <span className="attachment-label">Content preview</span>
-              <pre>{writeFilePreview?.content}</pre>
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Content preview</span>
+              <pre className={toolPreClassName}>{writeFilePreview?.content}</pre>
               {writeFilePreview?.wasTruncated ? (
-                <p className="m-0 leading-[1.5] text-text-muted">
+                <p className={mutedPartTextClassName}>
                   Showing the first {Math.min(writeFilePreview.lineCount, WRITE_FILE_PREVIEW_MAX_LINES)} lines and up to {WRITE_FILE_PREVIEW_MAX_CHARS} characters.
                 </p>
               ) : (
-                <p className="m-0 leading-[1.5] text-text-muted">{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
+                <p className={mutedPartTextClassName}>{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
               )}
             </div>
           </>
         ) : null}
 
         {part.input !== undefined && !isWriteFileCall ? (
-          <div className="tool-card-section">
-            <span className="attachment-label">Input</span>
-            <pre>{formatPartPayload(part.input)}</pre>
+          <div className={toolSectionClassName}>
+            <span className={partLabelClassName}>Input</span>
+            <pre className={toolPreClassName}>{formatPartPayload(part.input)}</pre>
           </div>
         ) : null}
 
         {part.state === "approval-requested" && isWriteFileCall ? (
-          <div className="tool-card-section">
-            <span className="attachment-label">Risk</span>
-            <p className="m-0 leading-[1.5] text-text-muted">This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
+          <div className={toolSectionClassName}>
+            <span className={partLabelClassName}>Risk</span>
+            <p className={mutedPartTextClassName}>This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
           </div>
         ) : null}
 
         {part.state === "approval-requested" && canApprove ? (
-          <div className="tool-card-section">
-            <span className="attachment-label">Confirmation</span>
-            <p className="m-0 leading-[1.5] text-text-muted">
+          <div className={toolSectionClassName}>
+            <span className={partLabelClassName}>Confirmation</span>
+            <p className={mutedPartTextClassName}>
               {isWriteFileCall
                 ? "This action can create or overwrite a file inside an authorized directory. Review the path and content preview before continuing."
                 : "Review the tool input, then approve or reject execution."}
@@ -330,21 +353,21 @@ function renderPart(
                 {isPendingApproval ? "Submitting..." : "Reject"}
               </Button>
             </div>
-            {isPendingApproval ? <p className="m-0 leading-[1.5] text-text-muted">Confirmation submitted. Waiting for the run to continue…</p> : null}
+            {isPendingApproval ? <p className={mutedPartTextClassName}>Confirmation submitted. Waiting for the run to continue…</p> : null}
           </div>
         ) : null}
 
         {part.output !== undefined ? (
-          <div className="tool-card-section">
-            <span className="attachment-label">Output</span>
-            <pre>{formatPartPayload(part.output)}</pre>
+          <div className={toolSectionClassName}>
+            <span className={partLabelClassName}>Output</span>
+            <pre className={toolPreClassName}>{formatPartPayload(part.output)}</pre>
           </div>
         ) : null}
 
         {part.errorText ? (
-          <div className="tool-card-section">
-            <span className="attachment-label">Error</span>
-            <pre>{part.errorText}</pre>
+          <div className={toolSectionClassName}>
+            <span className={partLabelClassName}>Error</span>
+            <pre className={toolPreClassName}>{part.errorText}</pre>
           </div>
         ) : null}
       </div>
@@ -352,10 +375,10 @@ function renderPart(
   }
 
   return (
-    <div key={`${part.type}-${index}`} className="unknown-part-card">
-      <span className="attachment-label">Unsupported part</span>
-      <strong>{part.type}</strong>
-      <pre>{JSON.stringify(part, null, 2)}</pre>
+    <div key={`${part.type}-${index}`} className={partCardClassName}>
+      <span className={partLabelClassName}>Unsupported part</span>
+      <strong className={partTitleClassName}>{part.type}</strong>
+      <pre className={toolPreClassName}>{JSON.stringify(part, null, 2)}</pre>
     </div>
   );
 }
@@ -473,10 +496,10 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
   return (
     <section ref={rootRef} className="relative flex flex-col gap-4" aria-label="Conversation transcript">
       {messages.length === 0 ? (
-        <Card className="chat-empty-state">
+        <Card className="rounded-xl border border-border-subtle bg-surface-1 px-4.5 py-4 shadow-xs">
           <div className="flex flex-col gap-1">
-            <span className="attachment-label">Ready for first prompt</span>
-            <strong>Send a message to verify the local chat stream.</strong>
+            <span className={partLabelClassName}>Ready for first prompt</span>
+            <strong className={partTitleClassName}>Send a message to verify the local chat stream.</strong>
             <p className="m-0 leading-[1.5] text-text-muted">The chat surface is live — your next message will be answered by the configured model.</p>
           </div>
         </Card>
@@ -511,10 +534,10 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
       })}
 
       {errorText ? (
-        <Card className="chat-error-card">
+        <Card className="rounded-xl border border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.05)] px-4.5 py-4 shadow-xs">
           <div className="flex flex-col gap-1">
-            <span className="attachment-label">Request error</span>
-            <strong>Chat transport returned an error.</strong>
+            <span className={partLabelClassName}>Request error</span>
+            <strong className={partTitleClassName}>Chat transport returned an error.</strong>
             <p className="m-0 leading-[1.5] text-text-muted">{errorText}</p>
           </div>
         </Card>
