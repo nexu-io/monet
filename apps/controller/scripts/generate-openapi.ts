@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { createControllerApp } from "../src/app";
 
 async function main() {
-  const app = createControllerApp({
+  const { app } = createControllerApp({
     allowedOrigins: ["null"],
     allowedToolDirectories: [process.cwd()],
     allowedToolDirectoriesSource: "env",
