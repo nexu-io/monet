@@ -16,6 +16,9 @@ import { useControllerState } from "../lib/controller-state";
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
 
+const primarySessionActionButtonClassName =
+  "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 font-medium text-accent-foreground no-underline transition-[background-color,border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-[hsl(var(--accent)/0.92)] hover:bg-[hsl(var(--accent)/0.92)] focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
+
 interface PendingContinuationRequest {
   readonly runId: string;
   readonly toolCallId: string;
@@ -408,7 +411,7 @@ export default function HomePage() {
           <div className="mt-4 flex justify-center">
             <button
               type="button"
-              className="session-action-button session-action-button-primary"
+              className={primarySessionActionButtonClassName}
               onClick={() => void restartController()}
               disabled={restartPending}
             >
@@ -419,7 +422,7 @@ export default function HomePage() {
 
         {providerSetupRequired ? (
           <div className="mt-4 flex justify-center">
-            <Link href={modelSettingsHref} className="session-action-button session-action-button-primary">
+            <Link href={modelSettingsHref} className={primarySessionActionButtonClassName}>
               Open model settings
             </Link>
           </div>

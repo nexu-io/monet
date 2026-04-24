@@ -8,6 +8,10 @@ import { PageFrame } from "../../components/page-frame";
 import { useSessions } from "../../components/session-provider";
 
 const sessionSurfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs flex flex-col gap-3";
+const sessionItemClassName =
+  "flex w-full cursor-pointer flex-col gap-1 rounded-lg border border-border-subtle bg-surface-1 p-3 text-left text-inherit transition-[background-color,border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-border-strong focus-visible:outline-none focus-visible:shadow-focus data-[active=true]:border-[hsl(var(--accent)/0.4)] data-[active=true]:bg-[hsl(var(--accent)/0.06)]";
+const sessionActionButtonClassName =
+  "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-border-subtle bg-surface-1 px-3.5 font-medium text-text-primary no-underline transition-[background-color,border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus";
 
 function extractMessagePreview(value: unknown) {
   if (!value || typeof value !== "object") {
@@ -51,7 +55,7 @@ export default function SessionsPage() {
       title="Sessions"
       description="Browse, rename, and archive your saved chat sessions."
     >
-      <section className="session-browser-layout">
+      <section className="grid grid-cols-[minmax(0,calc(var(--spacing)*72))_minmax(0,1fr)] gap-4 max-app:grid-cols-1">
         <Card className={sessionSurfaceCardClassName}>
           <CardHeader>
             <div className="flex flex-col gap-1">
@@ -66,7 +70,7 @@ export default function SessionsPage() {
           <CardContent>
             {sessionsError ? <p className="m-0 leading-[1.5] text-text-muted">{sessionsError}</p> : null}
             {isSessionsLoading ? <p className="m-0 leading-[1.5] text-text-muted">Loading sessions...</p> : null}
-            <ul className="session-browser-list">
+            <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
               {sessions.map((session) => {
                 const isActive = session.id === currentSessionId;
 
@@ -74,11 +78,11 @@ export default function SessionsPage() {
                   <li key={session.id}>
                     <button
                       type="button"
-                      className="session-browser-item"
+                      className={sessionItemClassName}
                       data-active={isActive ? "true" : "false"}
                       onClick={() => openSession(session.id, "/sessions")}
                     >
-                      <span className="session-browser-item-title">{session.title}</span>
+                      <span className="font-semibold text-text-heading">{session.title}</span>
                       <span className="m-0 leading-[1.5] text-text-muted">{session.archivedAt ? "Archived" : "Active"}</span>
                     </button>
                   </li>
@@ -104,28 +108,28 @@ export default function SessionsPage() {
             {!isCurrentSessionLoading && !currentSessionDetail ? <p className="m-0 leading-[1.5] text-text-muted">Choose a session to inspect its detail.</p> : null}
             {currentSessionDetail ? (
               <>
-                <div className="session-browser-actions">
-                  <Link href={buildSessionHref("/", currentSessionDetail.id)} className="session-action-button">
+                <div className="flex flex-wrap gap-2">
+                  <Link href={buildSessionHref("/", currentSessionDetail.id)} className={sessionActionButtonClassName}>
                     Open in chat
                   </Link>
-                  <button type="button" className="session-action-button" onClick={() => void handleRenameSession()}>
+                  <button type="button" className={sessionActionButtonClassName} onClick={() => void handleRenameSession()}>
                     Rename
                   </button>
-                  <button type="button" className="session-action-button" onClick={() => void handleArchiveSession()}>
+                  <button type="button" className={sessionActionButtonClassName} onClick={() => void handleArchiveSession()}>
                     Archive
                   </button>
                 </div>
 
-                <div className="session-detail-meta">
+                <div className="flex flex-wrap gap-2">
                   <span>Status: {currentSessionDetail.archivedAt ? "Archived" : "Active"}</span>
                   <span>Messages: {currentSessionDetail.messages.length}</span>
                 </div>
 
-                <ul className="session-detail-message-list">
+                <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
                   {currentSessionDetail.messages.map((message) => (
-                    <li key={message.id} className="session-detail-message">
+                    <li key={message.id} className="flex w-full flex-col gap-1 rounded-lg border border-border-subtle bg-surface-1 p-3 text-left text-inherit">
                       <strong>{message.role}</strong>
-                      <p>{extractMessagePreview(message.uiMessage)}</p>
+                      <p className="m-0 text-text-secondary">{extractMessagePreview(message.uiMessage)}</p>
                     </li>
                   ))}
                 </ul>

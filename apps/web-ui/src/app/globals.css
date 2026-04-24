@@ -231,107 +231,6 @@ textarea {
 }
 
 /* ============================================================
- * Sessions browser & empty states
- * ============================================================ */
-
-.session-browser-layout {
-  display: grid;
-  grid-template-columns: minmax(0, calc(var(--spacing) * 72)) minmax(0, 1fr);
-  gap: calc(var(--spacing) * 4);
-}
-
-.session-browser-list,
-.session-detail-message-list {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--spacing) * 1.5);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.session-browser-item,
-.session-detail-message,
-.session-browser-empty {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--spacing) * 1);
-  padding: calc(var(--spacing) * 3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-1);
-  text-align: left;
-  color: inherit;
-}
-
-.session-browser-item {
-  cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-standard),
-    background-color var(--duration-fast) var(--ease-standard);
-}
-
-.session-browser-item:hover {
-  border-color: var(--color-border-strong);
-}
-
-.session-browser-item[data-active="true"] {
-  border-color: hsl(var(--accent) / 0.4);
-  background: hsl(var(--accent) / 0.06);
-}
-
-.session-browser-item-title {
-  color: var(--color-text-heading);
-  font-weight: var(--text-weight-semibold);
-}
-
-.session-browser-actions,
-.session-detail-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(var(--spacing) * 2);
-}
-
-.session-action-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: calc(var(--spacing) * 9);
-  padding: 0 calc(var(--spacing) * 3.5);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-1);
-  color: var(--color-text-primary);
-  font: inherit;
-  font-weight: var(--text-weight-medium);
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard);
-}
-
-.session-action-button:hover {
-  background: var(--color-surface-2);
-  border-color: var(--color-border-strong);
-}
-
-.session-action-button-primary {
-  background: hsl(var(--accent));
-  border-color: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
-}
-
-.session-action-button-primary:hover {
-  background: hsl(var(--accent) / 0.92);
-  border-color: hsl(var(--accent) / 0.92);
-}
-
-.session-detail-message p {
-  margin: 0;
-  color: var(--color-text-secondary);
-}
-
-/* ============================================================
  * Settings page (main area with tabs)
  * ============================================================ */
 
@@ -645,10 +544,6 @@ textarea {
  * ============================================================ */
 
 @media (max-width: 960px) {
-  .session-browser-layout {
-    grid-template-columns: 1fr;
-  }
-
   .settings-page-tab-content {
     padding: calc(var(--spacing) * 4) calc(var(--spacing) * 4);
   }
