@@ -1666,7 +1666,6 @@ function persistMessages(
       created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id, idempotency_key) DO UPDATE SET
-      run_id = excluded.run_id,
       role = excluded.role,
       ui_message_json = excluded.ui_message_json,
       ui_message_schema_version = excluded.ui_message_schema_version`

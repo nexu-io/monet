@@ -23,6 +23,7 @@ export interface ChatStreamRequest {
   readonly providerId: string;
   readonly modelId: string;
   readonly runId: string;
+  readonly currentStep?: number;
   readonly maxSteps: number;
   readonly maxTokensPerRun: number | null;
   readonly wallClockDeadlineAt: string | null;
@@ -30,6 +31,10 @@ export interface ChatStreamRequest {
 
 function toModelMessages(messages: UIMessage[]) {
   return convertToModelMessages(messages.map(({ id: _id, ...message }) => message));
+}
+
+export function resolveCurrentRunStep(currentStep: number, stepNumber: number) {
+  return Math.max(0, currentStep) + stepNumber + 1;
 }
 
 function isApprovalRequestedToolPart(part: unknown): part is {
@@ -74,7 +79,8 @@ export async function createChatStreamResponse(options: {
   const startedAt = Date.now();
   const abortController = new AbortController();
   let runFinishReason: RunFinishReason | null = null;
-  let observedStepCount = 0;
+  const persistedCurrentStep = Math.max(0, request.currentStep ?? 0);
+  let observedStepCount = persistedCurrentStep;
   let observedTokenCount = 0;
   let observedToolCallCount = 0;
   let finalizedRun = false;
@@ -233,7 +239,7 @@ export async function createChatStreamResponse(options: {
     tools: runtimeTools as NonNullable<Parameters<typeof streamText>[0]["tools"]>,
     stopWhen: [stepCountIs(request.maxSteps)],
     onStepFinish: ({ stepNumber, toolCalls, usage }) => {
-      const currentStep = stepNumber + 1;
+      const currentStep = resolveCurrentRunStep(persistedCurrentStep, stepNumber);
 
       observedStepCount = Math.max(observedStepCount, currentStep);
       observedTokenCount += countUsageTokens(usage);

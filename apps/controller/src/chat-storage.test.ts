@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { createChatStorage } from "./chat-storage";
@@ -138,6 +139,50 @@ test("persisted tool outputs are truncated for oversized or file-like payloads",
 
     assert.equal(toolPart?.output?.truncated, true);
     assert.ok((toolPart?.output?.preview?.length ?? 0) > 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("message upserts preserve the original run linkage for existing idempotency keys", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const initial = storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_shared",
+          role: "user",
+          parts: [{ type: "text", text: "Initial prompt" }]
+        } as any
+      ]
+    });
+
+    const continued = storage.prepareChatRequest({
+      sessionId: initial.sessionId,
+      messages: [
+        {
+          id: "msg_shared",
+          role: "user",
+          parts: [{ type: "text", text: "Initial prompt with refreshed payload" }]
+        } as any
+      ]
+    });
+
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      const row = connection
+        .prepare("SELECT run_id, ui_message_json FROM messages WHERE session_id = ? AND idempotency_key = ?")
+        .get(initial.sessionId, "msg_shared") as { run_id: string | null; ui_message_json: string } | undefined;
+
+      assert.equal(row?.run_id, initial.runId);
+      assert.notEqual(continued.runId, initial.runId);
+      assert.match(row?.ui_message_json ?? "", /refreshed payload/);
+    } finally {
+      connection.close();
+    }
   } finally {
     fixture.cleanup();
   }

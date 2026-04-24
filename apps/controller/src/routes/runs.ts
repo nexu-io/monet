@@ -150,6 +150,7 @@ export function registerRunRoutes(
           providerId: run.providerId,
           modelId: run.modelId,
           runId,
+          currentStep: run.currentStep,
           maxSteps: Math.max(1, run.maxSteps - Math.max(0, run.currentStep)),
           maxTokensPerRun: run.maxTokensPerRun,
           wallClockDeadlineAt: run.wallClockDeadlineAt
