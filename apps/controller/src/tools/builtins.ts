@@ -250,7 +250,7 @@ const defaultFetchUrlRequest: FetchUrlRequestFn = async ({ url, abortSignal, res
       servername: url.hostname,
       lookup: ((hostname, _options, callback) => {
         if (normalizeHostname(hostname) !== normalizeHostname(url.hostname)) {
-          callback(new Error("fetch_url attempted to resolve an unexpected hostname."));
+          callback(new Error("fetch_url attempted to resolve an unexpected hostname."), "", 0);
           return;
         }
 

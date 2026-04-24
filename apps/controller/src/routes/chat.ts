@@ -14,12 +14,12 @@ import type { ToolRegistry } from "../tools/registry";
 
 interface ChatRequestBody {
   readonly messages?: unknown;
-  readonly sessionId?: string;
-  readonly providerId?: string;
-  readonly modelId?: string;
+  readonly sessionId?: string | undefined;
+  readonly providerId?: string | undefined;
+  readonly modelId?: string | undefined;
   readonly runtimeOptions?: {
-    readonly maxSteps?: number;
-  };
+    readonly maxSteps?: number | undefined;
+  } | undefined;
 }
 
 const chatRequestBodySchema = z
