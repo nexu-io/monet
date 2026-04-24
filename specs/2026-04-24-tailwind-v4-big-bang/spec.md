@@ -627,6 +627,8 @@ The exact final file can differ, but any remaining component-like class should b
 
 ## 10. Visual QA Checklist
 
+Use `specs/2026-04-24-tailwind-v4-big-bang/visual-qa-runbook.md` for the executable route/state setup and breakpoint/theme matrix.
+
 Verify at minimum:
 
 1. App shell
