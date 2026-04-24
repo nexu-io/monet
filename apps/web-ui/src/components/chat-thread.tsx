@@ -177,7 +177,7 @@ function renderPart(
 ) {
   if (isTextPart(part)) {
     return (
-      <p key={`${part.type}-${index}`} className="message-text">
+      <p key={`${part.type}-${index}`} className="m-0 whitespace-pre-wrap leading-[1.6] text-text-primary">
         {part.text}
       </p>
     );
@@ -298,7 +298,7 @@ function renderPart(
                 ? "This action can create or overwrite a file inside an authorized directory. Review the path and content preview before continuing."
                 : "Review the tool input, then approve or reject execution."}
             </p>
-            <div className="chat-thread-jump" style={{ justifyContent: "flex-start", marginTop: 12 }}>
+            <div className="mt-3 flex justify-start gap-2">
               <Button
                 type="button"
                 variant="primary"
@@ -471,7 +471,7 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
   }
 
   return (
-    <section ref={rootRef} className="chat-thread" aria-label="Conversation transcript">
+    <section ref={rootRef} className="relative flex flex-col gap-4" aria-label="Conversation transcript">
       {messages.length === 0 ? (
         <Card className="chat-empty-state">
           <div className="flex flex-col gap-1">
@@ -486,16 +486,16 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
         const isStreamingAssistant = status === "streaming" && message.role === "assistant" && messageIndex === messages.length - 1;
 
         return (
-          <article key={message.id} className="chat-message" data-role={message.role}>
-            <div className="chat-message-meta">
+          <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-role={message.role}>
+            <div className="flex items-center gap-2 text-xs text-text-tertiary">
               <Badge variant={message.role === "assistant" ? "secondary" : "accent"} size="sm" radius="full">
                 {getRoleLabel(message.role)}
               </Badge>
               {isStreamingAssistant ? <Badge variant="secondary" size="sm" radius="full">Streaming</Badge> : null}
             </div>
 
-            <Card className="chat-message-card">
-              <div className="chat-message-parts">
+            <Card className={`w-[min(100%,calc(var(--spacing)*180))] rounded-xl border border-border-subtle px-4.5 py-4 shadow-xs max-[960px]:w-full ${message.role === "user" ? "border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)]" : "bg-surface-1"}`}>
+              <div className="flex flex-col gap-3">
                 {message.parts.map((part, index) =>
                   renderPart(message, part, index, {
                     status,
@@ -521,8 +521,8 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
       ) : null}
 
       {showScrollToBottom && messages.length > 0 ? (
-        <div className="chat-thread-jump">
-          <Button type="button" variant="secondary" onClick={scrollToBottom}>Back to bottom</Button>
+        <div className="pointer-events-none sticky bottom-2 flex justify-center">
+          <Button type="button" variant="secondary" className="pointer-events-auto shadow-dropdown" onClick={scrollToBottom}>Back to bottom</Button>
         </div>
       ) : null}
     </section>

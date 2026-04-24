@@ -305,7 +305,7 @@ function SessionChatSurface({
         />
       )}
     >
-      <div className="chat-thread-layout">
+      <div className="flex flex-col gap-6">
         <ChatThread
           messages={messages}
           status={status}
