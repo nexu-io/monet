@@ -182,7 +182,7 @@ export function AppShell({
 
   return (
     <div
-      className="shell grid h-screen min-h-0 grid-cols-[var(--app-shell-width)_minmax(0,1fr)] overflow-hidden bg-app-canvas max-app:h-auto max-app:min-h-screen max-app:grid-cols-1 max-app:overflow-visible"
+      className="grid h-screen min-h-0 grid-cols-[var(--app-shell-width)_minmax(0,1fr)] overflow-hidden bg-app-canvas max-app:h-auto max-app:min-h-screen max-app:grid-cols-1 max-app:overflow-visible"
       data-desktop-shell={isDesktop ? "true" : "false"}
       data-desktop-platform={desktopPlatform}
     >
@@ -325,7 +325,7 @@ export function AppShell({
         data-has-composer={composer ? "true" : "false"}
       >
         {header ? <div className="border-b border-border-subtle bg-app-canvas px-[var(--app-page-padding-x)] pt-5 pb-4">{header}</div> : null}
-        <div className="canvas-body min-h-0 overflow-auto">
+        <div className="min-h-0 overflow-auto">
           <div className="mx-auto flex max-w-[var(--app-content-max-width)] flex-col gap-[var(--app-section-gap)] px-[var(--app-page-padding-x)] pt-6 pb-8">{children}</div>
         </div>
         {composer ? (
