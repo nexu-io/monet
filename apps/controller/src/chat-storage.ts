@@ -15,6 +15,8 @@ const DEFAULT_PROVIDER_TYPE = "openai";
 const DEFAULT_PROVIDER_DISPLAY_NAME = "OpenAI";
 const DEFAULT_OPENROUTER_PROVIDER_DISPLAY_NAME = "OpenRouter";
 const CURRENT_UI_MESSAGE_SCHEMA_VERSION = "v1";
+const MAX_PERSISTED_TOOL_OUTPUT_BYTES = 8 * 1024;
+const ALWAYS_TRUNCATED_PERSISTED_TOOL_NAMES = new Set(["fetch_url", "read_file"]);
 const KNOWN_UI_MESSAGE_PART_TYPES = new Set([
   "text",
   "reasoning",
@@ -1766,7 +1768,7 @@ function mapProviderRow(row: ProviderRow): StoredProvider {
 }
 
 function normalizeAuthorizedDirectoryPaths(paths: readonly string[]) {
-  return Array.from(new Set(paths.map((path) => resolve(path.trim())).filter(Boolean))).sort((left, right) =>
+  return Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean).map((path) => resolve(path)))).sort((left, right) =>
     left.localeCompare(right)
   );
 }
@@ -1958,12 +1960,13 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 function normalizePersistedMessage(message: UIMessage) {
   const idempotencyKey = message.id?.trim() || createPrefixedId("msg");
   const id = hasIdPrefix(idempotencyKey, "msg") ? idempotencyKey : createPrefixedId("msg");
+  const persistedMessage = sanitizePersistedMessage(message);
 
   return {
     id,
     idempotencyKey,
     message: {
-      ...message,
+      ...persistedMessage,
       id
     }
   };
@@ -1989,11 +1992,72 @@ function serializeToolCallOutput(value: unknown) {
   const serialized = serializeToolCallPayload(value);
   const outputSizeBytes = Buffer.byteLength(serialized, "utf8");
 
-  return {
-    value: serialized,
+   if (outputSizeBytes <= MAX_PERSISTED_TOOL_OUTPUT_BYTES) {
+    return {
+      value: serialized,
+      outputSizeBytes,
+      outputTruncated: false
+    };
+  }
+
+  const truncated = {
+    truncated: true,
     outputSizeBytes,
-    outputTruncated: false
+    preview: truncateSerializedValue(serialized, 1_200)
   };
+
+  return {
+    value: JSON.stringify(truncated),
+    outputSizeBytes,
+    outputTruncated: true
+  };
+}
+
+function sanitizePersistedMessage(message: UIMessage): UIMessage {
+  const parts = (message.parts ?? []).map((part) => sanitizePersistedMessagePart(part)) as UIMessage["parts"];
+
+  return {
+    ...message,
+    parts
+  };
+}
+
+function sanitizePersistedMessagePart(part: unknown) {
+  if (!isObjectRecord(part)) {
+    return part;
+  }
+
+  const type = typeof part.type === "string" ? part.type : "";
+
+  if ((type === "dynamic-tool" || type.startsWith("tool-")) && typeof part.toolName === "string" && "output" in part) {
+    const output = (part as { output?: unknown }).output;
+    const serialized = serializeToolCallPayload(output);
+    const outputSizeBytes = Buffer.byteLength(serialized, "utf8");
+    const shouldTruncate =
+      ALWAYS_TRUNCATED_PERSISTED_TOOL_NAMES.has(part.toolName) || outputSizeBytes > MAX_PERSISTED_TOOL_OUTPUT_BYTES;
+
+    if (shouldTruncate) {
+      return {
+        ...part,
+        output: {
+          truncated: true,
+          toolName: part.toolName,
+          outputSizeBytes,
+          preview: truncateSerializedValue(serialized, 1_200)
+        }
+      };
+    }
+  }
+
+  return part;
+}
+
+function truncateSerializedValue(serialized: string, maxLength: number) {
+  if (serialized.length <= maxLength) {
+    return serialized;
+  }
+
+  return `${serialized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 function isReasoningModelName(modelName: string) {

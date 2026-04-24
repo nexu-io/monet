@@ -100,3 +100,45 @@ test("storage bootstraps OpenAI and OpenRouter providers", () => {
     fixture.cleanup();
   }
 });
+
+test("persisted tool outputs are truncated for oversized or file-like payloads", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_user_1",
+          role: "user",
+          parts: [{ type: "text", text: "Read the file." }]
+        } as any,
+        {
+          id: "msg_assistant_1",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-read_file",
+              toolName: "read_file",
+              state: "output-available",
+              output: {
+                content: "x".repeat(20_000)
+              }
+            }
+          ]
+        } as any
+      ]
+    });
+    const detail = storage.getSessionDetail(prepared.sessionId);
+    const assistantMessage = detail.messages.find((message) => message.id === "msg_assistant_1");
+    const persistedUiMessage = assistantMessage?.uiMessage as { parts?: unknown[] } | undefined;
+    const toolPart = persistedUiMessage?.parts?.find(
+      (part) => typeof (part as { type?: unknown }).type === "string" && (part as { type: string }).type === "tool-read_file"
+    ) as { output?: { truncated?: boolean; preview?: string } } | undefined;
+
+    assert.equal(toolPart?.output?.truncated, true);
+    assert.ok((toolPart?.output?.preview?.length ?? 0) > 0);
+  } finally {
+    fixture.cleanup();
+  }
+});

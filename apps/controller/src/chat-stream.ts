@@ -10,6 +10,7 @@ import {
   shouldInterruptRunForFinishReason,
   type RunFinishReason
 } from "./agent-runtime";
+import { buildReplayContext } from "./chat-context";
 import type { ChatStorage } from "./chat-storage";
 import type { AgentRuntimeConfig } from "./config";
 import type { Logger } from "./logger";
@@ -221,10 +222,14 @@ export async function createChatStreamResponse(options: {
         : "failed";
   };
 
+  const replayContext = buildReplayContext(messages);
+
+  runtimeLogger.info("chat.replay_context_prepared", { ...replayContext.stats });
+
   const result = streamText({
     model,
     abortSignal: abortController.signal,
-    messages: await toModelMessages(messages),
+    messages: await toModelMessages(replayContext.messages),
     tools: runtimeTools as NonNullable<Parameters<typeof streamText>[0]["tools"]>,
     stopWhen: [stepCountIs(request.maxSteps)],
     onStepFinish: ({ stepNumber, toolCalls, usage }) => {
