@@ -125,7 +125,15 @@ Add to `apps/web-ui`:
 pnpm --filter @monet/web-ui add -D tailwindcss @tailwindcss/postcss
 ```
 
-If class composition becomes necessary, optionally add:
+Class-composition decision gate for this migration:
+
+- Default to static Tailwind class strings, `data-*`/ARIA variants, and extracted React components.
+- Do **not** add a `cn()` helper during setup or before the first migrated slice proves it is needed.
+- Add a small local `cn()` helper only when a migrated component has conditional class composition that static strings, conditional rendering, or `data-*` variants make less readable. Examples that qualify are optional caller-provided `className` pass-through on an extracted component, several conditional utility groups on one element, or mutually exclusive state-specific class groups that cannot be expressed cleanly as data variants.
+- If `cn()` is added, keep it minimal and app-local, and add only the package dependencies it actually uses at that time.
+- Do **not** add `class-variance-authority` for a one-off component, boolean state, or simple active/disabled styling. Add it only after at least two migrated components share a real variant matrix with named variant axes and defaults that would otherwise be duplicated.
+
+If class composition passes that gate, optionally add the needed packages:
 
 ```bash
 pnpm --filter @monet/web-ui add clsx tailwind-merge class-variance-authority
@@ -674,7 +682,7 @@ Mitigation:
 Mitigation:
 
 - Extract components for repeated patterns.
-- Use small `cn()` helpers if class composition becomes conditional.
+- Use a small `cn()` helper only after the class-composition decision gate in §5.1 is met.
 - Avoid extreme arbitrary variants where direct child classes or components would be clearer.
 
 ### 12.4 Visual regressions from selector rewrites
@@ -747,7 +755,7 @@ rg "welcome-|settings-|sidebar-|composer-|chat-|session-" apps/web-ui/src
 ## 15. Open Questions
 
 1. Should `@nexu-design/tokens` eventually export a first-party Tailwind v4 theme preset?
-2. Should the app standardize on a `cn()` helper and `class-variance-authority`, or keep plain class strings until variants become complex?
+2. Resolved for this migration: keep plain class strings until the §5.1 class-composition decision gate is met; add `class-variance-authority` only if at least two components share a real variant matrix.
 3. Should primitive slot overrides be moved upstream into `@nexu-design/ui-web` after this migration?
 4. Should visual regression screenshots be introduced now, or is manual visual QA enough for the initial big-bang migration?
 
