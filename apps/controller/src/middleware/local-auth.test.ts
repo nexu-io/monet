@@ -35,6 +35,7 @@ test("accepts valid localhost requests with a bearer token", async () => {
   });
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:3000");
 });
 
 test("rejects missing bearer tokens", async () => {
@@ -82,17 +83,21 @@ test("rejects cookie-bearing requests", async () => {
   assert.equal(response.status, 400);
 });
 
-test("rejects CORS preflight requests", async () => {
+test("accepts CORS preflight requests from allowed origins", async () => {
   const response = await request({
     method: "OPTIONS",
     headers: {
+      "Access-Control-Request-Headers": "authorization, content-type",
       "Access-Control-Request-Method": "POST",
       Host: "127.0.0.1:3030",
       Origin: "http://127.0.0.1:3000"
     }
   });
 
-  assert.equal(response.status, 403);
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:3000");
+  assert.equal(response.headers.get("access-control-allow-methods"), "POST");
+  assert.equal(response.headers.get("access-control-allow-headers"), "authorization, content-type");
 });
 
 test("allows null origins for packaged desktop renderers", async () => {

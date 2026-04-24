@@ -1,3 +1,4 @@
+import { z } from "@hono/zod-openapi";
 import { validateUIMessages, type UIMessage } from "ai";
 
 import { resolveRunBudget } from "../agent-runtime";
@@ -21,6 +22,20 @@ interface ChatRequestBody {
   };
 }
 
+const chatRequestBodySchema = z
+  .object({
+    messages: z.unknown().optional(),
+    sessionId: z.string().trim().min(1).optional(),
+    providerId: z.string().trim().min(1).optional(),
+    modelId: z.string().trim().min(1).optional(),
+    runtimeOptions: z
+      .object({
+        maxSteps: z.number().optional()
+      })
+      .optional()
+  })
+  .passthrough();
+
 const chatLogger = createLogger("controller", {
   component: "chat-route"
 });
@@ -38,9 +53,10 @@ export function registerChatRoutes(
   app.post("/api/chat", async (context) => {
     const requestId = getRequestId(context);
     let body: ChatRequestBody;
+    let rawBody: unknown;
 
     try {
-      body = (await context.req.json()) as ChatRequestBody;
+      rawBody = await context.req.json();
     } catch {
       chatLogger.warn("chat.invalid_json", {
         requestId
@@ -54,6 +70,29 @@ export function registerChatRoutes(
         400
       );
     }
+
+    const parsedBody = chatRequestBodySchema.safeParse(rawBody);
+
+    if (!parsedBody.success) {
+      chatLogger.warn("chat.invalid_request", {
+        requestId,
+        issues: parsedBody.error.issues.map((issue) => ({
+          code: issue.code,
+          message: issue.message,
+          path: issue.path.join(".")
+        }))
+      });
+
+      return context.json(
+        {
+          error: "invalid_request",
+          message: "Request validation failed."
+        },
+        400
+      );
+    }
+
+    body = parsedBody.data;
 
     let messages: UIMessage[];
 

@@ -25,21 +25,20 @@ export function createLocalAuthMiddleware(options: LocalAuthOptions): Middleware
       );
     }
 
-    if (isCorsPreflight(context)) {
-      authLogger.warn("auth.cors_preflight_rejected", buildAuthLogContext(context));
-
-      return context.json(
-        createErrorResponse("cors_not_supported", "CORS preflight requests are not supported by the local controller."),
-        403
-      );
-    }
-
     const origin = context.req.header("origin");
 
     if (origin && !isAllowedOrigin(origin, options.allowedOrigins)) {
       authLogger.warn("auth.invalid_origin", buildAuthLogContext(context, { origin }));
 
       return context.json(createErrorResponse("invalid_origin", "Origin is not allowed to access the local controller."), 403);
+    }
+
+    if (origin) {
+      setCorsResponseHeaders(context, origin);
+    }
+
+    if (isCorsPreflight(context)) {
+      return context.body(null, 204);
     }
 
     if (context.req.header("cookie")) {
@@ -99,6 +98,22 @@ function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boo
 
 function isCorsPreflight(context: Context): boolean {
   return context.req.method === "OPTIONS" && context.req.header("access-control-request-method") != null;
+}
+
+function setCorsResponseHeaders(context: Context, origin: string) {
+  context.header("access-control-allow-origin", origin);
+  context.header("vary", "Origin");
+
+  const requestedMethod = context.req.header("access-control-request-method");
+  const requestedHeaders = context.req.header("access-control-request-headers");
+
+  if (requestedMethod) {
+    context.header("access-control-allow-methods", requestedMethod);
+  }
+
+  if (requestedHeaders) {
+    context.header("access-control-allow-headers", requestedHeaders);
+  }
 }
 
 function stripPort(host: string): string {
