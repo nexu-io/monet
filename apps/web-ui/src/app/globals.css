@@ -74,7 +74,7 @@
 @custom-variant dark (&:where(html[data-theme="dark"], html[data-theme="dark"] *));
 
 @theme {
-  --breakpoint-app: 60rem; /* 960px app shell/settings collapse point */
+  --breakpoint-app: 60.0625rem; /* <=960px app shell/settings collapse point */
 }
 
 @theme inline reference {
