@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 
 import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen, shell, utilityProcess } from "electron";
 
+import { clearRuntimeChildOnExit, sendUtilityProcessSignal } from "./controller-process";
 import { createLogger } from "./logger";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
 import { createDesktopUpdater, type UpdateStatePayload } from "./updater";
@@ -719,6 +720,8 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   });
 
   child.once("exit", () => {
+    controllerRuntime = clearRuntimeChildOnExit(controllerRuntime, child);
+
     if (isAppQuitting) {
       logger.info("desktop.controller_exit_during_shutdown");
       return;
@@ -1027,7 +1030,7 @@ async function stopUtilityProcess(
   });
 
   if (typeof child.pid === "number") {
-    process.kill(child.pid, "SIGTERM");
+    sendUtilityProcessSignal(child.pid, "SIGTERM");
   } else {
     child.kill();
   }
@@ -1043,7 +1046,7 @@ async function stopUtilityProcess(
     reason: options.reason
   });
   if (typeof child.pid === "number") {
-    process.kill(child.pid);
+    sendUtilityProcessSignal(child.pid, "SIGKILL");
   } else {
     child.kill();
   }

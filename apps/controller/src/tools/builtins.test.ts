@@ -162,6 +162,62 @@ test("read_file rejects paths outside authorized directories", async () => {
   }
 });
 
+test("runtime tools pick up authorized directory updates after creation", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const firstWorkspaceDir = join(fixture.fixtureDir, "workspace-a");
+    const secondWorkspaceDir = join(fixture.fixtureDir, "workspace-b");
+    mkdirSync(firstWorkspaceDir, { recursive: true });
+    mkdirSync(secondWorkspaceDir, { recursive: true });
+    writeFileSync(join(firstWorkspaceDir, "first.txt"), "first", "utf8");
+    writeFileSync(join(secondWorkspaceDir, "second.txt"), "second", "utf8");
+
+    let allowedDirectories = [firstWorkspaceDir];
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "hello" }] }]
+    });
+    const registry = createToolRegistry(
+      createBuiltinToolDefinitions({
+        allowedDirectories,
+        getAllowedDirectories: () => allowedDirectories
+      })
+    );
+    const runtimeTools = registry.createRuntimeTools({
+      runId: prepared.runId,
+      chatStorage: fixture.storage,
+      logger: createLogger("test")
+    }) as Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>;
+    const readFileTool = runtimeTools.read_file!;
+
+    const firstResult = (await readFileTool.execute(
+      { path: join(firstWorkspaceDir, "first.txt") },
+      createExecutionContext()
+    )) as { content: string };
+    assert.equal(firstResult.content, "first");
+
+    allowedDirectories = [secondWorkspaceDir];
+
+    await assert.rejects(
+      readFileTool.execute(
+        {
+          path: join(firstWorkspaceDir, "first.txt")
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+
+    const secondResult = (await readFileTool.execute(
+      { path: join(secondWorkspaceDir, "second.txt") },
+      createExecutionContext()
+    )) as { content: string };
+    assert.equal(secondResult.content, "second");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("read_file rejects symlink escapes outside authorized directories", async () => {
   const fixture = createTestFixture();
 

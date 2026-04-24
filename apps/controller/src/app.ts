@@ -102,6 +102,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   const toolRegistry = createToolRegistry(
     createBuiltinToolDefinitions({
       allowedDirectories: effectiveAllowedToolDirectories,
+      getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
       controllerPort: options.port
     })
   );

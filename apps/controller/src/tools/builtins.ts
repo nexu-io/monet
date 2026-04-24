@@ -8,6 +8,7 @@ import type { RegisteredToolDefinition } from "./registry";
 
 export interface BuiltinToolsOptions {
   readonly allowedDirectories: readonly string[];
+  readonly getAllowedDirectories?: () => readonly string[];
   readonly controllerPort?: number;
   readonly dnsLookup?: DnsLookupFn;
 }
@@ -293,8 +294,9 @@ async function resolveAuthorizedPath(inputPath: string, allowedDirectories: read
 export function createBuiltinToolDefinitions(
   options: BuiltinToolsOptions
 ): ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> {
-  const allowedDirectories = normalizeAllowedDirectories(options.allowedDirectories);
   const dnsLookup = options.dnsLookup ?? lookup;
+  const getAllowedDirectories = () =>
+    normalizeAllowedDirectories(options.getAllowedDirectories ? options.getAllowedDirectories() : options.allowedDirectories);
 
   return [
     {
@@ -346,7 +348,7 @@ export function createBuiltinToolDefinitions(
       } as const,
       async execute(input) {
         const normalizedInput = input as ReadFileInput;
-        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, allowedDirectories, "read");
+        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, getAllowedDirectories(), "read");
         const [content, fileStat] = await Promise.all([readFile(authorizedPath, "utf8"), stat(authorizedPath)]);
 
         return {
@@ -373,7 +375,7 @@ export function createBuiltinToolDefinitions(
       } as const,
       async execute(input) {
         const normalizedInput = input as WriteFileInput;
-        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, allowedDirectories, "write");
+        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, getAllowedDirectories(), "write");
 
         await mkdir(dirname(authorizedPath), { recursive: true });
         await writeFile(authorizedPath, normalizedInput.content, "utf8");
