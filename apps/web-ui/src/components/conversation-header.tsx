@@ -4,6 +4,8 @@ import { Badge, Button, StatusDot } from "@nexu-design/ui-web";
 
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 
+const headerCodeClassName = "rounded-sm bg-surface-2 px-1 font-mono text-[0.92em] text-text-heading";
+
 export interface ConversationHeaderProps {
   readonly sessionTitle: string;
   readonly sessionId: string;
@@ -55,33 +57,34 @@ export function ConversationHeader({
   const statusDescriptor = getStatusDescriptor(status, hasError);
 
   return (
-    <div className="conversation-header">
-      <div className="conversation-header-copy">
-        <h1>{sessionTitle}</h1>
-        <p>
+    <div className="flex flex-col items-start gap-4 app:flex-row app:flex-wrap app:justify-between">
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <h1 className="m-0 font-heading text-3xl font-bold leading-[1.2] tracking-[-0.015em] text-text-heading">{sessionTitle}</h1>
+        <p className="m-0 max-w-[72ch] text-lg text-text-secondary">
           {activeTarget ? (
             <>
-              Route <code>{activeTarget.providerDisplayName}</code>
-              {activeTarget.modelName ? <> · <code>{activeTarget.modelName}</code></> : null}
+              Route <code className={headerCodeClassName}>{activeTarget.providerDisplayName}</code>
+              {activeTarget.modelName ? <> · <code className={headerCodeClassName}>{activeTarget.modelName}</code></> : null}
               <span aria-hidden="true"> · </span>
             </>
           ) : null}
           {messageCount} {messageCount === 1 ? "message" : "messages"}
           <span aria-hidden="true"> · </span>
-          <code>{sessionId.slice(0, 8)}</code>
+          <code className={headerCodeClassName}>{sessionId.slice(0, 8)}</code>
         </p>
       </div>
 
-      <div className="conversation-header-actions">
-        <Badge variant="outline" radius="full" size="sm" className="status-inline">
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 app:w-auto">
+        <Badge variant="outline" radius="full" size="sm">
           <StatusDot status={statusDescriptor.tone} size="xs" className="size-2" pulse={isBusy} />
           <span>{statusDescriptor.label}</span>
         </Badge>
 
         {showProviderPicker ? (
-          <label className="conversation-header-target-picker">
-            <span className="conversation-header-target-picker-label">Model</span>
+          <label className="flex min-w-48 flex-col gap-1">
+            <span className="text-2xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Model</span>
             <select
+              className="min-h-9 rounded-md border border-border-subtle bg-surface-1 px-3 text-text-primary transition-[border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-border-hover focus-visible:border-accent focus-visible:outline-none focus-visible:shadow-focus"
               value={activeTarget ? `${activeTarget.providerId}::${activeTarget.modelId}` : ""}
               disabled={isBusy}
               onChange={(event) => {

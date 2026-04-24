@@ -234,90 +234,6 @@ textarea {
  * Conversation header, composer, chat thread
  * ============================================================ */
 
-.conversation-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: calc(var(--spacing) * 4);
-  flex-wrap: wrap;
-}
-
-.conversation-header-copy {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--spacing) * 1.5);
-  min-width: 0;
-}
-
-.conversation-header-copy h1 {
-  margin: 0;
-  color: var(--color-text-heading);
-  font-family: var(--font-heading);
-  font-size: var(--text-size-3xl);
-  font-weight: var(--text-weight-bold);
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-}
-
-.conversation-header-copy p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-size-lg);
-  max-width: 72ch;
-}
-
-.conversation-header-copy code {
-  padding: 0 calc(var(--spacing) * 1);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2);
-  color: var(--color-text-heading);
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-}
-
-.conversation-header-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: calc(var(--spacing) * 2);
-}
-
-.conversation-header-target-picker {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--spacing) * 1);
-  min-width: calc(var(--spacing) * 48);
-}
-
-.conversation-header-target-picker-label {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-size-2xs);
-  font-weight: var(--text-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.conversation-header-target-picker select {
-  min-height: calc(var(--spacing) * 9);
-  padding: 0 calc(var(--spacing) * 3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-1);
-  color: var(--color-text-primary);
-  transition: border-color var(--duration-fast) var(--ease-standard);
-}
-
-.conversation-header-target-picker select:hover {
-  border-color: var(--color-border-hover);
-}
-
-.conversation-header-target-picker select:focus-visible {
-  outline: none;
-  border-color: hsl(var(--accent));
-  box-shadow: var(--shadow-focus);
-}
-
 /* Composer (active chat) */
 .composer {
   display: flex;
@@ -1003,14 +919,12 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .conversation-header,
   .composer-footer,
   .tool-card-header {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .conversation-header-actions,
   .composer-actions,
   .chat-message-card {
     width: 100%;
