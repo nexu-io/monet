@@ -5,3 +5,6 @@ build/
 out/
 .next/
 coverage/
+apps/controller/sqlite/*.db
+apps/controller/sqlite/*.db-shm
+apps/controller/sqlite/*.db-wal
