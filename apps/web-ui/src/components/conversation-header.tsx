@@ -74,7 +74,7 @@ export function ConversationHeader({
 
       <div className="conversation-header-actions">
         <Badge variant="outline" radius="full" size="sm" className="status-inline">
-          <StatusDot status={statusDescriptor.tone} size="xs" pulse={isBusy} />
+          <StatusDot status={statusDescriptor.tone} size="xs" className="size-2" pulse={isBusy} />
           <span>{statusDescriptor.label}</span>
         </Badge>
 

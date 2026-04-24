@@ -301,6 +301,7 @@ export function AppShell({
             <StatusDot
               status={runtimeStatus}
               size="sm"
+              className="size-2"
               pulse={runtimeLifecycle === "starting" || runtimeLifecycle === "restarting"}
             />
             <div className="sidebar-status-text">

@@ -144,6 +144,17 @@ const validationReasonMeta: Record<
   }
 };
 
+const surfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs";
+const mutedSurfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-2 p-4 shadow-none";
+const statusBadgeBaseClassName = "inline-flex w-fit items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold";
+const statusBadgeToneClassNames = {
+  healthy: "bg-success-subtle text-success",
+  offline: "bg-error-subtle text-error",
+  unknown: "bg-warning-subtle text-warning"
+} as const;
+
+type ValidationBadgeTone = keyof typeof statusBadgeToneClassNames;
+
 function formatProviderType(type: Provider["type"]) {
   return type === "openai" ? "OpenAI" : "OpenRouter";
 }
@@ -169,6 +180,10 @@ function notifyProviderReadinessUpdated() {
 
 function getSecretStatus(snapshot: ProviderSecretStorageSnapshot | null, providerType: Provider["type"]) {
   return snapshot?.providers.find((entry) => entry.providerType === providerType) ?? null;
+}
+
+function getStatusBadgeClassName(tone: ValidationBadgeTone) {
+  return `${statusBadgeBaseClassName} ${statusBadgeToneClassNames[tone]}`;
 }
 
 function requestHeaders() {
@@ -228,8 +243,8 @@ async function requestControllerJson<T>(path: string, init?: RequestInit): Promi
 function ValidationBadge({ state }: { state: ProviderValidationState | null | undefined }) {
   if (!state) {
     return (
-      <Badge variant="secondary" size="sm" radius="full" className="status-badge" data-tone="unknown">
-        <StatusDot status="info" size="xs" />
+      <Badge variant="secondary" size="sm" radius="full" className={getStatusBadgeClassName("unknown")}>
+        <StatusDot status="info" size="xs" className="size-2" />
         <span>Not checked yet</span>
       </Badge>
     );
@@ -237,8 +252,8 @@ function ValidationBadge({ state }: { state: ProviderValidationState | null | un
 
   if (state.loading) {
     return (
-      <Badge variant="warning" size="sm" radius="full" className="status-badge" data-tone="unknown">
-        <StatusDot status="warning" size="xs" pulse />
+      <Badge variant="warning" size="sm" radius="full" className={getStatusBadgeClassName("unknown")}>
+        <StatusDot status="warning" size="xs" pulse className="size-2" />
         <span>Validating…</span>
       </Badge>
     );
@@ -246,8 +261,8 @@ function ValidationBadge({ state }: { state: ProviderValidationState | null | un
 
   if (state.error) {
     return (
-      <Badge variant="destructive" size="sm" radius="full" className="status-badge" data-tone="offline">
-        <StatusDot status="error" size="xs" />
+      <Badge variant="destructive" size="sm" radius="full" className={getStatusBadgeClassName("offline")}>
+        <StatusDot status="error" size="xs" className="size-2" />
         <span>Validation failed</span>
       </Badge>
     );
@@ -258,11 +273,11 @@ function ValidationBadge({ state }: { state: ProviderValidationState | null | un
   }
 
   const meta = validationReasonMeta[state.data.reason];
-  const tone = state.data.valid ? "healthy" : meta.badgeVariant === "destructive" ? "offline" : "unknown";
+  const tone: ValidationBadgeTone = state.data.valid ? "healthy" : meta.badgeVariant === "destructive" ? "offline" : "unknown";
 
   return (
-    <Badge variant={meta.badgeVariant} size="sm" radius="full" className="status-badge" data-tone={tone}>
-      <StatusDot status={meta.dotStatus} size="xs" />
+    <Badge variant={meta.badgeVariant} size="sm" radius="full" className={getStatusBadgeClassName(tone)}>
+      <StatusDot status={meta.dotStatus} size="xs" className="size-2" />
       <span>{meta.label}</span>
     </Badge>
   );
@@ -463,11 +478,11 @@ function GeneralSettingsPanel() {
 
   return (
     <div className="settings-general-layout">
-      <Card className="card flex flex-col gap-3">
+      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Filesystem access</span>
-            <CardTitle>Authorized directories</CardTitle>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Authorized directories</CardTitle>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">
               File tools can only read and write inside directories you explicitly authorize here.
             </CardDescription>
@@ -541,11 +556,11 @@ function GeneralSettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card className="card flex flex-col gap-3">
+      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Local storage</span>
-            <CardTitle>Data directory</CardTitle>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Data directory</CardTitle>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">
               Monet stores desktop state, secrets metadata, window state, and your local workspace database in the app data directory.
             </CardDescription>
@@ -555,7 +570,7 @@ function GeneralSettingsPanel() {
         <CardContent className="flex flex-col gap-3">
           <ul className="grid list-none gap-2.5 p-0 m-0">
             <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
-              <Card variant="muted" padding="sm" className="card card-muted flex flex-col gap-1">
+              <Card variant="muted" padding="sm" className={`${mutedSurfaceCardClassName} flex flex-col gap-1`}>
                 <div className="settings-provider-item-header">
                   <strong>Application data path</strong>
                   <div className="settings-provider-chip-row">
@@ -588,11 +603,11 @@ function GeneralSettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card className="card flex flex-col gap-3">
+      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Appearance</span>
-            <CardTitle>Theme</CardTitle>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Theme</CardTitle>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">Choose whether the renderer follows the system appearance or forces a specific theme.</CardDescription>
           </div>
         </CardHeader>
@@ -920,11 +935,11 @@ function ModelSettingsPanel() {
 
   if (providersState.loading) {
     return (
-      <Card className="card flex flex-col gap-3">
+      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
-            <CardTitle>Model routing and defaults</CardTitle>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Model routing and defaults</CardTitle>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">Loading providers, models, and validation status from your workspace.</CardDescription>
           </div>
         </CardHeader>
@@ -941,18 +956,18 @@ function ModelSettingsPanel() {
 
   if (providersState.error) {
     return (
-      <Card className="card flex flex-col gap-3">
+      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
-            <CardTitle>Model routing and defaults</CardTitle>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Model routing and defaults</CardTitle>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">Settings could not load provider metadata from your workspace.</CardDescription>
           </div>
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3">
-          <Badge variant="destructive" size="sm" radius="full" className="status-badge" data-tone="offline">
-            <StatusDot status="error" size="xs" />
+          <Badge variant="destructive" size="sm" radius="full" className={getStatusBadgeClassName("offline")}>
+            <StatusDot status="error" size="xs" className="size-2" />
             <span>Provider list unavailable</span>
           </Badge>
           <p className="m-0 leading-[1.5] text-text-muted mono">{providersState.error}</p>
@@ -966,11 +981,11 @@ function ModelSettingsPanel() {
 
   if (providers.length === 0) {
     return (
-      <Card className="card flex flex-col gap-3">
+      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
-            <CardTitle>No providers configured yet</CardTitle>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">No providers configured yet</CardTitle>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">
               Monet needs at least one persisted provider record before new sessions can resolve a default model.
             </CardDescription>
@@ -979,24 +994,24 @@ function ModelSettingsPanel() {
 
         <CardContent className="flex flex-col gap-3">
           <div className="settings-empty-state">
-            <Badge variant="warning" size="sm" radius="full" className="status-badge" data-tone="unknown">
-              <StatusDot status="warning" size="xs" />
+            <Badge variant="warning" size="sm" radius="full" className={getStatusBadgeClassName("unknown")}>
+              <StatusDot status="warning" size="xs" className="size-2" />
               <span>No provider records</span>
             </Badge>
 
             <ul className="grid list-none gap-2.5 p-0 m-0">
               <li>
-                <Card variant="muted" padding="sm" className="card card-muted">
+                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
                   Supported provider types in the current build are OpenAI and OpenRouter.
                 </Card>
               </li>
               <li>
-                <Card variant="muted" padding="sm" className="card card-muted">
+                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
                   Once a provider exists, this page will surface its default model, enabled catalog, and validation result.
                 </Card>
               </li>
               <li>
-                <Card variant="muted" padding="sm" className="card card-muted">
+                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
                   After provider setup is available, return here and run validation to confirm the desktop app can start chats.
                 </Card>
               </li>
@@ -1014,11 +1029,11 @@ function ModelSettingsPanel() {
   return (
     <div className="settings-models-layout">
       {!hasReadyProvider && allValidationsSettled ? (
-        <Card className="card flex flex-col gap-3 settings-callout-card">
+        <Card className={`${surfaceCardClassName} flex flex-col gap-3 settings-callout-card`}>
           <CardHeader>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Setup guidance</span>
-              <CardTitle>No provider is ready for chat yet</CardTitle>
+              <CardTitle className="m-0 text-2xl font-semibold text-text-heading">No provider is ready for chat yet</CardTitle>
               <CardDescription className="m-0 leading-[1.5] text-text-muted">
                 A session needs a validated provider and a resolved default model before it can call <span className="mono">/api/chat</span>.
               </CardDescription>
@@ -1028,12 +1043,12 @@ function ModelSettingsPanel() {
           <CardContent>
             <ul className="grid list-none gap-2.5 p-0 m-0">
               <li>
-                <Card variant="muted" padding="sm" className="card card-muted">
+                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
                   Start by fixing the provider cards marked with missing credentials, API errors, or default-model issues.
                 </Card>
               </li>
               <li>
-                <Card variant="muted" padding="sm" className="card card-muted">
+                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
                   Re-run validation after local provider setup changes so the model catalog is refreshed.
                 </Card>
               </li>
@@ -1043,11 +1058,11 @@ function ModelSettingsPanel() {
       ) : null}
 
       <div className="settings-provider-grid">
-        <Card className="card flex flex-col gap-3 settings-provider-list-card">
+        <Card className={`${surfaceCardClassName} flex flex-col gap-3 settings-provider-list-card`}>
           <CardHeader>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Configured providers</span>
-              <CardTitle>Choose a provider</CardTitle>
+              <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Choose a provider</CardTitle>
               <CardDescription className="m-0 leading-[1.5] text-text-muted">Validation status is loaded inline so you can see which provider is ready for new sessions.</CardDescription>
             </div>
           </CardHeader>
@@ -1091,12 +1106,12 @@ function ModelSettingsPanel() {
 
         {selectedProvider ? (
           <div className="settings-provider-detail flex flex-col gap-3">
-            <Card className="card flex flex-col gap-3">
+            <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
               <CardHeader>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected provider</span>
                   <div className="settings-title-row">
-                    <CardTitle>{selectedProvider.displayName}</CardTitle>
+                    <CardTitle className="m-0 text-2xl font-semibold text-text-heading">{selectedProvider.displayName}</CardTitle>
                     <ValidationBadge state={selectedValidation} />
                   </div>
                   <CardDescription className="m-0 leading-[1.5] text-text-muted">
@@ -1135,7 +1150,7 @@ function ModelSettingsPanel() {
                   </li>
                 </ul>
 
-                <div className="settings-validation-card card card-muted flex flex-col gap-1">
+                <div className={`settings-validation-card ${mutedSurfaceCardClassName} flex flex-col gap-1`}>
                   <div className="settings-provider-item-header">
                     <strong>Local credentials</strong>
                     <div className="settings-provider-chip-row">
@@ -1209,7 +1224,7 @@ function ModelSettingsPanel() {
                   {secretFeedback ? <p className="m-0 leading-[1.5] text-text-muted mono">{secretFeedback}</p> : null}
                 </div>
 
-                <div className="settings-validation-card card card-muted flex flex-col gap-1">
+                <div className={`settings-validation-card ${mutedSurfaceCardClassName} flex flex-col gap-1`}>
                   <div className="settings-provider-item-header">
                     <strong>Validate status</strong>
                     <Button
@@ -1237,11 +1252,11 @@ function ModelSettingsPanel() {
               </CardContent>
             </Card>
 
-            <Card className="card flex flex-col gap-3">
+            <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
               <CardHeader>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Enabled catalog</span>
-                  <CardTitle>Provider models</CardTitle>
+                  <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Provider models</CardTitle>
                   <CardDescription className="m-0 leading-[1.5] text-text-muted">This list is refreshed from the selected provider when the panel loads.</CardDescription>
                 </div>
               </CardHeader>

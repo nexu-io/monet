@@ -158,7 +158,7 @@ export function WelcomeHome({
     <div className="welcome">
       <section className="welcome-hero" aria-labelledby="welcome-heading">
         <Badge variant="outline" radius="full" className="welcome-badge" aria-live="polite">
-          <StatusDot status={badgeTone} size="xs" pulse={controllerState?.state === "starting" || controllerState?.state === "restarting"} />
+          <StatusDot status={badgeTone} size="xs" className="size-2" pulse={controllerState?.state === "starting" || controllerState?.state === "restarting"} />
           <span>{badgeText}</span>
         </Badge>
 

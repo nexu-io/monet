@@ -7,6 +7,8 @@ import { PageFrame } from "../../components/page-frame";
 
 import { useSessions } from "../../components/session-provider";
 
+const sessionSurfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs flex flex-col gap-3";
+
 function extractMessagePreview(value: unknown) {
   if (!value || typeof value !== "object") {
     return "No message preview available.";
@@ -50,11 +52,11 @@ export default function SessionsPage() {
       description="Browse, rename, and archive your saved chat sessions."
     >
       <section className="session-browser-layout">
-        <Card className="card flex flex-col gap-3">
+        <Card className={sessionSurfaceCardClassName}>
           <CardHeader>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Session browser</span>
-              <CardTitle>Session history</CardTitle>
+              <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Session history</CardTitle>
             </div>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">
               Rename, archive, and inspect persisted session detail without leaving the static renderer shell.
@@ -86,11 +88,11 @@ export default function SessionsPage() {
           </CardContent>
         </Card>
 
-        <Card className="card flex flex-col gap-3">
+        <Card className={sessionSurfaceCardClassName}>
           <CardHeader>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected session</span>
-              <CardTitle>{currentSessionDetail?.title ?? "No session selected"}</CardTitle>
+              <CardTitle className="m-0 text-2xl font-semibold text-text-heading">{currentSessionDetail?.title ?? "No session selected"}</CardTitle>
             </div>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">
               {currentSessionDetail ? currentSessionDetail.id : "Pick a session from the list to inspect its persisted messages."}
