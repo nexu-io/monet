@@ -186,15 +186,15 @@ export function AppShell({
       data-desktop-shell={isDesktop ? "true" : "false"}
       data-desktop-platform={desktopPlatform}
     >
-      <Sidebar className="sidebar">
-        {isDesktop ? <div className="sidebar-drag-region" aria-hidden="true" /> : null}
+      <Sidebar className={`sticky top-0 flex h-screen min-h-0 flex-col gap-5 overflow-hidden border-r border-border-subtle bg-app-sidebar px-4 pb-5 max-app:static max-app:h-auto max-app:overflow-visible max-app:border-r-0 max-app:border-b ${isDesktop ? "pt-3" : "pt-5"}`}>
+        {isDesktop ? <div className="mb-2 block min-h-[28px] [-webkit-app-region:drag]" aria-hidden="true" /> : null}
 
-        <SidebarHeader className="sidebar-top">
-          <div className="sidebar-brand">
-            <span className="sidebar-brand-mark" aria-hidden="true">M</span>
+        <SidebarHeader className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="flex items-center gap-2.5 p-1">
+            <span className="inline-flex size-8 items-center justify-center rounded-md bg-accent font-heading text-lg font-bold tracking-[-0.02em] text-accent-foreground" aria-hidden="true">M</span>
             <div className="flex flex-col gap-1">
-              <span className="sidebar-brand-name">Monet</span>
-              <span className="sidebar-brand-tag">Your local AI workspace</span>
+              <span className="font-heading text-2xl leading-none font-semibold tracking-[-0.01em] text-text-heading">Monet</span>
+              <span className="text-xs tracking-[0.04em] text-text-tertiary uppercase">Your local AI workspace</span>
             </div>
           </div>
 
@@ -202,7 +202,7 @@ export function AppShell({
             type="button"
             variant="primary"
             size="md"
-            className="sidebar-cta"
+            className="w-full justify-start"
             onClick={() => void handleCreateSession()}
             disabled={isProviderReadinessLoading}
           >
@@ -221,7 +221,11 @@ export function AppShell({
 
                 return (
                   <NavigationMenuItem key={item.href}>
-                    <NavigationMenuButton asChild active={selected} className="sidebar-nav-link">
+                    <NavigationMenuButton
+                      asChild
+                      active={selected}
+                      className="w-full justify-start rounded-md px-2.5 py-2 text-lg font-medium text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:font-semibold data-[active=true]:text-text-heading data-[state=selected]:bg-app-hover data-[state=selected]:font-semibold data-[state=selected]:text-text-heading"
+                    >
                       <Link href={href}>{item.label}</Link>
                     </NavigationMenuButton>
                   </NavigationMenuItem>
@@ -230,22 +234,22 @@ export function AppShell({
             </NavigationMenuList>
           </NavigationMenu>
 
-          <section className="sidebar-section" aria-labelledby="recent-sessions-heading">
-            <div className="sidebar-section-header">
-              <NavigationMenuLabel className="sidebar-section-header-label" id="recent-sessions-heading">
+          <section className="flex min-h-0 flex-col gap-2" aria-labelledby="recent-sessions-heading">
+            <div className="flex items-baseline justify-between gap-2 px-2">
+              <NavigationMenuLabel className="text-2xs font-semibold tracking-[0.1em] text-text-tertiary uppercase" id="recent-sessions-heading">
                 Recent
               </NavigationMenuLabel>
-              <Link href="/sessions" className="sidebar-section-link">
+              <Link href="/sessions" className="text-xs font-medium text-text-tertiary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:text-text-primary">
                 View all
               </Link>
             </div>
 
-            <div className="sidebar-recent-list">
+            <div className="flex min-h-0 flex-col gap-0.5 overflow-auto">
               {isSessionsLoading && recentSessions.length === 0 ? (
-                <p className="sidebar-recent-empty">Loading sessions…</p>
+                <p className="px-2.5 py-2 text-sm text-text-tertiary">Loading sessions…</p>
               ) : null}
               {!isSessionsLoading && recentSessions.length === 0 ? (
-                <p className="sidebar-recent-empty">
+                <p className="px-2.5 py-2 text-sm text-text-tertiary">
                   {providerSetupRequired ? "Finish provider setup to create the first chat." : "No active chats yet."}
                 </p>
               ) : null}
@@ -256,13 +260,13 @@ export function AppShell({
                   <button
                     key={session.id}
                     type="button"
-                    className="sidebar-recent-item"
+                    className="grid grid-cols-[minmax(0,1fr)] gap-0 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:text-text-heading"
                     data-active={isActive ? "true" : "false"}
                     aria-current={isActive ? "page" : undefined}
                     onClick={() => openSession(session.id, "/")}
                   >
-                    <span className="sidebar-recent-item-title">{session.title}</span>
-                    <span className="sidebar-recent-item-meta">{formatSessionPreview(session.updatedAt)}</span>
+                    <span className="overflow-hidden text-ellipsis whitespace-nowrap text-lg leading-[1.3] font-medium text-inherit">{session.title}</span>
+                    <span className="text-xs leading-[1.3] text-text-tertiary">{formatSessionPreview(session.updatedAt)}</span>
                   </button>
                 );
               })}
@@ -272,7 +276,7 @@ export function AppShell({
 
         <SidebarContent />
 
-        <SidebarFooter className="sidebar-bottom">
+        <SidebarFooter className="flex flex-col gap-4">
           {/*
             Single settings entry point. Tabs for General / Model live on the page.
             Keeping this as a Link (not a button) preserves
@@ -285,10 +289,10 @@ export function AppShell({
                 <NavigationMenuButton
                   asChild
                   active={isSettingsOpen}
-                  className="sidebar-nav-link sidebar-settings-link"
+                  className="group inline-flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-lg font-medium text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:font-semibold data-[active=true]:text-text-heading data-[state=selected]:bg-app-hover data-[state=selected]:font-semibold data-[state=selected]:text-text-heading"
                 >
                   <Link href={openSettingsHref}>
-                    <span className="sidebar-settings-link-icon" aria-hidden="true">
+                    <span className="inline-flex size-[18px] items-center justify-center text-current opacity-75 group-hover:opacity-100 group-data-[active=true]:opacity-100" aria-hidden="true">
                       <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="8" cy="8" r="2" />
                         <path d="M13.3 9.4a5.4 5.4 0 0 0 0-2.8l1.3-1-1.5-2.6-1.6.5a5.4 5.4 0 0 0-2.4-1.4L8.8.5H7.2l-.3 1.6a5.4 5.4 0 0 0-2.4 1.4l-1.6-.5-1.5 2.6 1.3 1a5.4 5.4 0 0 0 0 2.8l-1.3 1 1.5 2.6 1.6-.5a5.4 5.4 0 0 0 2.4 1.4l.3 1.6h1.6l.3-1.6a5.4 5.4 0 0 0 2.4-1.4l1.6.5 1.5-2.6-1.3-1z" />
@@ -301,16 +305,16 @@ export function AppShell({
             </NavigationMenuList>
           </NavigationMenu>
 
-          <div className="sidebar-status" role="status" aria-live="polite">
+          <div className="flex items-center gap-2 rounded-md border border-border-subtle bg-surface-0 px-3 py-2.5 text-sm leading-[1.4] text-text-secondary" role="status" aria-live="polite">
             <StatusDot
               status={runtimeStatus}
               size="sm"
               className="size-2"
               pulse={runtimeLifecycle === "starting" || runtimeLifecycle === "restarting"}
             />
-            <div className="sidebar-status-text">
-              <div className="sidebar-status-label">{runtimeLabel}</div>
-              <div className="sidebar-status-hint">{runtimeHint}</div>
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-text-heading">{runtimeLabel}</div>
+              <div className="text-text-tertiary">{runtimeHint}</div>
             </div>
           </div>
         </SidebarFooter>
