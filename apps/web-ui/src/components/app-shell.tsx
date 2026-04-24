@@ -181,7 +181,11 @@ export function AppShell({
   }
 
   return (
-    <div className="shell" data-desktop-shell={isDesktop ? "true" : "false"} data-desktop-platform={desktopPlatform}>
+    <div
+      className="shell grid h-screen min-h-0 grid-cols-[var(--app-shell-width)_minmax(0,1fr)] overflow-hidden bg-app-canvas max-app:h-auto max-app:min-h-screen max-app:grid-cols-1 max-app:overflow-visible"
+      data-desktop-shell={isDesktop ? "true" : "false"}
+      data-desktop-platform={desktopPlatform}
+    >
       <Sidebar className="sidebar">
         {isDesktop ? <div className="sidebar-drag-region" aria-hidden="true" /> : null}
 
@@ -312,12 +316,19 @@ export function AppShell({
         </SidebarFooter>
       </Sidebar>
 
-      <main className="main-canvas" data-has-composer={composer ? "true" : "false"}>
-        {header ? <div className="canvas-header">{header}</div> : null}
-        <div className="canvas-body">
-          <div className="canvas-scroll">{children}</div>
+      <main
+        className="grid h-screen min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-app-canvas data-[has-composer=false]:grid-rows-[auto_minmax(0,1fr)] max-app:h-auto max-app:min-h-0 max-app:overflow-visible"
+        data-has-composer={composer ? "true" : "false"}
+      >
+        {header ? <div className="border-b border-border-subtle bg-app-canvas px-[var(--app-page-padding-x)] pt-5 pb-4">{header}</div> : null}
+        <div className="canvas-body min-h-0 overflow-auto">
+          <div className="mx-auto flex max-w-[var(--app-content-max-width)] flex-col gap-[var(--app-section-gap)] px-[var(--app-page-padding-x)] pt-6 pb-8">{children}</div>
         </div>
-        {composer ? <div className="canvas-composer">{composer}</div> : null}
+        {composer ? (
+          <div className="border-t border-border-subtle bg-app-canvas [&>*]:mx-auto [&>*]:max-w-[var(--app-content-max-width)] [&>*]:px-[var(--app-page-padding-x)] [&>*]:pt-4 [&>*]:pb-5">
+            {composer}
+          </div>
+        ) : null}
       </main>
 
     </div>

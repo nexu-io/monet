@@ -234,15 +234,6 @@ textarea {
  * Shell: light sidebar + centered main canvas
  * ============================================================ */
 
-.shell {
-  display: grid;
-  grid-template-columns: var(--app-shell-width) minmax(0, 1fr);
-  height: 100vh;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--app-canvas-bg);
-}
-
 .sidebar {
   position: sticky;
   top: 0;
@@ -472,54 +463,6 @@ textarea {
 
 .sidebar-status-hint {
   color: var(--color-text-tertiary);
-}
-
-/* ============================================================
- * Main canvas
- * ============================================================ */
-
-.main-canvas {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  height: 100vh;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--app-canvas-bg);
-}
-
-.main-canvas[data-has-composer="false"] {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-.canvas-header {
-  padding: calc(var(--spacing) * 5) var(--app-page-padding-x) calc(var(--spacing) * 4);
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--app-canvas-bg);
-}
-
-.canvas-body {
-  min-height: 0;
-  overflow: auto;
-}
-
-.canvas-scroll {
-  max-width: var(--app-content-max-width);
-  margin: 0 auto;
-  padding: calc(var(--spacing) * 6) var(--app-page-padding-x) calc(var(--spacing) * 8);
-  display: flex;
-  flex-direction: column;
-  gap: var(--app-section-gap);
-}
-
-.canvas-composer {
-  border-top: 1px solid var(--color-border-subtle);
-  background: var(--app-canvas-bg);
-}
-
-.canvas-composer > * {
-  max-width: var(--app-content-max-width);
-  margin: 0 auto;
-  padding: calc(var(--spacing) * 4) var(--app-page-padding-x) calc(var(--spacing) * 5);
 }
 
 /* ============================================================
@@ -1599,13 +1542,6 @@ textarea {
  * ============================================================ */
 
 @media (max-width: 960px) {
-  .shell {
-    grid-template-columns: 1fr;
-    height: auto;
-    min-height: 100vh;
-    overflow: visible;
-  }
-
   .sidebar {
     position: static;
     height: auto;
@@ -1616,13 +1552,6 @@ textarea {
 
   .session-browser-layout {
     grid-template-columns: 1fr;
-  }
-
-  .main-canvas,
-  .main-canvas[data-has-composer="false"] {
-    height: auto;
-    min-height: auto;
-    overflow: visible;
   }
 
   .conversation-header,
