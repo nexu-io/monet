@@ -428,6 +428,44 @@ Acceptable `@apply` usage is limited to tiny global base patterns that cannot re
 
 ## 8. Residual `globals.css` Contract
 
+Establish this contract before migrating component slices so reviewers can tell
+the difference between temporary coexistence CSS and approved long-term globals.
+Feature CSS must stay in place until the owning slice is migrated and verified;
+do not delete broad blocks early just because the final contract is smaller.
+
+Approved final residuals are limited to:
+
+- token, `@nexu-design/ui-web`, and Tailwind imports
+- Tailwind theme, custom variant, and token alias declarations
+- `:root` app variables such as shell widths, content widths, page padding,
+  section gaps, and app surface aliases
+- `html[data-theme="light"]` / `html[data-theme="dark"]` theme switching and
+  theme-scoped app variable overrides
+- base element styles for `html`, `body`, anchors, and form controls where they
+  intentionally overlap with Tailwind Preflight
+- accessibility or utility globals that are used outside React-controlled markup,
+  such as `.sr-only` and `.mono`
+- media queries that only adjust global app variables such as page padding
+- keyframes and unavoidable animation primitives
+- rendered rich-text/prose/pre/code rules where descendants are generated or not
+  practical to decorate with direct Tailwind utilities
+- unavoidable `@nexu-design/ui-web` slot overrides, documented by selector, when
+  the primitive API does not expose a className/prop hook for the rendered slot
+
+Not approved as final residuals:
+
+- app-authored page or component class families (`shell`, `sidebar`, `welcome-*`,
+  `conversation-*`, `composer-*`, `chat-*`, `session-*`, `settings-*`)
+- generic helper classes (`stack`, `stack-tight`, `grid`, `split`, `card`,
+  `card-muted`, `hero`, `pill`, `badge`, `status-*`, list helpers)
+- global descendant selectors for React-controlled markup that can receive direct
+  Tailwind classes or move into a small React component
+- new `@apply` recreations of old global helpers
+
+During slice migration, remove only the CSS blocks whose TSX references were
+converted in that slice, then verify no stale references remain for those exact
+legacy class names.
+
 After migration, `globals.css` should be limited to roughly this shape:
 
 ```css

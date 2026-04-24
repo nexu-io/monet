@@ -19,6 +19,24 @@
  * links, and form-control font inheritance where they overlap with Preflight.
  * Existing ui-web primitive classes remain styled by the ui-web import; later
  * app utilities/slot overrides may deliberately override them where needed.
+ *
+ * Residual globals.css contract for the Tailwind migration:
+ *   Allowed to remain global:
+ *      - token/ui-web/Tailwind imports and Tailwind theme/variant declarations
+ *      - :root app variables and html[data-theme] theme switching
+ *      - base element rules for html/body/a/form controls and .sr-only/.mono
+ *      - global media overrides that only adjust app variables
+ *      - keyframes and animation primitives that cannot be expressed locally
+ *      - rendered rich-text/prose/pre/code rules where descendants are not
+ *        React-controlled markup
+ *      - narrow @nexu-design/ui-web [data-slot] overrides when no component prop
+ *        or direct className can reach the rendered slot
+ *   Not allowed as final residuals:
+ *      - app-authored page/component class families such as shell/sidebar/chat,
+ *        welcome/session/settings/composer/conversation helpers, card/pill/badge,
+ *        stack/grid/split/list helpers, or descendant selectors for controlled TSX
+ *   Migration safety: keep feature CSS until its slice is migrated and verified;
+ *   delete only the CSS block owned by the slice being converted.
  * ============================================================ */
 
 @import "@nexu-design/tokens/styles.css";
