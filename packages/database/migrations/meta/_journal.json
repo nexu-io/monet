@@ -15,6 +15,13 @@
       "when": 1760000001000,
       "tag": "0001_authorized_directories",
       "breakpoints": false
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1760000002000,
+      "tag": "0002_run_budget_counters",
+      "breakpoints": false
     }
   ]
 }

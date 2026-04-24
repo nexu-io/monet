@@ -139,6 +139,37 @@ test("startup recovery marks running runs interrupted and pending runs failed", 
   }
 });
 
+test("run progress persists cumulative token and tool-call usage across continuations", () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_usage",
+          role: "user",
+          parts: [{ type: "text", text: "hello" }]
+        }
+      ]
+    });
+
+    fixture.storage.updateRunProgress({
+      runId: prepared.runId,
+      currentStep: 1,
+      consumedTokens: 123,
+      consumedToolCalls: 2
+    });
+
+    const run = fixture.storage.getRunContext(prepared.runId);
+
+    assert.equal(run.currentStep, 1);
+    assert.equal(run.consumedTokens, 123);
+    assert.equal(run.consumedToolCalls, 2);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("stop endpoint returns ok for an active run", async () => {
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
   const runRegistry = createRunRegistry();
@@ -247,6 +278,8 @@ test("continue endpoint rejects runs that have exhausted their max-step budget",
             providerId: "openai",
             modelId: "gpt-4o-mini",
             currentStep: 1,
+            consumedTokens: 0,
+            consumedToolCalls: 0,
             maxSteps: 1,
             maxTokensPerRun: null,
             wallClockDeadlineAt: null

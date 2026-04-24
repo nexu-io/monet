@@ -157,6 +157,8 @@ export function registerRunRoutes(
           modelId: run.modelId,
           runId,
           currentStep: run.currentStep,
+          consumedTokens: run.consumedTokens,
+          consumedToolCalls: run.consumedToolCalls,
           maxSteps: remainingSteps,
           maxTokensPerRun: run.maxTokensPerRun,
           wallClockDeadlineAt: run.wallClockDeadlineAt

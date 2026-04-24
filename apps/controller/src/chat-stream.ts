@@ -24,6 +24,8 @@ export interface ChatStreamRequest {
   readonly modelId: string;
   readonly runId: string;
   readonly currentStep?: number;
+  readonly consumedTokens?: number;
+  readonly consumedToolCalls?: number;
   readonly maxSteps: number;
   readonly maxTokensPerRun: number | null;
   readonly wallClockDeadlineAt: string | null;
@@ -35,6 +37,17 @@ function toModelMessages(messages: UIMessage[]) {
 
 export function resolveCurrentRunStep(currentStep: number, stepNumber: number) {
   return Math.max(0, currentStep) + stepNumber + 1;
+}
+
+export function resolveObservedRunUsage(request: Pick<ChatStreamRequest, "consumedTokens" | "consumedToolCalls">) {
+  return {
+    consumedTokens: Math.max(0, request.consumedTokens ?? 0),
+    consumedToolCalls: Math.max(0, request.consumedToolCalls ?? 0)
+  };
+}
+
+export function isExpiredWallClockBudget(wallClockDeadlineAt: number, startedAt: number) {
+  return Number.isFinite(wallClockDeadlineAt) && wallClockDeadlineAt <= startedAt;
 }
 
 function isApprovalRequestedToolPart(part: unknown): part is {
@@ -80,9 +93,10 @@ export async function createChatStreamResponse(options: {
   const abortController = new AbortController();
   let runFinishReason: RunFinishReason | null = null;
   const persistedCurrentStep = Math.max(0, request.currentStep ?? 0);
+  const initialUsage = resolveObservedRunUsage(request);
   let observedStepCount = persistedCurrentStep;
-  let observedTokenCount = 0;
-  let observedToolCallCount = 0;
+  let observedTokenCount = initialUsage.consumedTokens;
+  let observedToolCallCount = initialUsage.consumedToolCalls;
   let finalizedRun = false;
 
   const abortRun = (reason: RunFinishReason) => {
@@ -112,6 +126,8 @@ export async function createChatStreamResponse(options: {
     maxToolCallsPerRun: options.runtime.maxToolCallsPerRun,
     availableToolCount: Object.keys(runtimeTools).length,
     messageCount: messages.length,
+    consumedTokens: observedTokenCount,
+    consumedToolCalls: observedToolCallCount,
     wallClockDeadlineAt: request.wallClockDeadlineAt
   });
 
@@ -132,12 +148,23 @@ export async function createChatStreamResponse(options: {
   );
   const wallClockDeadlineAt = new Date(request.wallClockDeadlineAt ?? effectiveBudget.wallClockDeadlineAt).getTime();
   const wallClockBudgetMs = Math.max(0, wallClockDeadlineAt - startedAt);
+  if (wallClockBudgetMs === 0 && isExpiredWallClockBudget(wallClockDeadlineAt, startedAt)) {
+    abortRun("wall_clock_budget_exceeded");
+  }
   const wallClockTimer =
     wallClockBudgetMs > 0
       ? setTimeout(() => {
           abortRun("wall_clock_budget_exceeded");
         }, wallClockBudgetMs)
       : null;
+
+  if (typeof request.maxTokensPerRun === "number" && observedTokenCount > request.maxTokensPerRun) {
+    abortRun("token_budget_exceeded");
+  }
+
+  if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
+    abortRun("tool_call_budget_exceeded");
+  }
 
   const abortRequestHandler = () => {
     abortRun("request_aborted");
@@ -247,7 +274,9 @@ export async function createChatStreamResponse(options: {
 
       options.chatStorage.updateRunProgress({
         runId: request.runId,
-        currentStep: observedStepCount
+        currentStep: observedStepCount,
+        consumedTokens: observedTokenCount,
+        consumedToolCalls: observedToolCallCount
       });
 
       runtimeLogger.info("chat.run_step_finished", {

@@ -111,6 +111,8 @@ interface RunRow {
   readonly provider_id: string;
   readonly model_id: string;
   readonly current_step: number;
+  readonly consumed_tokens: number;
+  readonly consumed_tool_calls: number;
   readonly max_steps: number;
   readonly max_tokens_per_run: number | null;
   readonly wall_clock_deadline_at: string | null;
@@ -191,6 +193,8 @@ export interface StoredRunContext {
   readonly providerId: string;
   readonly modelId: string;
   readonly currentStep: number;
+  readonly consumedTokens: number;
+  readonly consumedToolCalls: number;
   readonly maxSteps: number;
   readonly maxTokensPerRun: number | null;
   readonly wallClockDeadlineAt: string | null;
@@ -252,6 +256,8 @@ export interface ResolvedChatRequest {
   readonly modelId: string;
   readonly runId: string;
   readonly maxSteps: number;
+  readonly consumedTokens: number;
+  readonly consumedToolCalls: number;
   readonly maxTokensPerRun: number | null;
   readonly wallClockDeadlineAt: string | null;
 }
@@ -318,7 +324,7 @@ export interface ChatStorage {
   failToolCall(options: { toolCallId: string; errorMessage: string }): void;
   markRunAwaitingConfirmation(runId: string): void;
   resumeRun(runId: string): void;
-  updateRunProgress(options: { runId: string; currentStep: number }): void;
+  updateRunProgress(options: { runId: string; currentStep: number; consumedTokens?: number; consumedToolCalls?: number }): void;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
   interruptRun(options: { runId: string; finishReason: string }): InterruptRunResult;
@@ -797,6 +803,8 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         modelId: target.modelId,
         runId,
         maxSteps: Math.max(1, input.maxSteps ?? 1),
+        consumedTokens: 0,
+        consumedToolCalls: 0,
         maxTokensPerRun: input.maxTokensPerRun ?? null,
         wallClockDeadlineAt: input.wallClockDeadlineAt ?? null
       };
@@ -1063,8 +1071,10 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .run(runId);
     },
 
-    updateRunProgress({ runId, currentStep }) {
+    updateRunProgress({ runId, currentStep, consumedTokens, consumedToolCalls }) {
       const normalizedCurrentStep = Math.max(0, currentStep);
+      const normalizedConsumedTokens = Math.max(0, consumedTokens ?? 0);
+      const normalizedConsumedToolCalls = Math.max(0, consumedToolCalls ?? 0);
 
       connection
         .prepare(
@@ -1072,10 +1082,26 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
            SET current_step = CASE
              WHEN current_step > ? THEN current_step
              ELSE ?
+           END,
+           consumed_tokens = CASE
+             WHEN consumed_tokens > ? THEN consumed_tokens
+             ELSE ?
+           END,
+           consumed_tool_calls = CASE
+             WHEN consumed_tool_calls > ? THEN consumed_tool_calls
+             ELSE ?
            END
            WHERE id = ?`
         )
-        .run(normalizedCurrentStep, normalizedCurrentStep, runId);
+        .run(
+          normalizedCurrentStep,
+          normalizedCurrentStep,
+          normalizedConsumedTokens,
+          normalizedConsumedTokens,
+          normalizedConsumedToolCalls,
+          normalizedConsumedToolCalls,
+          runId
+        );
     },
 
     completeRun({ runId, finishReason }) {
@@ -1191,7 +1217,7 @@ function listRunIdsByStatus(connection: DatabaseSync, status: string) {
 function getRunRow(connection: DatabaseSync, runId: string) {
   return connection
     .prepare(
-      `SELECT id, session_id, status, provider_id, model_id, current_step, max_steps, max_tokens_per_run, wall_clock_deadline_at, finish_reason, started_at, ended_at
+      `SELECT id, session_id, status, provider_id, model_id, current_step, consumed_tokens, consumed_tool_calls, max_steps, max_tokens_per_run, wall_clock_deadline_at, finish_reason, started_at, ended_at
        FROM runs
        WHERE id = ?
        LIMIT 1`
@@ -1645,13 +1671,15 @@ function insertRun(
         provider_id,
         model_id,
         current_step,
+        consumed_tokens,
+        consumed_tool_calls,
         max_steps,
         max_tokens_per_run,
         wall_clock_deadline_at,
         finish_reason,
         started_at,
         ended_at
-      ) VALUES (?, ?, 'running', ?, ?, 0, ?, ?, ?, NULL, ?, NULL)`
+      ) VALUES (?, ?, 'running', ?, ?, 0, 0, 0, ?, ?, ?, NULL, ?, NULL)`
     )
     .run(
       run.id,
@@ -1758,6 +1786,8 @@ function mapRunRow(row: RunRow): StoredRunContext {
     providerId: row.provider_id,
     modelId: row.model_id,
     currentStep: row.current_step,
+    consumedTokens: row.consumed_tokens,
+    consumedToolCalls: row.consumed_tool_calls,
     maxSteps: row.max_steps,
     maxTokensPerRun: row.max_tokens_per_run,
     wallClockDeadlineAt: row.wall_clock_deadline_at

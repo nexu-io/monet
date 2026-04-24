@@ -31,6 +31,8 @@ export const runs = sqliteTable(
       .notNull()
       .references(() => providerModels.id),
     currentStep: integer("current_step").notNull().default(0),
+    consumedTokens: integer("consumed_tokens").notNull().default(0),
+    consumedToolCalls: integer("consumed_tool_calls").notNull().default(0),
     maxSteps: integer("max_steps").notNull(),
     maxTokensPerRun: integer("max_tokens_per_run"),
     wallClockDeadlineAt: text("wall_clock_deadline_at"),
