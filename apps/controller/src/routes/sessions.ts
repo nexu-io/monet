@@ -258,6 +258,16 @@ function createSessionLookupErrorResponse(error: unknown) {
   };
 }
 
+async function parseOptionalJsonBody(request: { text: () => Promise<string> }) {
+  const rawBody = await request.text();
+
+  if (!rawBody.trim()) {
+    return {};
+  }
+
+  return JSON.parse(rawBody) as unknown;
+}
+
 export function registerSessionRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
   app.openapi(listSessionsRoute, (context) => {
     return context.json(
@@ -272,7 +282,7 @@ export function registerSessionRoutes(app: ControllerApp, options: { getChatStor
     let payload: unknown = {};
 
     try {
-      payload = await context.req.json();
+      payload = await parseOptionalJsonBody(context.req);
     } catch {
       return context.json(createErrorResponse("invalid_request", "Malformed JSON request body."), 400);
     }

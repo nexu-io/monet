@@ -69,3 +69,28 @@ test("create session route rejects malformed JSON bodies", async () => {
     fixture.cleanup();
   }
 });
+
+test("create session route accepts an empty body", async () => {
+  const fixture = createFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    registerSessionRoutes(app, {
+      getChatStorage: () => storage
+    });
+
+    const response = await app.request("http://127.0.0.1:3030/api/sessions", {
+      method: "POST"
+    });
+
+    assert.equal(response.status, 201);
+
+    const session = (await response.json()) as { id: string; title: string | null };
+    assert.equal(typeof session.id, "string");
+    assert.equal(session.title, null);
+    assert.equal(storage.listSessions().length, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});

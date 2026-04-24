@@ -9,6 +9,7 @@ import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen
 
 import { clearRuntimeChildOnExit, sendUtilityProcessSignal, waitForUtilityProcessExit } from "./controller-process";
 import { createLogger } from "./logger";
+import { isAllowedMainWindowNavigation, shouldOpenNavigationExternally } from "./navigation";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
 import { createDesktopUpdater, type UpdateStatePayload } from "./updater";
 
@@ -325,22 +326,15 @@ async function createMainWindow(runtime: ControllerRuntime) {
   });
 
   window.webContents.on("will-navigate", (event, url) => {
-    const rendererUrl = process.env.MONET_DESKTOP_RENDERER_URL?.trim();
-
-    if (rendererUrl?.startsWith("http") && url.startsWith(rendererUrl)) {
-      return;
-    }
-
-    if (url.startsWith(desktopRendererOrigin)) {
-      return;
-    }
-
-    if (url.startsWith("file://")) {
+    if (isAllowedMainWindowNavigation(url, process.env.MONET_DESKTOP_RENDERER_URL)) {
       return;
     }
 
     event.preventDefault();
-    void shell.openExternal(url);
+
+    if (shouldOpenNavigationExternally(url)) {
+      void shell.openExternal(url);
+    }
   });
 
   window.webContents.on("before-input-event", (event, input) => {
