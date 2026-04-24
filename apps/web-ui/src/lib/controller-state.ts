@@ -86,7 +86,7 @@ export function useControllerState() {
       setConfig(getMonetClientConfig());
       return result;
     } catch (error) {
-      setRestartError(error instanceof Error ? error.message : "Unable to restart the local controller.");
+      setRestartError(error instanceof Error ? error.message : "Unable to restart the local workspace.");
       throw error;
     } finally {
       setRestartPending(false);

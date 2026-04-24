@@ -104,14 +104,21 @@ textarea {
 .shell {
   display: grid;
   grid-template-columns: var(--app-shell-width) minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: var(--app-canvas-bg);
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
   gap: calc(var(--spacing) * 5);
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--color-border-subtle);
   background: var(--app-sidebar-bg);
   padding: calc(var(--spacing) * 5) calc(var(--spacing) * 4);
@@ -341,7 +348,9 @@ textarea {
 .main-canvas {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: var(--app-canvas-bg);
 }
 
@@ -1348,86 +1357,129 @@ textarea {
 }
 
 /* ============================================================
- * Settings sheet
+ * Settings page (main area with tabs)
  * ============================================================ */
 
-.settings-sheet-root {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
+.settings-page {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.settings-sheet-backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: rgb(0 0 0 / 0.35);
-  backdrop-filter: blur(4px);
-  cursor: pointer;
-}
-
-.settings-sheet {
-  position: relative;
-  width: min(calc(var(--spacing) * 124), 100vw);
-  height: 100vh;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: calc(var(--spacing) * 4);
-  padding: calc(var(--spacing) * 5);
-  border-left: 1px solid var(--color-border-subtle);
+.settings-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing) * 1);
+  padding: calc(var(--spacing) * 5) calc(var(--spacing) * 6) calc(var(--spacing) * 3);
+  border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface-1);
-  box-shadow: var(--shadow-overlay);
 }
 
-.settings-sheet-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: calc(var(--spacing) * 4);
-}
-
-.settings-sheet-header h2 {
+.settings-page-header h2 {
   margin: 0;
   color: var(--color-text-heading);
   font-family: var(--font-heading);
-  font-size: var(--text-size-3xl);
+  font-size: var(--text-size-2xl);
   font-weight: var(--text-weight-bold);
   letter-spacing: -0.01em;
 }
 
-.settings-sheet-nav {
-  display: grid;
-  gap: calc(var(--spacing) * 2);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.settings-sheet-nav-link {
+.settings-page-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--spacing) * 1);
-  padding: calc(var(--spacing) * 3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-2);
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard);
+  padding: 0;
+  overflow: hidden;
 }
 
-.settings-sheet-nav-link:hover,
-.settings-sheet-nav-link[data-active="true"] {
-  border-color: var(--color-border-strong);
+.settings-page-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.settings-page-tabs-list {
+  display: inline-flex;
+  gap: calc(var(--spacing) * 1);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 6) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface-1);
 }
 
-.settings-sheet-body {
+.settings-page-tab-trigger {
+  position: relative;
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-size: var(--text-size-sm);
+  font-weight: var(--text-weight-medium);
+  cursor: pointer;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  transition: color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.settings-page-tab-trigger:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-2);
+}
+
+.settings-page-tab-trigger[data-state="active"] {
+  color: var(--color-text-heading);
+}
+
+.settings-page-tab-trigger[data-state="active"]::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--spacing) * 2);
+  right: calc(var(--spacing) * 2);
+  bottom: -1px;
+  height: 2px;
+  background: hsl(var(--accent));
+  border-radius: 2px 2px 0 0;
+}
+
+.settings-page-tab-content {
+  flex: 1;
   min-height: 0;
   overflow: auto;
+  padding: calc(var(--spacing) * 5) calc(var(--spacing) * 6);
   display: flex;
   flex-direction: column;
   gap: var(--app-section-gap);
-  padding-right: calc(var(--spacing) * 1);
+}
+
+.settings-page-tab-content[data-state="inactive"] {
+  display: none;
+}
+
+.sidebar-settings-link {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+}
+
+.sidebar-settings-link-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+  opacity: 0.75;
+}
+
+.sidebar-settings-link[data-active="true"] .sidebar-settings-link-icon,
+.sidebar-settings-link:hover .sidebar-settings-link-icon {
+  opacity: 1;
 }
 
 .settings-models-layout {
@@ -1643,9 +1695,15 @@ textarea {
 @media (max-width: 960px) {
   .shell {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .sidebar {
+    position: static;
+    height: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--color-border-subtle);
   }
@@ -1657,7 +1715,9 @@ textarea {
 
   .main-canvas,
   .main-canvas[data-has-composer="false"] {
+    height: auto;
     min-height: auto;
+    overflow: visible;
   }
 
   .conversation-header,
@@ -1680,12 +1740,17 @@ textarea {
     gap: calc(var(--spacing) * 7);
   }
 
-  .settings-sheet {
-    width: min(calc(var(--spacing) * 104), 100vw);
+
+  .settings-page-tab-content {
+    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 4);
   }
 
-  .settings-sheet-nav {
-    grid-template-columns: 1fr;
+  .settings-page-tabs-list {
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 4) 0;
+  }
+
+  .settings-page-header {
+    padding: calc(var(--spacing) * 4) calc(var(--spacing) * 4) calc(var(--spacing) * 3);
   }
 
   .settings-provider-grid {
@@ -1702,13 +1767,13 @@ textarea {
     --app-page-padding-x: calc(var(--spacing) * 4);
   }
 
-  .settings-sheet {
-    width: 100vw;
+
+  .settings-page-header {
     padding: calc(var(--spacing) * 4);
   }
 
-  .settings-sheet-header {
-    flex-direction: column;
+  .settings-page-tab-content {
+    padding: calc(var(--spacing) * 4);
   }
 
   .settings-title-row,

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReadonlyURLSearchParams } from "next/navigation";
 import {
   Badge,
   Button,
@@ -22,37 +21,20 @@ import {
 import { PROVIDER_READINESS_EVENT } from "../lib/provider-readiness";
 import { useTheme, type AppTheme } from "./theme-provider";
 
-export const SETTINGS_QUERY_PARAM = "settings";
-
 export const settingsPanels = [
+  {
+    id: "general",
+    title: "General Settings",
+    description: "Workspace preferences, appearance, and filesystem access."
+  },
   {
     id: "models",
     title: "Model Settings",
     description: "Provider and model configuration."
-  },
-  {
-    id: "general",
-    title: "General Settings",
-    description: "Desktop runtime and connectivity preferences."
   }
 ] as const;
 
 export type SettingsPanelId = (typeof settingsPanels)[number]["id"];
-
-const runtimeSettings = [
-  {
-    title: "Controller endpoint",
-    detail: "Resolved from preload in Electron, with public env fallback for browser-only local development."
-  },
-  {
-    title: "Local auth token",
-    detail: "Passed as a bearer token so the controller can reject unexpected local requests."
-  },
-  {
-    title: "Desktop health state",
-    detail: "A dedicated service-status UI can be layered here once Electron reports controller crash events."
-  }
-];
 
 type AsyncState<T> = {
   readonly loading: boolean;
@@ -134,7 +116,7 @@ const validationReasonMeta: Record<
     label: "No enabled models",
     badgeVariant: "warning",
     dotStatus: "warning",
-    guidance: "The controller can see this provider, but no enabled chat models are currently available."
+    guidance: "This provider is configured, but no enabled chat models are currently available."
   },
   missing_default_model: {
     label: "Default model missing",
@@ -158,7 +140,7 @@ const validationReasonMeta: Record<
     label: "Provider API error",
     badgeVariant: "destructive",
     dotStatus: "error",
-    guidance: "The controller could not complete a live provider check. Retry after fixing network, base URL, or credential issues."
+    guidance: "The live provider check could not complete. Retry after fixing network, base URL, or credential issues."
   }
 };
 
@@ -287,7 +269,6 @@ function ValidationBadge({ state }: { state: ProviderValidationState | null | un
 }
 
 function GeneralSettingsPanel() {
-  const config = getMonetClientConfig();
   const desktopApi = getDesktopApi();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [authorizedDirectoriesState, setAuthorizedDirectoriesState] = useState<AuthorizedDirectoriesState>(
@@ -496,7 +477,7 @@ function GeneralSettingsPanel() {
         <CardContent className="stack">
           <div className="settings-provider-item-meta muted">
             <span>{authorizedDirectories.length} authorized</span>
-            <span>Persisted in the local controller database</span>
+              <span>Saved to your local workspace</span>
           </div>
 
           <label className="settings-secret-field">
@@ -566,7 +547,7 @@ function GeneralSettingsPanel() {
             <span className="eyebrow">Local storage</span>
             <CardTitle>Data directory</CardTitle>
             <CardDescription className="muted">
-              Monet stores desktop state, secrets metadata, window state, and the local controller database in the app data directory.
+              Monet stores desktop state, secrets metadata, window state, and your local workspace database in the app data directory.
             </CardDescription>
           </div>
         </CardHeader>
@@ -642,49 +623,6 @@ function GeneralSettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card className="card stack">
-        <CardHeader>
-          <div className="stack-tight">
-            <span className="eyebrow">Desktop runtime</span>
-            <CardTitle>Renderer runtime settings</CardTitle>
-            <CardDescription className="muted">Inspect how this renderer is currently connected to the local controller.</CardDescription>
-          </div>
-        </CardHeader>
-
-        <CardContent className="stack">
-          <ul className="kv-list">
-            <li>
-              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
-                <strong>Controller endpoint</strong>
-                <div className="muted mono">{config.apiBase}</div>
-              </Card>
-            </li>
-            <li>
-              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
-                <strong>Configuration source</strong>
-                <div className="muted">{config.source}</div>
-              </Card>
-            </li>
-            <li>
-              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
-                <strong>Local auth token</strong>
-                <div className="muted">{config.bearerToken ? "Configured" : "Not configured"}</div>
-              </Card>
-            </li>
-          </ul>
-
-          <ul className="kv-list">
-            {runtimeSettings.map((item) => (
-              <li key={item.title}>
-                <Card variant="muted" padding="sm" className="card card-muted stack-tight">
-                  <strong>{item.title}</strong>
-                  <div className="muted">{item.detail}</div>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -929,8 +867,8 @@ function ModelSettingsPanel() {
       setSecretInput("");
       setSecretFeedback(
         restartResult?.restarted === false
-          ? "Secret saved to secure storage. Restart the external controller manually before revalidating provider access."
-          : "Secret saved to secure storage and the local controller was restarted."
+          ? "Secret saved to secure storage. Restart the workspace manually before revalidating provider access."
+          : "Secret saved to secure storage and the workspace was restarted."
       );
     } catch (error) {
       setSecretFeedback(error instanceof Error ? error.message : "Unable to save the provider secret.");
@@ -970,8 +908,8 @@ function ModelSettingsPanel() {
       setSecretInput("");
       setSecretFeedback(
         restartResult?.restarted === false
-          ? "Saved secret cleared. Restart the external controller manually if it should stop using any previous environment-based credentials."
-          : "Saved secret cleared and the local controller was restarted."
+          ? "Saved secret cleared. Restart the workspace manually if it should stop using any previous environment-based credentials."
+          : "Saved secret cleared and the workspace was restarted."
       );
     } catch (error) {
       setSecretFeedback(error instanceof Error ? error.message : "Unable to clear the provider secret.");
@@ -987,7 +925,7 @@ function ModelSettingsPanel() {
           <div className="stack-tight">
             <span className="eyebrow">Provider configuration</span>
             <CardTitle>Model routing and defaults</CardTitle>
-            <CardDescription className="muted">Loading providers, models, and validation status from the local controller.</CardDescription>
+            <CardDescription className="muted">Loading providers, models, and validation status from your workspace.</CardDescription>
           </div>
         </CardHeader>
 
@@ -1008,7 +946,7 @@ function ModelSettingsPanel() {
           <div className="stack-tight">
             <span className="eyebrow">Provider configuration</span>
             <CardTitle>Model routing and defaults</CardTitle>
-            <CardDescription className="muted">The settings sheet could not load provider metadata from the controller.</CardDescription>
+            <CardDescription className="muted">Settings could not load provider metadata from your workspace.</CardDescription>
           </div>
         </CardHeader>
 
@@ -1096,7 +1034,7 @@ function ModelSettingsPanel() {
               </li>
               <li>
                 <Card variant="muted" padding="sm" className="card card-muted">
-                  Re-run validation after local provider setup changes so the controller refreshes the model catalog.
+                  Re-run validation after local provider setup changes so the model catalog is refreshed.
                 </Card>
               </li>
             </ul>
@@ -1226,7 +1164,7 @@ function ModelSettingsPanel() {
                     {secretStorageState.error ?? secretStorageState.data?.message ?? browserSecretStorageSnapshot.message}
                   </p>
                   <p className="muted">
-                    Saved secrets are injected into the managed controller at startup. Explicit environment variables still take precedence.
+                    Saved secrets are loaded on startup. Explicit environment variables still take precedence.
                   </p>
 
                   <label className="settings-secret-field">
@@ -1264,7 +1202,7 @@ function ModelSettingsPanel() {
 
                   {secretStorageState.data?.reason === "linux_keyring_unavailable" ? (
                     <p className="muted">
-                      Linux fallback: secret persistence stays disabled until a supported system keyring is available. Validation can still succeed when the controller is started with provider credentials in the environment.
+                      Linux fallback: secret persistence stays disabled until a supported system keyring is available. Validation can still succeed when provider credentials are supplied through environment variables.
                     </p>
                   ) : null}
 
@@ -1304,7 +1242,7 @@ function ModelSettingsPanel() {
                 <div className="stack-tight">
                   <span className="eyebrow">Enabled catalog</span>
                   <CardTitle>Provider models</CardTitle>
-                  <CardDescription className="muted">The controller refreshes this list from the selected provider when the panel loads.</CardDescription>
+                  <CardDescription className="muted">This list is refreshed from the selected provider when the panel loads.</CardDescription>
                 </div>
               </CardHeader>
 
@@ -1353,28 +1291,6 @@ function ModelSettingsPanel() {
       </div>
     </div>
   );
-}
-
-export function isSettingsPanelId(value: string | null): value is SettingsPanelId {
-  return settingsPanels.some((panel) => panel.id === value);
-}
-
-export function getSettingsHref(
-  pathname: string,
-  searchParams: URLSearchParams | ReadonlyURLSearchParams,
-  panelId: SettingsPanelId | null
-) {
-  const params = new URLSearchParams(searchParams.toString());
-
-  if (panelId) {
-    params.set(SETTINGS_QUERY_PARAM, panelId);
-  } else {
-    params.delete(SETTINGS_QUERY_PARAM);
-  }
-
-  const query = params.toString();
-
-  return query ? `${pathname}?${query}` : pathname;
 }
 
 export function SettingsPanelContent({ panelId }: { panelId: SettingsPanelId }) {

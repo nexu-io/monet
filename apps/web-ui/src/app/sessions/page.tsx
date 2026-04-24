@@ -47,14 +47,14 @@ export default function SessionsPage() {
     <PageFrame
       pathname="/sessions"
       title="Sessions"
-      description="A static-export-safe entry point for browsing conversation history from the local controller."
+      description="Browse, rename, and archive your saved chat sessions."
     >
       <section className="session-browser-layout">
         <Card className="card stack">
           <CardHeader>
             <div className="stack-tight">
               <span className="eyebrow">Session browser</span>
-              <CardTitle>Controller-backed history surface</CardTitle>
+              <CardTitle>Session history</CardTitle>
             </div>
             <CardDescription className="muted">
               Rename, archive, and inspect persisted session detail without leaving the static renderer shell.

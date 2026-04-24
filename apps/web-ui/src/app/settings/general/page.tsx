@@ -1,7 +1,7 @@
 "use client";
 
-import { SettingsRouteRedirect } from "../../../components/settings-route-redirect";
+import { SettingsPanelContent } from "../../../components/settings-panel-content";
 
 export default function GeneralSettingsPage() {
-  return <SettingsRouteRedirect panelId="general" />;
+  return <SettingsPanelContent panelId="general" />;
 }

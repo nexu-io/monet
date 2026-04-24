@@ -4,7 +4,6 @@ import { createContext, startTransition, useContext, useEffect, useMemo, useRef,
 import type { ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { SETTINGS_QUERY_PARAM } from "./settings-panel-content";
 import {
   archiveSession as archiveSessionRequest,
   createSession as createSessionRequest,
@@ -273,16 +272,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       hasForcedProviderSetupRef.current = false;
     }
 
-    if (shouldForceProviderSetup && params.get(SETTINGS_QUERY_PARAM) === "models") {
+    if (shouldForceProviderSetup && !hasForcedProviderSetupRef.current) {
       hasForcedProviderSetupRef.current = true;
+      startTransition(() => {
+        router.replace("/settings/models");
+      });
+      return;
     }
-
-    if (shouldForceProviderSetup && !hasForcedProviderSetupRef.current && params.get(SETTINGS_QUERY_PARAM) !== "models") {
-      params.set(SETTINGS_QUERY_PARAM, "models");
-      hasForcedProviderSetupRef.current = true;
-      changed = true;
-    }
-
     if (!currentSessionId) {
       const nextSession = sessions.find((session) => session.archivedAt === null) ?? null;
 

@@ -7,7 +7,7 @@ import { AppProviders } from "./providers";
 
 export const metadata: Metadata = {
   title: "Monet",
-  description: "Desktop-first agent chat UI shell for the Monet controller."
+  description: "Desktop-first agent chat UI for your local Monet workspace."
 };
 
 type RootLayoutProps = {

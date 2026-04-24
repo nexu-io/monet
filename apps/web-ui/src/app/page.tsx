@@ -10,8 +10,8 @@ import { Composer } from "../components/composer";
 import { ConversationHeader } from "../components/conversation-header";
 import { PageFrame } from "../components/page-frame";
 import { WelcomeHome } from "../components/welcome-home";
-import { getSettingsHref } from "../components/settings-panel-content";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
+import { sanitizeInternalRuntimeMessage } from "../components/workspace-copy";
 import { useControllerState } from "../lib/controller-state";
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
@@ -273,7 +273,7 @@ function SessionChatSurface({
     <PageFrame
       pathname="/"
       title="Chat"
-      description="Desktop-first chat shell wired for a local Hono controller and ready for AI SDK UI message rendering."
+      description="Desktop-first chat shell wired to your local workspace with streaming AI SDK UI message rendering."
       onDesktopStopShortcut={handleStop}
       header={(
         <ConversationHeader
@@ -345,7 +345,7 @@ export default function HomePage() {
 
   const activeSessions = sessions.filter((session) => session.archivedAt === null);
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
-  const modelSettingsHref = getSettingsHref("/", new URLSearchParams(), "models");
+  const modelSettingsHref = "/settings/models";
   const controllerStateLabel = controllerState?.state;
   const readyProviders = providerReadiness.data?.readyProviders ?? [];
   const activeProviderTarget =
@@ -372,7 +372,7 @@ export default function HomePage() {
     await createSession({ pathname: "/" });
   }
 
-  // Welcome surface: no hydrated session detail OR controller is still
+  // Welcome surface: no hydrated session detail OR the local workspace is still
   // starting up / blocked on provider setup.
   if (!currentSessionDetail) {
     const controllerOffline =
@@ -382,9 +382,9 @@ export default function HomePage() {
     const composerDisabled =
       providerSetupRequired || controllerOffline || controllerBooting;
     const composerDisabledReason = controllerOffline
-      ? controllerState?.message ?? "Restart the local controller to continue."
+      ? sanitizeInternalRuntimeMessage(controllerState?.message) ?? "Restart your local workspace to continue."
       : controllerBooting
-        ? "Waiting for the local controller…"
+        ? "Waiting for your local workspace…"
         : providerSetupRequired
           ? "Finish model setup to start chatting."
           : sessionsError ?? undefined;
@@ -412,7 +412,7 @@ export default function HomePage() {
               onClick={() => void restartController()}
               disabled={restartPending}
             >
-              {restartPending ? "Restarting controller…" : "Restart controller"}
+              {restartPending ? "Restarting workspace…" : "Restart workspace"}
             </button>
           </div>
         ) : null}

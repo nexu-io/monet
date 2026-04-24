@@ -2,7 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Button,
   NavigationMenu,
@@ -18,15 +18,13 @@ import {
 } from "@nexu-design/ui-web";
 
 import { useControllerState } from "../lib/controller-state";
-import { getSettingsHref, isSettingsPanelId, type SettingsPanelId } from "./settings-panel-content";
-import { SettingsSheet } from "./settings-sheet";
 import { useSessions } from "./session-provider";
+import { sanitizeInternalRuntimeMessage } from "./workspace-copy";
 
 type NavigationItem = {
   href: string;
   label: string;
   description?: string;
-  settingsPanel?: SettingsPanelId;
 };
 
 const primaryNavItems: NavigationItem[] = [
@@ -37,19 +35,6 @@ const primaryNavItems: NavigationItem[] = [
   {
     href: "/sessions",
     label: "Sessions"
-  }
-];
-
-const settingsNavItems: NavigationItem[] = [
-  {
-    href: "/settings/models",
-    label: "Model settings",
-    settingsPanel: "models"
-  },
-  {
-    href: "/settings/general",
-    label: "General settings",
-    settingsPanel: "general"
   }
 ];
 
@@ -78,7 +63,6 @@ export function AppShell({
   onDesktopStopShortcut?: () => void;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const {
     createSession,
     currentSessionId,
@@ -88,37 +72,38 @@ export function AppShell({
     sessions
   } = useSessions();
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 6);
-  const requestedPanel = searchParams.get("settings");
-  const activeSettingsPanel = isSettingsPanelId(requestedPanel) ? requestedPanel : null;
   const isProviderReadinessLoading = providerReadiness.loading;
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const { controllerState, isDesktop } = useControllerState();
   const desktopPlatform = typeof window === "undefined" ? undefined : window.monetDesktop?.platform;
-  const controllerLifecycle = controllerState?.state;
-  const controllerLabel = controllerLifecycle === "ready"
-    ? "Controller ready"
-    : controllerLifecycle === "starting"
-      ? "Starting controller"
-      : controllerLifecycle === "restarting"
-        ? "Restarting controller"
-        : controllerLifecycle === "failed"
-          ? "Controller unavailable"
-          : controllerLifecycle === "stopped"
-            ? "Controller stopped"
+  const runtimeLifecycle = controllerState?.state;
+  const runtimeLabel = runtimeLifecycle === "ready"
+    ? "Runtime ready"
+    : runtimeLifecycle === "starting"
+      ? "Starting runtime"
+      : runtimeLifecycle === "restarting"
+        ? "Restarting runtime"
+        : runtimeLifecycle === "failed"
+          ? "Runtime unavailable"
+          : runtimeLifecycle === "stopped"
+            ? "Runtime stopped"
             : isDesktop
-              ? "Waiting for controller"
-              : "External controller";
-  const controllerStatus: "success" | "warning" | "error" | "neutral" = controllerLifecycle === "ready"
+              ? "Preparing runtime"
+              : "Browser mode";
+  const runtimeStatus: "success" | "warning" | "error" | "neutral" = runtimeLifecycle === "ready"
     ? "success"
-    : controllerLifecycle === "starting" || controllerLifecycle === "restarting"
+    : runtimeLifecycle === "starting" || runtimeLifecycle === "restarting"
       ? "warning"
-      : controllerLifecycle === "failed" || controllerLifecycle === "stopped"
+      : runtimeLifecycle === "failed" || runtimeLifecycle === "stopped"
         ? "error"
         : "neutral";
+  const runtimeHint = sanitizeInternalRuntimeMessage(controllerState?.message) ?? (isDesktop ? "Local workspace" : "Browser workspace");
+  const isSettingsOpen = pathname.startsWith("/settings");
+  const openSettingsHref = "/settings/general";
 
   async function handleCreateSession() {
     if (providerSetupRequired) {
-      router.push(getSettingsHref(pathname, searchParams, "models"));
+      router.push("/settings/models");
       return;
     }
 
@@ -139,10 +124,10 @@ export function AppShell({
       }
 
       if (action === "open-settings") {
-        router.push(getSettingsHref(pathname, searchParams, activeSettingsPanel ?? "models"));
+        router.push("/settings/general");
       }
     });
-  }, [activeSettingsPanel, onDesktopStopShortcut, pathname, router, searchParams]);
+  }, [onDesktopStopShortcut, pathname, router]);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -164,8 +149,8 @@ export function AppShell({
 
       event.preventDefault();
 
-      if (activeSettingsPanel) {
-        router.push(getSettingsHref(pathname, searchParams, null));
+      if (pathname.startsWith("/settings")) {
+        router.push("/");
         return;
       }
 
@@ -185,14 +170,10 @@ export function AppShell({
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [activeSettingsPanel, isDesktop, onDesktopStopShortcut, pathname, router, searchParams]);
+  }, [isDesktop, onDesktopStopShortcut, pathname, router]);
 
   function isNavItemActive(item: NavigationItem) {
-    if (item.settingsPanel) {
-      return activeSettingsPanel === item.settingsPanel;
-    }
-
-    return pathname === item.href && activeSettingsPanel === null;
+    return pathname === item.href && !pathname.startsWith("/settings");
   }
 
   return (
@@ -205,7 +186,7 @@ export function AppShell({
             <span className="sidebar-brand-mark" aria-hidden="true">M</span>
             <div className="stack-tight">
               <span className="sidebar-brand-name">Monet</span>
-              <span className="sidebar-brand-tag">Local agent runtime</span>
+              <span className="sidebar-brand-tag">Your local AI workspace</span>
             </div>
           </div>
 
@@ -227,7 +208,7 @@ export function AppShell({
           <NavigationMenu>
             <NavigationMenuList>
               {primaryNavItems.map((item) => {
-                const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
+                const href = item.href;
                 const selected = isNavItemActive(item);
 
                 return (
@@ -284,34 +265,43 @@ export function AppShell({
         <SidebarContent />
 
         <SidebarFooter className="sidebar-bottom">
+          {/*
+            Single settings entry point. Tabs for General / Model live on the page.
+            Keeping this as a Link (not a button) preserves
+            keyboard + right-click semantics and plays nicely with Next's
+            prefetch.
+          */}
           <NavigationMenu aria-label="Settings">
             <NavigationMenuList>
-              {settingsNavItems.map((item) => {
-                const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
-                const selected = isNavItemActive(item);
-
-                return (
-                  <NavigationMenuItem key={item.href}>
-                    <NavigationMenuButton asChild active={selected} className="sidebar-nav-link">
-                      <Link href={href}>{item.label}</Link>
-                    </NavigationMenuButton>
-                  </NavigationMenuItem>
-                );
-              })}
+              <NavigationMenuItem>
+                <NavigationMenuButton
+                  asChild
+                  active={isSettingsOpen}
+                  className="sidebar-nav-link sidebar-settings-link"
+                >
+                  <Link href={openSettingsHref}>
+                    <span className="sidebar-settings-link-icon" aria-hidden="true">
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="8" cy="8" r="2" />
+                        <path d="M13.3 9.4a5.4 5.4 0 0 0 0-2.8l1.3-1-1.5-2.6-1.6.5a5.4 5.4 0 0 0-2.4-1.4L8.8.5H7.2l-.3 1.6a5.4 5.4 0 0 0-2.4 1.4l-1.6-.5-1.5 2.6 1.3 1a5.4 5.4 0 0 0 0 2.8l-1.3 1 1.5 2.6 1.6-.5a5.4 5.4 0 0 0 2.4 1.4l.3 1.6h1.6l.3-1.6a5.4 5.4 0 0 0 2.4-1.4l1.6.5 1.5-2.6-1.3-1z" />
+                      </svg>
+                    </span>
+                    <span>Settings</span>
+                  </Link>
+                </NavigationMenuButton>
+              </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
 
           <div className="sidebar-status" role="status" aria-live="polite">
             <StatusDot
-              status={controllerStatus}
+              status={runtimeStatus}
               size="sm"
-              pulse={controllerLifecycle === "starting" || controllerLifecycle === "restarting"}
+              pulse={runtimeLifecycle === "starting" || runtimeLifecycle === "restarting"}
             />
             <div className="sidebar-status-text">
-              <div className="sidebar-status-label">{controllerLabel}</div>
-              <div className="sidebar-status-hint">
-                {controllerState?.message ?? (isDesktop ? "Local controller" : "Browser mode")}
-              </div>
+              <div className="sidebar-status-label">{runtimeLabel}</div>
+              <div className="sidebar-status-hint">{runtimeHint}</div>
             </div>
           </div>
         </SidebarFooter>
@@ -325,7 +315,6 @@ export function AppShell({
         {composer ? <div className="canvas-composer">{composer}</div> : null}
       </main>
 
-      <SettingsSheet pathname={pathname} />
     </div>
   );
 }

@@ -477,7 +477,7 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
           <div className="stack-tight">
             <span className="attachment-label">Ready for first prompt</span>
             <strong>Send a message to verify the local chat stream.</strong>
-            <p className="muted">The web UI is now using `useChat`, and the next response should arrive from the controller instead of local sample data.</p>
+            <p className="muted">The chat surface is live — your next message will be answered by the configured model.</p>
           </div>
         </Card>
       ) : null}

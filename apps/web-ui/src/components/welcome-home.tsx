@@ -33,6 +33,7 @@ const WrenchIcon = () => <Icon path="M10 2a3 3 0 013 4.5l3 3-1.5 1.5-3-3A3 3 0 0
 import { useControllerState } from "../lib/controller-state";
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionRecord } from "../lib/session-api";
+import { sanitizeInternalRuntimeMessage } from "./workspace-copy";
 
 export interface WelcomeHomeProps {
   readonly recentSessions: readonly SessionRecord[];
@@ -138,19 +139,20 @@ export function WelcomeHome({
       : controllerState?.state === "failed" || controllerState?.state === "stopped"
         ? "error"
         : "warning";
+  const workspaceMessage = sanitizeInternalRuntimeMessage(controllerState?.message);
   const badgeText = providerSetupRequired
     ? "Finish model setup to start chatting"
     : controllerState?.state === "ready"
       ? `Ready · ${providerLabel}`
       : controllerState?.state === "starting"
-        ? "Starting local controller…"
+        ? "Starting workspace…"
         : controllerState?.state === "restarting"
-          ? "Restarting local controller…"
+          ? "Restarting workspace…"
           : controllerState?.state === "failed" || controllerState?.state === "stopped"
-            ? controllerState?.message ?? "Local controller unavailable"
+            ? workspaceMessage ?? "Workspace unavailable"
             : !isDesktop
               ? `Browser mode · ${providerLabel}`
-              : "Waiting for controller";
+              : "Preparing workspace…";
 
   return (
     <div className="welcome">
@@ -167,7 +169,7 @@ export function WelcomeHome({
 
         <p className="welcome-subtitle">
           Ask Monet to inspect the local app, wire providers, or drive your next build loop.
-          Everything runs against your local controller.
+          Everything stays on your machine.
         </p>
       </section>
 
@@ -258,20 +260,32 @@ export function WelcomeHome({
             </span>
           </Link>
 
-          <div className="welcome-info-card" role="group" aria-label="Controller status">
-            <span className="welcome-info-card-eyebrow">Controller</span>
+          <div className="welcome-info-card" role="group" aria-label="Workspace status">
+            <span className="welcome-info-card-eyebrow">Workspace</span>
             <span className="welcome-info-card-value" style={{ textTransform: "capitalize" }}>
-              {controllerState?.state ?? (isDesktop ? "waiting" : "external")}
+              {controllerState?.state === "ready"
+                ? "Ready"
+                : controllerState?.state === "starting"
+                  ? "Starting"
+                  : controllerState?.state === "restarting"
+                    ? "Restarting"
+                    : controllerState?.state === "failed"
+                      ? "Unavailable"
+                      : controllerState?.state === "stopped"
+                        ? "Stopped"
+                        : isDesktop
+                          ? "Preparing"
+                          : "Browser"}
             </span>
             <p className="welcome-info-card-description">
-              {controllerState?.message ??
+              {workspaceMessage ??
                 (isDesktop
                   ? "Health and restart actions live in the sidebar status footer."
-                  : "Running outside the desktop shell — the controller is managed externally.")}
+                  : "Running in the browser — your workspace is managed externally.")}
             </p>
             <span className="welcome-info-card-footer">
               <WrenchIcon />
-              <span>{isDesktop ? "Desktop runtime" : "External runtime"}</span>
+              <span>{isDesktop ? "Desktop workspace" : "Browser workspace"}</span>
             </span>
           </div>
         </div>
@@ -300,7 +314,7 @@ export function WelcomeHome({
             </span>
             <span className="welcome-info-card-title">No chats yet</span>
             <p className="welcome-info-card-description">
-              Every message you send will be stored by the local controller. Start above and
+              Every message you send is saved locally. Start a chat above and
               this list will fill up automatically.
             </p>
           </div>
