@@ -146,6 +146,27 @@ const validationReasonMeta: Record<
 
 const surfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs";
 const mutedSurfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-2 p-4 shadow-none";
+const settingsPanelStackClassName = "flex flex-col gap-3";
+const settingsModelsStackClassName = "flex flex-col gap-4";
+const settingsListStackClassName = "flex flex-col gap-3";
+const settingsEmptyStateClassName = "flex flex-col items-start gap-3";
+const settingsItemCardClassName = "flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-1 p-3 shadow-xs";
+const settingsProviderItemClassName = `${settingsItemCardClassName} text-left transition-colors hover:border-accent/40 hover:bg-accent/5 data-[active=true]:border-accent/40 data-[active=true]:bg-accent/5`;
+const settingsDirectoryItemClassName = "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border-subtle bg-surface-1 p-3 shadow-xs max-sm:grid-cols-[auto_minmax(0,1fr)]";
+const settingsDirectoryIconClassName = "inline-flex size-9 items-center justify-center rounded-md bg-accent/10 text-accent";
+const settingsDirectoryPathClassName = "block truncate text-text-heading";
+const settingsThemeOptionsClassName = "grid grid-cols-3 gap-3 max-app:grid-cols-1";
+const settingsThemeOptionClassName = `${settingsItemCardClassName} cursor-pointer transition-colors hover:border-accent/40 data-[active=true]:border-accent/40 data-[active=true]:shadow-focus`;
+const settingsThemeSwatchBaseClassName = "h-12 rounded-md border border-border-subtle";
+const settingsProviderGridClassName = "grid grid-cols-[minmax(280px,0.9fr)_minmax(0,1.6fr)] items-start gap-4 max-app:grid-cols-1";
+const settingsProviderDetailClassName = "flex flex-col gap-3";
+const settingsRowClassName = "flex flex-wrap items-center justify-between gap-2 max-sm:items-start";
+const settingsChipRowClassName = "flex flex-wrap items-center justify-start gap-2";
+const settingsMetaClassName = "m-0 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm leading-[1.5] text-text-muted";
+const settingsSecretFieldClassName = "flex flex-col gap-1";
+const settingsSecretInputClassName = "min-h-10 w-full rounded-md border border-border-subtle bg-surface-0 px-3 py-2 text-text-primary transition-colors focus:border-accent focus:outline-none focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
+const settingsInlineActionClassName = "inline-flex cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent px-1.5 py-0.5 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60";
+const settingsValidationCardClassName = `${mutedSurfaceCardClassName} flex flex-col gap-1`;
 const statusBadgeBaseClassName = "inline-flex w-fit items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold";
 const statusBadgeToneClassNames = {
   healthy: "bg-success-subtle text-success",
@@ -184,6 +205,16 @@ function getSecretStatus(snapshot: ProviderSecretStorageSnapshot | null, provide
 
 function getStatusBadgeClassName(tone: ValidationBadgeTone) {
   return `${statusBadgeBaseClassName} ${statusBadgeToneClassNames[tone]}`;
+}
+
+function getThemeSwatchClassName(theme: AppTheme) {
+  const previewClassName = {
+    system: "bg-[linear-gradient(135deg,#0f172a_0%_50%,#f8fafc_50%_100%)]",
+    light: "bg-[linear-gradient(135deg,#ffffff_0%,#e2e8f0_100%)]",
+    dark: "bg-[linear-gradient(135deg,#020617_0%,#1e293b_100%)]"
+  } satisfies Record<AppTheme, string>;
+
+  return `${settingsThemeSwatchBaseClassName} ${previewClassName[theme]}`;
 }
 
 function requestHeaders() {
@@ -477,7 +508,7 @@ function GeneralSettingsPanel() {
   ];
 
   return (
-    <div className="settings-general-layout">
+    <div className={settingsPanelStackClassName}>
       <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
@@ -490,24 +521,24 @@ function GeneralSettingsPanel() {
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3">
-          <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
+          <div className={settingsMetaClassName}>
             <span>{authorizedDirectories.length} authorized</span>
               <span>Saved to your local workspace</span>
           </div>
 
-          <label className="settings-secret-field">
+          <label className={settingsSecretFieldClassName}>
             <span className="m-0 leading-[1.5] text-text-muted">Add a directory path manually</span>
             <input
               type="text"
               value={directoryDraft}
               placeholder="/Users/example/Projects"
-              className="settings-secret-input mono"
+              className={`${settingsSecretInputClassName} mono`}
               disabled={directoryBusy}
               onChange={(event) => setDirectoryDraft(event.currentTarget.value)}
             />
           </label>
 
-          <div className="settings-provider-chip-row">
+          <div className={settingsChipRowClassName}>
             <Button type="button" variant="primary" disabled={directoryBusy || !directoryDraft.trim()} onClick={() => void addDirectory(directoryDraft)}>
               {directoryBusy ? "Saving…" : "Add directory"}
             </Button>
@@ -524,28 +555,28 @@ function GeneralSettingsPanel() {
           {authorizedDirectoriesState.error ? <p className="m-0 leading-[1.5] text-text-muted mono">{authorizedDirectoriesState.error}</p> : null}
 
           {!authorizedDirectoriesState.loading && !authorizedDirectoriesState.error && authorizedDirectories.length === 0 ? (
-            <div className="settings-empty-state">
+            <div className={settingsEmptyStateClassName}>
               <p className="m-0 leading-[1.5] text-text-muted">No directories are authorized yet.</p>
               <p className="m-0 leading-[1.5] text-text-muted">Add one before using read_file or write_file in agent runs.</p>
             </div>
           ) : null}
 
-          <div className="settings-directory-list" role="list" aria-label="Authorized directories">
+          <div className={settingsListStackClassName} role="list" aria-label="Authorized directories">
             {authorizedDirectories.map((entry) => (
-              <div key={entry.path} className="settings-directory-item" role="listitem">
-                <span className="settings-directory-item-icon" aria-hidden="true">
+              <div key={entry.path} className={settingsDirectoryItemClassName} role="listitem">
+                <span className={settingsDirectoryIconClassName} aria-hidden="true">
                   📁
                 </span>
                 <div className="flex flex-col gap-1">
-                  <strong className="settings-directory-item-path mono" title={entry.path}>
+                  <strong className={`${settingsDirectoryPathClassName} mono`} title={entry.path}>
                     {entry.path}
                   </strong>
-                  <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
+                  <div className={settingsMetaClassName}>
                     <span>Updated {formatTimestamp(entry.updatedAt)}</span>
                     <span>Added {formatTimestamp(entry.createdAt)}</span>
                   </div>
                 </div>
-                <Button type="button" variant="secondary" disabled={directoryBusy} onClick={() => void removeDirectory(entry.path)}>
+                <Button type="button" variant="secondary" className="max-sm:col-span-full" disabled={directoryBusy} onClick={() => void removeDirectory(entry.path)}>
                   Revoke
                 </Button>
               </div>
@@ -571,12 +602,12 @@ function GeneralSettingsPanel() {
           <ul className="grid list-none gap-2.5 p-0 m-0">
             <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
               <Card variant="muted" padding="sm" className={`${mutedSurfaceCardClassName} flex flex-col gap-1`}>
-                <div className="settings-provider-item-header">
+                <div className={settingsRowClassName}>
                   <strong>Application data path</strong>
-                  <div className="settings-provider-chip-row">
+                  <div className={settingsChipRowClassName}>
                     <button
                       type="button"
-                      className="kv-inline-action"
+                      className={settingsInlineActionClassName}
                       disabled={!appPathsState.data?.userDataPath}
                       onClick={() => void copyPath(appPathsState.data?.userDataPath ?? "")}
                     >
@@ -584,7 +615,7 @@ function GeneralSettingsPanel() {
                     </button>
                     <button
                       type="button"
-                      className="kv-inline-action"
+                      className={settingsInlineActionClassName}
                       disabled={!desktopApi?.openPath || !appPathsState.data?.userDataPath}
                       onClick={() => void openPath(appPathsState.data?.userDataPath ?? "")}
                     >
@@ -613,16 +644,16 @@ function GeneralSettingsPanel() {
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3">
-          <div className="settings-theme-options" role="list" aria-label="Theme options">
+          <div className={settingsThemeOptionsClassName} role="list" aria-label="Theme options">
             {themeOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                className="settings-theme-option"
+                className={settingsThemeOptionClassName}
                 data-active={theme === option.value ? "true" : "false"}
                 onClick={() => setTheme(option.value)}
               >
-                <span className="settings-theme-swatch" data-theme-preview={option.value} aria-hidden="true" />
+                <span className={getThemeSwatchClassName(option.value)} aria-hidden="true" />
                 <div className="flex flex-col gap-1">
                   <strong>{option.label}</strong>
                   <span className="m-0 leading-[1.5] text-text-muted">{option.detail}</span>
@@ -631,7 +662,7 @@ function GeneralSettingsPanel() {
             ))}
           </div>
 
-          <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
+          <div className={settingsMetaClassName}>
             <span>Saved preference: {theme}</span>
             <span>Currently applied: {resolvedTheme}</span>
           </div>
@@ -945,7 +976,7 @@ function ModelSettingsPanel() {
         </CardHeader>
 
         <CardContent>
-          <div className="settings-empty-state">
+          <div className={settingsEmptyStateClassName}>
             <ValidationBadge state={{ loading: true, data: null, error: null }} />
             <p className="m-0 leading-[1.5] text-text-muted">Checking provider records and syncing the current model catalog.</p>
           </div>
@@ -993,7 +1024,7 @@ function ModelSettingsPanel() {
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3">
-          <div className="settings-empty-state">
+          <div className={settingsEmptyStateClassName}>
             <Badge variant="warning" size="sm" radius="full" className={getStatusBadgeClassName("unknown")}>
               <StatusDot status="warning" size="xs" className="size-2" />
               <span>No provider records</span>
@@ -1027,9 +1058,9 @@ function ModelSettingsPanel() {
   }
 
   return (
-    <div className="settings-models-layout">
+    <div className={settingsModelsStackClassName}>
       {!hasReadyProvider && allValidationsSettled ? (
-        <Card className={`${surfaceCardClassName} flex flex-col gap-3 settings-callout-card`}>
+        <Card className={`${surfaceCardClassName} flex flex-col gap-3 border-dashed`}>
           <CardHeader>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Setup guidance</span>
@@ -1057,8 +1088,8 @@ function ModelSettingsPanel() {
         </Card>
       ) : null}
 
-      <div className="settings-provider-grid">
-        <Card className={`${surfaceCardClassName} flex flex-col gap-3 settings-provider-list-card`}>
+      <div className={settingsProviderGridClassName}>
+        <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
           <CardHeader>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Configured providers</span>
@@ -1068,7 +1099,7 @@ function ModelSettingsPanel() {
           </CardHeader>
 
           <CardContent>
-            <div className="settings-provider-list" role="list" aria-label="Configured providers">
+            <div className={settingsListStackClassName} role="list" aria-label="Configured providers">
               {providers.map((provider) => {
                 const validationState = validationByProviderId[provider.id];
                 const isSelected = provider.id === selectedProviderId;
@@ -1077,11 +1108,11 @@ function ModelSettingsPanel() {
                   <button
                     key={provider.id}
                     type="button"
-                    className="settings-provider-item"
+                    className={settingsProviderItemClassName}
                     data-active={isSelected ? "true" : "false"}
                     onClick={() => setSelectedProviderId(provider.id)}
                   >
-                    <div className="settings-provider-item-header">
+                    <div className={settingsRowClassName}>
                       <div className="flex flex-col gap-1">
                         <strong>{provider.displayName}</strong>
                         <span className="m-0 leading-[1.5] text-text-muted">{formatProviderType(provider.type)}</span>
@@ -1093,7 +1124,7 @@ function ModelSettingsPanel() {
 
                     <ValidationBadge state={validationState} />
 
-                    <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
+                    <div className={settingsMetaClassName}>
                       <span>Default: {provider.defaultModelName ?? "Not set"}</span>
                       <span>ID: {provider.id}</span>
                     </div>
@@ -1105,12 +1136,12 @@ function ModelSettingsPanel() {
         </Card>
 
         {selectedProvider ? (
-          <div className="settings-provider-detail flex flex-col gap-3">
+          <div className={settingsProviderDetailClassName}>
             <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
               <CardHeader>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected provider</span>
-                  <div className="settings-title-row">
+                  <div className={settingsRowClassName}>
                     <CardTitle className="m-0 text-2xl font-semibold text-text-heading">{selectedProvider.displayName}</CardTitle>
                     <ValidationBadge state={selectedValidation} />
                   </div>
@@ -1121,7 +1152,7 @@ function ModelSettingsPanel() {
               </CardHeader>
 
               <CardContent className="flex flex-col gap-3">
-                <div className="settings-provider-chip-row">
+                <div className={settingsChipRowClassName}>
                   <Badge variant="secondary" size="sm" radius="full">{formatProviderType(selectedProvider.type)}</Badge>
                   <Badge variant={selectedProvider.enabled ? "success" : "warning"} size="sm" radius="full">
                     {selectedProvider.enabled ? "Enabled" : "Disabled"}
@@ -1150,10 +1181,10 @@ function ModelSettingsPanel() {
                   </li>
                 </ul>
 
-                <div className={`settings-validation-card ${mutedSurfaceCardClassName} flex flex-col gap-1`}>
-                  <div className="settings-provider-item-header">
+                <div className={settingsValidationCardClassName}>
+                  <div className={settingsRowClassName}>
                     <strong>Local credentials</strong>
-                    <div className="settings-provider-chip-row">
+                    <div className={settingsChipRowClassName}>
                       <Badge
                         variant={secretStorageState.data?.available ? "success" : "warning"}
                         size="sm"
@@ -1182,13 +1213,13 @@ function ModelSettingsPanel() {
                     Saved secrets are loaded on startup. Explicit environment variables still take precedence.
                   </p>
 
-                  <label className="settings-secret-field">
+                  <label className={settingsSecretFieldClassName}>
                     <span className="m-0 leading-[1.5] text-text-muted">{formatProviderType(selectedProvider.type)} API key</span>
                     <input
                       type="password"
                       value={secretInput}
                       placeholder={selectedProvider.type === "openai" ? "sk-..." : "or-..."}
-                      className="settings-secret-input"
+                      className={settingsSecretInputClassName}
                       autoComplete="off"
                       spellCheck={false}
                       disabled={!secretStorageState.data?.available || secretBusyAction != null}
@@ -1196,7 +1227,7 @@ function ModelSettingsPanel() {
                     />
                   </label>
 
-                  <div className="settings-provider-chip-row">
+                  <div className={settingsChipRowClassName}>
                     <Button
                       type="button"
                       variant="primary"
@@ -1224,8 +1255,8 @@ function ModelSettingsPanel() {
                   {secretFeedback ? <p className="m-0 leading-[1.5] text-text-muted mono">{secretFeedback}</p> : null}
                 </div>
 
-                <div className={`settings-validation-card ${mutedSurfaceCardClassName} flex flex-col gap-1`}>
-                  <div className="settings-provider-item-header">
+                <div className={settingsValidationCardClassName}>
+                  <div className={settingsRowClassName}>
                     <strong>Validate status</strong>
                     <Button
                       type="button"
@@ -1242,7 +1273,7 @@ function ModelSettingsPanel() {
                     <>
                       <p className="m-0 leading-[1.5] text-text-muted">{selectedValidation.data.message}</p>
                       <p className="m-0 leading-[1.5] text-text-muted">{selectedValidationMeta?.guidance}</p>
-                      <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
+                      <div className={settingsMetaClassName}>
                         <span>Enabled models: {selectedValidation.data.availableModelCount}</span>
                         <span>Resolved default: {selectedValidation.data.defaultModelName ?? "Not resolved"}</span>
                       </div>
@@ -1268,18 +1299,18 @@ function ModelSettingsPanel() {
                   <p className="m-0 leading-[1.5] text-text-muted">No enabled models are currently available for this provider.</p>
                 ) : null}
 
-                <div className="settings-model-list" role="list" aria-label="Provider models">
+                <div className={settingsListStackClassName} role="list" aria-label="Provider models">
                   {(modelsState.data ?? []).map((model) => {
                     const isDefault = model.modelName === selectedProvider.defaultModelName;
 
                     return (
-                      <div key={model.id} className="settings-model-item" role="listitem">
-                        <div className="settings-provider-item-header">
+                      <div key={model.id} className={settingsItemCardClassName} role="listitem">
+                        <div className={settingsRowClassName}>
                           <div className="flex flex-col gap-1">
                             <strong>{model.displayName}</strong>
                             <span className="m-0 leading-[1.5] text-text-muted mono">{model.modelName}</span>
                           </div>
-                          <div className="settings-provider-chip-row">
+                          <div className={settingsChipRowClassName}>
                             {isDefault ? <Badge variant="accent" size="sm" radius="full">Default</Badge> : null}
                             <Badge variant={model.enabled ? "success" : "warning"} size="sm" radius="full">
                               {model.enabled ? "Enabled" : "Disabled"}
@@ -1287,7 +1318,7 @@ function ModelSettingsPanel() {
                           </div>
                         </div>
 
-                        <div className="settings-provider-chip-row">
+                        <div className={settingsChipRowClassName}>
                           <Badge variant="secondary" size="sm" radius="full">
                             {model.supportsTools ? "Tools" : "No tools"}
                           </Badge>
