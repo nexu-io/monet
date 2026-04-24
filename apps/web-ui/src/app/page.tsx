@@ -4,13 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
-import { Card } from "@nexu-design/ui-web";
 
 import { ChatThread } from "../components/chat-thread";
 import { Composer } from "../components/composer";
 import { ConversationHeader } from "../components/conversation-header";
-import { ControllerStatusCard } from "../components/controller-status-card";
 import { PageFrame } from "../components/page-frame";
+import { WelcomeHome } from "../components/welcome-home";
 import { getSettingsHref } from "../components/settings-panel-content";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { useControllerState } from "../lib/controller-state";
@@ -138,6 +137,27 @@ function SessionChatSurface({
     }
   }, [overrideProviderTarget, readyProviders]);
 
+  // Pick up any pending prompt stashed by the welcome surface and auto-send it
+  // so landing into a fresh session feels seamless.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isComposerDisabled || hasUserMessages) return;
+
+    const pending = window.sessionStorage.getItem("monet.pendingPrompt");
+    if (!pending) return;
+
+    window.sessionStorage.removeItem("monet.pendingPrompt");
+
+    void (async () => {
+      if (session.title === DEFAULT_SESSION_TITLE) {
+        await onRenameSession(session.id, deriveSessionTitle(pending));
+      }
+      pendingContinuationRef.current = null;
+      await sendMessage({ text: pending });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id, isComposerDisabled]);
+
   function handleChangeProviderTarget(target: ProviderReadinessTarget | null) {
     if (
       target &&
@@ -252,7 +272,7 @@ function SessionChatSurface({
   return (
     <PageFrame
       pathname="/"
-      title="Agent Chat"
+      title="Chat"
       description="Desktop-first chat shell wired for a local Hono controller and ready for AI SDK UI message rendering."
       onDesktopStopShortcut={handleStop}
       header={(
@@ -286,7 +306,6 @@ function SessionChatSurface({
       )}
     >
       <div className="chat-thread-layout">
-        <ControllerStatusCard />
         <ChatThread
           messages={messages}
           status={status}
@@ -299,6 +318,15 @@ function SessionChatSurface({
   );
 }
 
+/**
+ * Home route.
+ *
+ * Two visual states:
+ *   - Welcome: no active session (first run, archived, or between chats) →
+ *     a large centered hero with badge, greeting, big prompt card, info/recents grids.
+ *   - Chat: an active session detail is loaded → classic conversation surface
+ *     with header, streaming thread, and composer.
+ */
 export default function HomePage() {
   const { controllerState, isDesktop, restartController, restartPending } = useControllerState();
   const {
@@ -306,6 +334,7 @@ export default function HomePage() {
     currentSessionDetail,
     isCurrentSessionLoading,
     isSessionsLoading,
+    openSession,
     providerReadiness,
     refreshCurrentSession,
     refreshSessions,
@@ -314,10 +343,14 @@ export default function HomePage() {
     sessionsError
   } = useSessions();
 
-  const hasActiveSessions = sessions.some((session) => session.archivedAt === null);
+  const activeSessions = sessions.filter((session) => session.archivedAt === null);
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
-  const blankStateHref = getSettingsHref("/", new URLSearchParams(), "models");
+  const modelSettingsHref = getSettingsHref("/", new URLSearchParams(), "models");
   const controllerStateLabel = controllerState?.state;
+  const readyProviders = providerReadiness.data?.readyProviders ?? [];
+  const activeProviderTarget =
+    providerReadiness.data?.firstReadyProvider ?? null;
+  const isStartupLoading = isSessionsLoading || isCurrentSessionLoading || providerReadiness.loading;
 
   async function handleRenameSession(sessionId: string, title: string) {
     try {
@@ -327,67 +360,70 @@ export default function HomePage() {
     }
   }
 
+  async function handleWelcomeSend(prompt: string) {
+    if (providerSetupRequired) return;
+    // Stash the pending prompt so the new chat surface picks it up on mount.
+    // We use sessionStorage (not localStorage) so it never leaks across tabs.
+    try {
+      window.sessionStorage.setItem("monet.pendingPrompt", prompt);
+    } catch {
+      // Non-fatal — user can retype in the chat composer.
+    }
+    await createSession({ pathname: "/" });
+  }
+
+  // Welcome surface: no hydrated session detail OR controller is still
+  // starting up / blocked on provider setup.
   if (!currentSessionDetail) {
-    const isStartupLoading = isSessionsLoading || isCurrentSessionLoading || providerReadiness.loading;
-    const title = controllerStateLabel === "starting"
-      ? "Starting local controller..."
-      : controllerStateLabel === "restarting"
-        ? "Restarting local controller..."
-        : controllerStateLabel === "failed"
-          ? "Local controller failed to start"
-          : controllerStateLabel === "stopped"
-            ? "Local controller stopped unexpectedly"
-            : isStartupLoading
-              ? "Loading startup state..."
-              : providerSetupRequired
-                ? "Finish provider setup before starting chat"
-                : !hasActiveSessions
-                  ? "Start your first chat"
-                  : "No active session selected.";
-    const description = controllerStateLabel === "starting" || controllerStateLabel === "restarting"
-      ? controllerState?.message ?? "Waiting for the desktop shell to finish wiring the local controller and renderer."
-      : controllerStateLabel === "failed" || controllerStateLabel === "stopped"
-        ? controllerState?.message ?? "Restart the local controller to recover chat, sessions, and settings requests."
+    const controllerOffline =
+      controllerStateLabel === "failed" || controllerStateLabel === "stopped";
+    const controllerBooting =
+      controllerStateLabel === "starting" || controllerStateLabel === "restarting";
+    const composerDisabled =
+      providerSetupRequired || controllerOffline || controllerBooting;
+    const composerDisabledReason = controllerOffline
+      ? controllerState?.message ?? "Restart the local controller to continue."
+      : controllerBooting
+        ? "Waiting for the local controller…"
         : providerSetupRequired
-          ? "Monet opens Model Settings first when no validated provider can resolve a default model for new chats."
-          : !hasActiveSessions
-            ? "There are no active sessions yet. Create one to land in the blank conversation state."
-            : sessionsError ?? "Select a recent session from the sidebar or create a fresh one.";
+          ? "Finish model setup to start chatting."
+          : sessionsError ?? undefined;
 
     return (
-      <PageFrame
-        pathname="/"
-        title="Agent Chat"
-        description="Desktop-first chat shell wired for a local Hono controller and ready for AI SDK UI message rendering."
-      >
-        <Card className="card stack-tight session-browser-empty">
-          <span className="eyebrow">Startup state</span>
-          <strong>{title}</strong>
-          <p className="muted">{description}</p>
-          {sessionsError ? <p className="muted mono">{sessionsError}</p> : null}
-          {!isStartupLoading && controllerStateLabel !== "starting" && controllerStateLabel !== "restarting" ? (
-            <div className="session-browser-actions">
-              {isDesktop && (controllerStateLabel === "failed" || controllerStateLabel === "stopped") ? (
-                <button type="button" className="session-action-button session-action-button-primary" onClick={() => void restartController()} disabled={restartPending}>
-                  {restartPending ? "Restarting controller..." : "Restart controller"}
-                </button>
-              ) : providerSetupRequired ? (
-                <Link href={blankStateHref} className="session-action-button session-action-button-primary">
-                  Open model settings
-                </Link>
-              ) : (
-                <button type="button" className="session-action-button session-action-button-primary" onClick={() => void createSession({ pathname: "/" })}>
-                  Create session
-                </button>
-              )}
-              {!providerSetupRequired && hasActiveSessions ? (
-                <Link href="/sessions" className="session-action-button">
-                  View all sessions
-                </Link>
-              ) : null}
-            </div>
-          ) : null}
-        </Card>
+      <PageFrame pathname="/" title="Chat" description="Your local agent workspace.">
+        <WelcomeHome
+          recentSessions={activeSessions}
+          readyProviders={readyProviders}
+          activeProviderTarget={activeProviderTarget}
+          providerSetupRequired={providerSetupRequired}
+          isStartupLoading={isStartupLoading}
+          onOpenSession={(id) => openSession(id, "/")}
+          onSend={handleWelcomeSend}
+          isComposerDisabled={composerDisabled}
+          {...(composerDisabledReason ? { composerDisabledReason } : {})}
+          modelSettingsHref={modelSettingsHref}
+        />
+
+        {controllerOffline && isDesktop ? (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: "calc(var(--spacing) * 4)" }}>
+            <button
+              type="button"
+              className="session-action-button session-action-button-primary"
+              onClick={() => void restartController()}
+              disabled={restartPending}
+            >
+              {restartPending ? "Restarting controller…" : "Restart controller"}
+            </button>
+          </div>
+        ) : null}
+
+        {providerSetupRequired ? (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: "calc(var(--spacing) * 4)" }}>
+            <Link href={modelSettingsHref} className="session-action-button session-action-button-primary">
+              Open model settings
+            </Link>
+          </div>
+        ) : null}
       </PageFrame>
     );
   }

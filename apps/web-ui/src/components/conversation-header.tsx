@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, Button } from "@nexu-design/ui-web";
+import { Badge, Button, StatusDot } from "@nexu-design/ui-web";
 
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 
@@ -19,16 +19,20 @@ export interface ConversationHeaderProps {
   readonly onStop: () => void;
 }
 
-function getStatusLabel(status: ConversationHeaderProps["status"]) {
+function getStatusDescriptor(status: ConversationHeaderProps["status"], hasError: boolean) {
+  if (hasError) {
+    return { label: "Attention", tone: "error" as const };
+  }
+
   switch (status) {
     case "submitted":
-      return "Submitting";
+      return { label: "Submitting", tone: "warning" as const };
     case "streaming":
-      return "Streaming";
+      return { label: "Streaming", tone: "warning" as const };
     case "error":
-      return "Error";
+      return { label: "Error", tone: "error" as const };
     default:
-      return "Ready";
+      return { label: "Ready", tone: "success" as const };
   }
 }
 
@@ -48,32 +52,35 @@ export function ConversationHeader({
 }: ConversationHeaderProps) {
   const isBusy = status === "submitted" || status === "streaming";
   const showProviderPicker = readyProviders.length >= 2;
+  const statusDescriptor = getStatusDescriptor(status, hasError);
 
   return (
     <div className="conversation-header">
       <div className="conversation-header-copy">
-        <div className="stack-tight">
-          <span className="eyebrow">Current session</span>
-          <h1>{sessionTitle}</h1>
-        </div>
+        <h1>{sessionTitle}</h1>
         <p>
-          Streaming conversation for <code>{sessionId}</code>, backed by persisted session detail from the local controller.
           {activeTarget ? (
             <>
-              {" "}Active route: <code>{activeTarget.providerDisplayName}</code>
-              {activeTarget.modelName ? <><span> · </span><code>{activeTarget.modelName}</code></> : null}
+              Route <code>{activeTarget.providerDisplayName}</code>
+              {activeTarget.modelName ? <> · <code>{activeTarget.modelName}</code></> : null}
+              <span aria-hidden="true"> · </span>
             </>
           ) : null}
+          {messageCount} {messageCount === 1 ? "message" : "messages"}
+          <span aria-hidden="true"> · </span>
+          <code>{sessionId.slice(0, 8)}</code>
         </p>
       </div>
 
       <div className="conversation-header-actions">
-        <Badge variant="secondary" size="sm" radius="full">{messageCount} messages</Badge>
-        <Badge variant="secondary" size="sm" radius="full">{getStatusLabel(status)}</Badge>
-        <Badge variant="secondary" size="sm" radius="full">{hasError ? "Last request failed" : "Local /api/chat wired"}</Badge>
+        <Badge variant="outline" radius="full" size="sm" className="status-inline">
+          <StatusDot status={statusDescriptor.tone} size="xs" pulse={isBusy} />
+          <span>{statusDescriptor.label}</span>
+        </Badge>
+
         {showProviderPicker ? (
           <label className="conversation-header-target-picker">
-            <span className="eyebrow">Model</span>
+            <span className="conversation-header-target-picker-label">Model</span>
             <select
               value={activeTarget ? `${activeTarget.providerId}::${activeTarget.modelId}` : ""}
               disabled={isBusy}
@@ -92,13 +99,18 @@ export function ConversationHeader({
             </select>
           </label>
         ) : null}
+
         {isTargetOverridden ? (
-          <Button type="button" variant="secondary" onClick={() => onChangeTarget(null)} disabled={isBusy}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChangeTarget(null)} disabled={isBusy}>
             Reset route
           </Button>
         ) : null}
-        <Button type="button" variant="secondary" onClick={onRegenerate} disabled={!canRegenerate}>Regenerate</Button>
-        <Button type="button" variant="secondary" onClick={onStop} disabled={!isBusy}>Stop</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onRegenerate} disabled={!canRegenerate}>
+          Regenerate
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onStop} disabled={!isBusy}>
+          Stop
+        </Button>
       </div>
     </div>
   );

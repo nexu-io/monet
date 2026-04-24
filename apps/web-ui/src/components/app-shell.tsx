@@ -3,7 +3,19 @@
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Badge, Button, Card, NavItem, StatusDot } from "@nexu-design/ui-web";
+import {
+  Button,
+  NavigationMenu,
+  NavigationMenuButton,
+  NavigationMenuItem,
+  NavigationMenuLabel,
+  NavigationMenuList,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  StatusDot
+} from "@nexu-design/ui-web";
 
 import { useControllerState } from "../lib/controller-state";
 import { getSettingsHref, isSettingsPanelId, type SettingsPanelId } from "./settings-panel-content";
@@ -13,26 +25,30 @@ import { useSessions } from "./session-provider";
 type NavigationItem = {
   href: string;
   label: string;
-  description: string;
+  description?: string;
   settingsPanel?: SettingsPanelId;
 };
 
-const navigationItems: NavigationItem[] = [
+const primaryNavItems: NavigationItem[] = [
   {
     href: "/",
-    label: "Chat",
-    description: "Primary agent conversation surface."
+    label: "Chat"
   },
   {
+    href: "/sessions",
+    label: "Sessions"
+  }
+];
+
+const settingsNavItems: NavigationItem[] = [
+  {
     href: "/settings/models",
-    label: "Model Settings",
-    description: "Provider and model configuration.",
+    label: "Model settings",
     settingsPanel: "models"
   },
   {
     href: "/settings/general",
-    label: "General Settings",
-    description: "Desktop runtime and connectivity preferences.",
+    label: "General settings",
     settingsPanel: "general"
   }
 ];
@@ -45,7 +61,7 @@ function formatSessionPreview(updatedAt: string) {
     minute: "2-digit"
   }).format(new Date(updatedAt));
 
-  return `Updated ${value}`;
+  return value;
 }
 
 export function AppShell({
@@ -63,7 +79,14 @@ export function AppShell({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { archiveSession, buildSessionHref, createSession, currentSessionId, isSessionsLoading, openSession, providerReadiness, renameSession, sessions } = useSessions();
+  const {
+    createSession,
+    currentSessionId,
+    isSessionsLoading,
+    openSession,
+    providerReadiness,
+    sessions
+  } = useSessions();
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 6);
   const requestedPanel = searchParams.get("settings");
   const activeSettingsPanel = isSettingsPanelId(requestedPanel) ? requestedPanel : null;
@@ -71,15 +94,27 @@ export function AppShell({
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const { controllerState, isDesktop } = useControllerState();
   const desktopPlatform = typeof window === "undefined" ? undefined : window.monetDesktop?.platform;
-  const controllerBadge = controllerState?.state === "ready"
-    ? { variant: "success" as const, status: "success" as const, label: "Ready" }
-    : controllerState?.state === "starting"
-      ? { variant: "warning" as const, status: "warning" as const, label: "Starting" }
-      : controllerState?.state === "restarting"
-        ? { variant: "warning" as const, status: "warning" as const, label: "Restarting" }
-        : controllerState?.state === "failed" || controllerState?.state === "stopped"
-          ? { variant: "destructive" as const, status: "error" as const, label: "Attention" }
-          : { variant: "secondary" as const, status: "info" as const, label: isDesktop ? "Waiting" : "External" };
+  const controllerLifecycle = controllerState?.state;
+  const controllerLabel = controllerLifecycle === "ready"
+    ? "Controller ready"
+    : controllerLifecycle === "starting"
+      ? "Starting controller"
+      : controllerLifecycle === "restarting"
+        ? "Restarting controller"
+        : controllerLifecycle === "failed"
+          ? "Controller unavailable"
+          : controllerLifecycle === "stopped"
+            ? "Controller stopped"
+            : isDesktop
+              ? "Waiting for controller"
+              : "External controller";
+  const controllerStatus: "success" | "warning" | "error" | "neutral" = controllerLifecycle === "ready"
+    ? "success"
+    : controllerLifecycle === "starting" || controllerLifecycle === "restarting"
+      ? "warning"
+      : controllerLifecycle === "failed" || controllerLifecycle === "stopped"
+        ? "error"
+        : "neutral";
 
   async function handleCreateSession() {
     if (providerSetupRequired) {
@@ -88,24 +123,6 @@ export function AppShell({
     }
 
     await createSession({ pathname: "/" });
-  }
-
-  async function handleRenameSession(sessionId: string, currentTitle: string) {
-    const nextTitle = window.prompt("Rename session", currentTitle)?.trim();
-
-    if (!nextTitle || nextTitle === currentTitle) {
-      return;
-    }
-
-    await renameSession(sessionId, nextTitle);
-  }
-
-  async function handleArchiveSession(sessionId: string, title: string) {
-    if (!window.confirm(`Archive \"${title}\"?`)) {
-      return;
-    }
-
-    await archiveSession(sessionId);
   }
 
   useEffect(() => {
@@ -170,121 +187,135 @@ export function AppShell({
     };
   }, [activeSettingsPanel, isDesktop, onDesktopStopShortcut, pathname, router, searchParams]);
 
+  function isNavItemActive(item: NavigationItem) {
+    if (item.settingsPanel) {
+      return activeSettingsPanel === item.settingsPanel;
+    }
+
+    return pathname === item.href && activeSettingsPanel === null;
+  }
+
   return (
     <div className="shell" data-desktop-shell={isDesktop ? "true" : "false"} data-desktop-platform={desktopPlatform}>
-      <aside className="sidebar">
+      <Sidebar className="sidebar">
         {isDesktop ? <div className="sidebar-drag-region" aria-hidden="true" /> : null}
-        <div className="sidebar-top">
-          <Card variant="muted" className="card brand-card">
-            <div className="brand">
-              <Badge variant="accent" size="sm" radius="full" className="brand-badge">
-                Local-first agent runtime
-              </Badge>
-              <h1>Monet</h1>
-              <p>Desktop-first chat workspace for sessions, tools, approvals, and local controller status.</p>
+
+        <SidebarHeader className="sidebar-top">
+          <div className="sidebar-brand">
+            <span className="sidebar-brand-mark" aria-hidden="true">M</span>
+            <div className="stack-tight">
+              <span className="sidebar-brand-name">Monet</span>
+              <span className="sidebar-brand-tag">Local agent runtime</span>
             </div>
-          </Card>
+          </div>
 
           <Button
             type="button"
             variant="primary"
-            className="new-session-button"
+            size="md"
+            className="sidebar-cta"
             onClick={() => void handleCreateSession()}
             disabled={isProviderReadinessLoading}
           >
-            {isProviderReadinessLoading ? "Checking setup..." : providerSetupRequired ? "Open model settings" : "+ New session"}
+            {isProviderReadinessLoading
+              ? "Checking setup…"
+              : providerSetupRequired
+                ? "Finish model setup"
+                : "+ New chat"}
           </Button>
 
-          <nav className="nav" aria-label="Primary">
-            {navigationItems.map((item) => {
-              const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
-              const isActive = item.settingsPanel ? activeSettingsPanel === item.settingsPanel : pathname === item.href && activeSettingsPanel === null;
+          <NavigationMenu>
+            <NavigationMenuList>
+              {primaryNavItems.map((item) => {
+                const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
+                const selected = isNavItemActive(item);
 
-              return (
-                <NavItem key={item.href} asChild selected={isActive} className="nav-link">
-                  <Link href={href}>
-                    <span className="nav-label">{item.label}</span>
-                    <span className="nav-description">{item.description}</span>
-                  </Link>
-                </NavItem>
-              );
-            })}
-          </nav>
+                return (
+                  <NavigationMenuItem key={item.href}>
+                    <NavigationMenuButton asChild active={selected} className="sidebar-nav-link">
+                      <Link href={href}>{item.label}</Link>
+                    </NavigationMenuButton>
+                  </NavigationMenuItem>
+                );
+              })}
+            </NavigationMenuList>
+          </NavigationMenu>
 
           <section className="sidebar-section" aria-labelledby="recent-sessions-heading">
             <div className="sidebar-section-header">
-              <span className="eyebrow" id="recent-sessions-heading">Recent sessions</span>
+              <NavigationMenuLabel className="sidebar-section-header-label" id="recent-sessions-heading">
+                Recent
+              </NavigationMenuLabel>
               <Link href="/sessions" className="sidebar-section-link">
                 View all
               </Link>
             </div>
 
-            <div className="session-preview-list">
-              {isSessionsLoading ? <p className="muted">Loading sessions...</p> : null}
+            <div className="sidebar-recent-list">
+              {isSessionsLoading && recentSessions.length === 0 ? (
+                <p className="sidebar-recent-empty">Loading sessions…</p>
+              ) : null}
               {!isSessionsLoading && recentSessions.length === 0 ? (
-                <p className="muted">{providerSetupRequired ? "Finish provider setup to create the first chat." : "No active sessions yet."}</p>
+                <p className="sidebar-recent-empty">
+                  {providerSetupRequired ? "Finish provider setup to create the first chat." : "No active chats yet."}
+                </p>
               ) : null}
               {recentSessions.map((session) => {
                 const isActive = session.id === currentSessionId;
 
                 return (
-                  <article
+                  <button
                     key={session.id}
-                    className="session-preview"
+                    type="button"
+                    className="sidebar-recent-item"
                     data-active={isActive ? "true" : "false"}
                     aria-current={isActive ? "page" : undefined}
+                    onClick={() => openSession(session.id, "/")}
                   >
-                    <button type="button" className="session-preview-trigger" onClick={() => openSession(session.id, "/") }>
-                      <strong>{session.title}</strong>
-                      <span>{formatSessionPreview(session.updatedAt)}</span>
-                    </button>
-                    <div className="session-preview-actions">
-                      <Link href={buildSessionHref("/sessions", session.id)} className="session-preview-link">
-                        Details
-                      </Link>
-                      <button type="button" className="session-preview-link" onClick={() => void handleRenameSession(session.id, session.title)}>
-                        Rename
-                      </button>
-                      <button type="button" className="session-preview-link" onClick={() => void handleArchiveSession(session.id, session.title)}>
-                        Archive
-                      </button>
-                    </div>
-                  </article>
+                    <span className="sidebar-recent-item-title">{session.title}</span>
+                    <span className="sidebar-recent-item-meta">{formatSessionPreview(session.updatedAt)}</span>
+                  </button>
                 );
               })}
             </div>
           </section>
-        </div>
+        </SidebarHeader>
 
-        <div className="sidebar-bottom">
-          <Card variant="muted" className="card card-muted stack-tight sidebar-status-card">
-            <div className="sidebar-section-header">
-              <span className="eyebrow">Controller</span>
-              <Badge variant={controllerBadge.variant} size="sm" radius="full" className="status-inline">
-                <StatusDot status={controllerBadge.status} size="xs" pulse={controllerState?.state === "starting" || controllerState?.state === "restarting"} />
-                {controllerBadge.label}
-              </Badge>
+        <SidebarContent />
+
+        <SidebarFooter className="sidebar-bottom">
+          <NavigationMenu aria-label="Settings">
+            <NavigationMenuList>
+              {settingsNavItems.map((item) => {
+                const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
+                const selected = isNavItemActive(item);
+
+                return (
+                  <NavigationMenuItem key={item.href}>
+                    <NavigationMenuButton asChild active={selected} className="sidebar-nav-link">
+                      <Link href={href}>{item.label}</Link>
+                    </NavigationMenuButton>
+                  </NavigationMenuItem>
+                );
+              })}
+            </NavigationMenuList>
+          </NavigationMenu>
+
+          <div className="sidebar-status" role="status" aria-live="polite">
+            <StatusDot
+              status={controllerStatus}
+              size="sm"
+              pulse={controllerLifecycle === "starting" || controllerLifecycle === "restarting"}
+            />
+            <div className="sidebar-status-text">
+              <div className="sidebar-status-label">{controllerLabel}</div>
+              <div className="sidebar-status-hint">
+                {controllerState?.message ?? (isDesktop ? "Local controller" : "Browser mode")}
+              </div>
             </div>
-            <p className="muted">{controllerState?.message ?? (isDesktop ? "Controller health and restart feedback stay visible in the sidebar." : "Health and restart actions are available when running inside the desktop shell.")}</p>
-          </Card>
-
-          <nav className="nav nav-compact" aria-label="Settings">
-            {navigationItems.slice(1).map((item) => {
-              const href = item.settingsPanel ? getSettingsHref(pathname, searchParams, item.settingsPanel) : item.href;
-              const isActive = item.settingsPanel ? activeSettingsPanel === item.settingsPanel : pathname === item.href && activeSettingsPanel === null;
-
-              return (
-                <NavItem key={item.href} asChild selected={isActive} className="nav-link nav-link-compact">
-                  <Link href={href}>
-                    <span className="nav-label">{item.label}</span>
-                    <span className="nav-description">{item.description}</span>
-                  </Link>
-                </NavItem>
-              );
-            })}
-          </nav>
-        </div>
-      </aside>
+          </div>
+        </SidebarFooter>
+      </Sidebar>
 
       <main className="main-canvas" data-has-composer={composer ? "true" : "false"}>
         {header ? <div className="canvas-header">{header}</div> : null}

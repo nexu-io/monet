@@ -14,11 +14,14 @@ type RootLayoutProps = {
   children: ReactNode;
 };
 
-const darkThemeStyle = themeVariables.dark as CSSProperties;
+// Server-side default: render the light token set. The ThemeProvider on the
+// client will re-apply the user's saved/system preference on mount. Tokens are
+// the single source of truth here — we never hand-roll colors.
+const lightThemeStyle = themeVariables.light as CSSProperties;
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en" className="dark" style={darkThemeStyle}>
+    <html lang="en" className="light" data-theme="light" style={lightThemeStyle}>
       <body>
         <Suspense fallback={null}>
           <AppProviders>{children}</AppProviders>

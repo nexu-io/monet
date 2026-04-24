@@ -22,20 +22,31 @@ function getStatusHint(status: ComposerProps["status"], disabledReason?: string)
 
   switch (status) {
     case "submitted":
-      return "Sending prompt to /api/chat...";
+      return "Sending prompt…";
     case "streaming":
-      return "Streaming reply from /api/chat...";
+      return "Streaming reply…";
     case "error":
       return "Last request failed. Edit the prompt or regenerate to retry.";
     default:
-      return "Connected to the local controller chat route";
+      return null;
   }
 }
 
-export function Composer({ value, status, canRegenerate, disabled = false, disabledReason, onValueChange, onSubmit, onRegenerate, onStop }: ComposerProps) {
+export function Composer({
+  value,
+  status,
+  canRegenerate,
+  disabled = false,
+  disabledReason,
+  onValueChange,
+  onSubmit,
+  onRegenerate,
+  onStop
+}: ComposerProps) {
   const isBusy = status === "submitted" || status === "streaming";
   const isDisabled = disabled || isBusy;
-  const sendLabel = status === "submitted" ? "Sending..." : status === "streaming" ? "Streaming..." : "Send";
+  const sendLabel = status === "submitted" ? "Sending…" : status === "streaming" ? "Streaming…" : "Send";
+  const statusHint = getStatusHint(status, disabledReason);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,11 +58,11 @@ export function Composer({ value, status, canRegenerate, disabled = false, disab
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+    if (event.nativeEvent.isComposing) {
       return;
     }
 
-    if (event.metaKey || event.ctrlKey) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       onSubmit();
     }
@@ -65,8 +76,10 @@ export function Composer({ value, status, canRegenerate, disabled = false, disab
       <textarea
         id="chat-composer-input"
         className="composer-input"
-        rows={4}
-        placeholder="Ask Monet to inspect the local app, wire providers, or continue the current implementation loop..."
+        rows={3}
+        placeholder={
+          disabledReason ?? "Reply, continue the task, or ask for a new direction…"
+        }
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
@@ -75,21 +88,28 @@ export function Composer({ value, status, canRegenerate, disabled = false, disab
 
       <div className="composer-footer">
         <div className="composer-hints">
-          <span>Shift+Enter adds a newline. Ctrl/Cmd+Enter sends.</span>
-          <span>{getStatusHint(status, disabledReason)}</span>
+          <kbd>⏎</kbd>
+          <span>to send</span>
+          <span aria-hidden="true">·</span>
+          <kbd>⇧</kbd>
+          <kbd>⏎</kbd>
+          <span>for newline</span>
+          {statusHint ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{statusHint}</span>
+            </>
+          ) : null}
         </div>
 
         <div className="composer-actions">
-          <Button type="button" variant="secondary" disabled>
-            Attach context
-          </Button>
-          <Button type="button" variant="secondary" onClick={onRegenerate} disabled={disabled || !canRegenerate}>
+          <Button type="button" variant="ghost" size="sm" onClick={onRegenerate} disabled={disabled || !canRegenerate}>
             Regenerate
           </Button>
-          <Button type="button" variant="secondary" onClick={onStop} disabled={disabled || !isBusy}>
+          <Button type="button" variant="ghost" size="sm" onClick={onStop} disabled={disabled || !isBusy}>
             Stop
           </Button>
-          <Button type="submit" variant="primary" disabled={isDisabled || value.trim().length === 0}>
+          <Button type="submit" variant="primary" size="sm" disabled={isDisabled || value.trim().length === 0}>
             {sendLabel}
           </Button>
         </div>
