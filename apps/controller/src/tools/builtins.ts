@@ -1,6 +1,8 @@
 import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import type { IncomingMessage } from "node:http";
+import { request as httpsRequest, type RequestOptions } from "node:https";
 import { BlockList, isIP } from "node:net";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
@@ -11,9 +13,42 @@ export interface BuiltinToolsOptions {
   readonly getAllowedDirectories?: () => readonly string[];
   readonly controllerPort?: number;
   readonly dnsLookup?: DnsLookupFn;
+  readonly fetchUrlRequest?: FetchUrlRequestFn;
 }
 
 type DnsLookupFn = (hostname: string, options: { all: true; verbatim: true }) => Promise<LookupAddress[]>;
+type ResolvedFetchUrlAddress = Pick<LookupAddress, "address" | "family">;
+
+interface FetchUrlResponse {
+  readonly statusCode: number;
+  readonly statusText: string;
+  readonly headers: Headers;
+  readonly content: string;
+}
+
+interface FetchUrlRequestOptions {
+  readonly url: URL;
+  readonly abortSignal: AbortSignal;
+  readonly resolvedAddress: ResolvedFetchUrlAddress;
+}
+
+type FetchUrlRequestFn = (options: FetchUrlRequestOptions) => Promise<FetchUrlResponse>;
+
+function assertFetchUrlContentWithinLimit(response: FetchUrlResponse, maxBytes: number) {
+  const contentLength = response.headers.get("content-length");
+
+  if (contentLength) {
+    const parsedContentLength = Number.parseInt(contentLength, 10);
+
+    if (Number.isFinite(parsedContentLength) && parsedContentLength > maxBytes) {
+      throw new Error(`fetch_url response exceeded the size limit of ${maxBytes} bytes.`);
+    }
+  }
+
+  if (Buffer.byteLength(response.content, "utf8") > maxBytes) {
+    throw new Error(`fetch_url response exceeded the size limit of ${maxBytes} bytes.`);
+  }
+}
 
 interface FetchUrlInput {
   readonly url: string;
@@ -89,7 +124,11 @@ function getNormalizedPort(parsedUrl: URL) {
   return parsedUrl.protocol === "https:" ? 443 : 80;
 }
 
-async function assertFetchUrlTargetAllowed(parsedUrl: URL, controllerPort: number | undefined, dnsLookup: DnsLookupFn) {
+async function resolveFetchUrlTargetAddress(
+  parsedUrl: URL,
+  controllerPort: number | undefined,
+  dnsLookup: DnsLookupFn
+): Promise<ResolvedFetchUrlAddress> {
   if (parsedUrl.protocol !== "https:") {
     throw new Error("fetch_url only supports HTTPS URLs.");
   }
@@ -111,8 +150,13 @@ async function assertFetchUrlTargetAllowed(parsedUrl: URL, controllerPort: numbe
     throw new Error("fetch_url blocks loopback, private, link-local, and metadata network destinations.");
   }
 
-  if (isIP(hostname) !== 0) {
-    return;
+  const directFamily = isIP(hostname);
+
+  if (directFamily !== 0) {
+    return {
+      address: hostname,
+      family: directFamily
+    };
   }
 
   const resolvedAddresses = await dnsLookup(hostname, { all: true, verbatim: true });
@@ -124,7 +168,7 @@ async function assertFetchUrlTargetAllowed(parsedUrl: URL, controllerPort: numbe
   const blockedResolution = resolvedAddresses.find((address) => isBlockedIpAddress(address.address));
 
   if (!blockedResolution) {
-    return;
+    return resolvedAddresses[0]!;
   }
 
   if (controllerPort !== undefined && port === controllerPort) {
@@ -134,69 +178,131 @@ async function assertFetchUrlTargetAllowed(parsedUrl: URL, controllerPort: numbe
   throw new Error("fetch_url blocks loopback, private, link-local, and metadata network destinations.");
 }
 
-function isRedirectResponse(statusCode: number) {
-  return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308;
-}
-
-async function readResponseTextWithLimit(response: Response, maxBytes: number) {
-  const contentLength = response.headers.get("content-length");
-
-  if (contentLength) {
-    const parsedContentLength = Number.parseInt(contentLength, 10);
+async function readNodeResponseTextWithLimit(
+  response: IncomingMessage,
+  contentLengthHeader: string | null,
+  maxBytes: number
+) {
+  if (contentLengthHeader) {
+    const parsedContentLength = Number.parseInt(contentLengthHeader, 10);
 
     if (Number.isFinite(parsedContentLength) && parsedContentLength > maxBytes) {
       throw new Error(`fetch_url response exceeded the size limit of ${maxBytes} bytes.`);
     }
   }
 
-  if (!response.body) {
-    return "";
-  }
-
-  const reader = response.body.getReader();
   const chunks: Buffer[] = [];
   let totalBytes = 0;
 
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      break;
-    }
-
-    if (!value) {
-      continue;
-    }
-
-    totalBytes += value.byteLength;
+  for await (const chunk of response) {
+    const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += chunkBuffer.byteLength;
 
     if (totalBytes > maxBytes) {
-      await reader.cancel();
+      response.destroy(new Error(`fetch_url response exceeded the size limit of ${maxBytes} bytes.`));
       throw new Error(`fetch_url response exceeded the size limit of ${maxBytes} bytes.`);
     }
 
-    chunks.push(Buffer.from(value));
+    chunks.push(chunkBuffer);
   }
 
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function fetchUrlWithGuards(inputUrl: URL, abortSignal: AbortSignal, controllerPort: number | undefined, dnsLookup: DnsLookupFn) {
+function createHeadersFromNodeResponseHeaders(headers: Record<string, string | string[] | undefined>) {
+  const normalizedHeaders = new Headers();
+
+  for (const [name, value] of Object.entries(headers)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        normalizedHeaders.append(name, entry);
+      }
+
+      continue;
+    }
+
+    normalizedHeaders.set(name, value);
+  }
+
+  return normalizedHeaders;
+}
+
+const defaultFetchUrlRequest: FetchUrlRequestFn = async ({ url, abortSignal, resolvedAddress }) =>
+  new Promise((resolvePromise, rejectPromise) => {
+    const requestOptions: RequestOptions = {
+      protocol: "https:",
+      hostname: url.hostname,
+      port: getNormalizedPort(url),
+      path: `${url.pathname}${url.search}`,
+      method: "GET",
+      signal: abortSignal,
+      servername: url.hostname,
+      lookup: ((hostname, _options, callback) => {
+        if (normalizeHostname(hostname) !== normalizeHostname(url.hostname)) {
+          callback(new Error("fetch_url attempted to resolve an unexpected hostname."));
+          return;
+        }
+
+        callback(null, resolvedAddress.address, resolvedAddress.family);
+      }) as RequestOptions["lookup"]
+    };
+
+    const request = httpsRequest(requestOptions, async (response) => {
+      try {
+        const headers = createHeadersFromNodeResponseHeaders(response.headers);
+        const content = await readNodeResponseTextWithLimit(
+          response,
+          headers.get("content-length"),
+          fetchUrlMaxResponseBytes
+        );
+
+        resolvePromise({
+          statusCode: response.statusCode ?? 0,
+          statusText: response.statusMessage ?? "",
+          headers,
+          content
+        });
+      } catch (error) {
+        rejectPromise(error);
+      }
+    });
+
+    request.on("error", rejectPromise);
+    request.end();
+  });
+
+function isRedirectResponse(statusCode: number) {
+  return statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308;
+}
+
+async function fetchUrlWithGuards(
+  inputUrl: URL,
+  abortSignal: AbortSignal,
+  controllerPort: number | undefined,
+  dnsLookup: DnsLookupFn,
+  fetchUrlRequest: FetchUrlRequestFn
+) {
   let currentUrl = inputUrl;
 
   for (let redirectCount = 0; ; redirectCount += 1) {
-    await assertFetchUrlTargetAllowed(currentUrl, controllerPort, dnsLookup);
+    const resolvedAddress = await resolveFetchUrlTargetAddress(currentUrl, controllerPort, dnsLookup);
 
-    const response = await fetch(currentUrl, {
-      signal: abortSignal,
-      redirect: "manual"
+    const response = await fetchUrlRequest({
+      url: currentUrl,
+      abortSignal,
+      resolvedAddress
     });
+    assertFetchUrlContentWithinLimit(response, fetchUrlMaxResponseBytes);
 
-    if (!isRedirectResponse(response.status)) {
+    if (!isRedirectResponse(response.statusCode)) {
       return {
         response,
         resolvedUrl: currentUrl.toString(),
-        content: await readResponseTextWithLimit(response, fetchUrlMaxResponseBytes)
+        content: response.content
       };
     }
 
@@ -295,6 +401,7 @@ export function createBuiltinToolDefinitions(
   options: BuiltinToolsOptions
 ): ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> {
   const dnsLookup = options.dnsLookup ?? lookup;
+  const fetchUrlRequest = options.fetchUrlRequest ?? defaultFetchUrlRequest;
   const getAllowedDirectories = () =>
     normalizeAllowedDirectories(options.getAllowedDirectories ? options.getAllowedDirectories() : options.allowedDirectories);
 
@@ -320,12 +427,13 @@ export function createBuiltinToolDefinitions(
           parsedUrl,
           context.abortSignal,
           options.controllerPort,
-          dnsLookup
+          dnsLookup,
+          fetchUrlRequest
         );
 
         return {
-          url: response.url || resolvedUrl,
-          statusCode: response.status,
+          url: resolvedUrl,
+          statusCode: response.statusCode,
           statusText: response.statusText,
           contentType: response.headers.get("content-type"),
           content

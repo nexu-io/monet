@@ -221,3 +221,67 @@ test("continue endpoint rejects requests without messages", async () => {
   });
   assert.equal(confirmCalled, false);
 });
+
+test("continue endpoint rejects runs that have exhausted their max-step budget", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  let persistCalled = false;
+  let resumeCalled = false;
+
+  registerRunRoutes(app, {
+    runRegistry: createRunRegistry(),
+    providerRuntime: noopProviderRuntime as never,
+    toolRegistry: noopToolRegistry as never,
+    runtime: {
+      maxStepsPerRun: 1,
+      maxTokensPerRun: 32_768,
+      maxToolCallsPerRun: 1,
+      wallClockBudgetMs: 30_000
+    },
+    getChatStorage: () =>
+      ({
+        confirmToolCall() {},
+        getRunContext() {
+          return {
+            status: "pending",
+            sessionId: "session_123",
+            providerId: "openai",
+            modelId: "gpt-4o-mini",
+            currentStep: 1,
+            maxSteps: 1,
+            maxTokensPerRun: null,
+            wallClockDeadlineAt: null
+          };
+        },
+        persistRunMessages() {
+          persistCalled = true;
+        },
+        resumeRun() {
+          resumeCalled = true;
+        }
+      }) as unknown as ChatStorage
+  });
+
+  const response = await app.request("http://127.0.0.1:3030/api/runs/run_pending/continue", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      runId: "run_pending",
+      toolCallId: "tool_123",
+      decision: "approved",
+      confirmationToken: "confirm_123",
+      messages: []
+    })
+  });
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: "invalid_state",
+      message: "Run has exhausted its max-step budget."
+    }
+  });
+  assert.equal(persistCalled, false);
+  assert.equal(resumeCalled, false);
+});

@@ -94,11 +94,26 @@ export function registerChatRoutes(
 
     body = parsedBody.data;
 
+    if (body.messages !== undefined && !Array.isArray(body.messages)) {
+      chatLogger.warn("chat.invalid_messages", {
+        requestId,
+        rawMessageCount: 0
+      });
+
+      return context.json(
+        {
+          error: "invalid_request",
+          message: "`messages` must be a valid AI SDK UIMessage[] payload."
+        },
+        400
+      );
+    }
+
     let messages: UIMessage[];
 
     try {
       messages = await validateUIMessages({
-        messages: Array.isArray(body.messages) ? body.messages : []
+        messages: body.messages ?? []
       });
     } catch {
       chatLogger.warn("chat.invalid_messages", {

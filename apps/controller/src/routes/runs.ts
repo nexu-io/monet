@@ -137,6 +137,12 @@ export function registerRunRoutes(
         return context.json(createErrorResponse("invalid_state", "Run is not awaiting continuation."), 409);
       }
 
+      const remainingSteps = run.maxSteps - Math.max(0, run.currentStep);
+
+      if (remainingSteps <= 0) {
+        return context.json(createErrorResponse("invalid_state", "Run has exhausted its max-step budget."), 409);
+      }
+
       options.getChatStorage().persistRunMessages({
         sessionId: run.sessionId,
         runId,
@@ -151,7 +157,7 @@ export function registerRunRoutes(
           modelId: run.modelId,
           runId,
           currentStep: run.currentStep,
-          maxSteps: Math.max(1, run.maxSteps - Math.max(0, run.currentStep)),
+          maxSteps: remainingSteps,
           maxTokensPerRun: run.maxTokensPerRun,
           wallClockDeadlineAt: run.wallClockDeadlineAt
         },
