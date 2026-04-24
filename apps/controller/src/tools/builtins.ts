@@ -65,7 +65,14 @@ interface WriteFileInput {
 
 const fetchUrlMaxRedirects = 3;
 const fetchUrlMaxResponseBytes = 1_000_000;
+const readFileMaxBytes = 1_000_000;
 const blockedIpAddresses = createBlockedIpAddresses();
+
+function assertReadFileWithinLimit(sizeBytes: number, maxBytes: number) {
+  if (sizeBytes > maxBytes) {
+    throw new Error(`read_file exceeded the size limit of ${maxBytes} bytes.`);
+  }
+}
 
 function normalizeAllowedDirectories(paths: readonly string[]): string[] {
   return Array.from(new Set(paths.map((path) => resolve(path.trim())).filter(Boolean)));
@@ -457,7 +464,9 @@ export function createBuiltinToolDefinitions(
       async execute(input) {
         const normalizedInput = input as ReadFileInput;
         const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, getAllowedDirectories(), "read");
-        const [content, fileStat] = await Promise.all([readFile(authorizedPath, "utf8"), stat(authorizedPath)]);
+        const fileStat = await stat(authorizedPath);
+        assertReadFileWithinLimit(fileStat.size, readFileMaxBytes);
+        const content = await readFile(authorizedPath, "utf8");
 
         return {
           path: authorizedPath,

@@ -241,3 +241,48 @@ test("prepareChatRequest rejects archived sessions before creating a new run", (
     fixture.cleanup();
   }
 });
+
+test("prepareChatRequest rejects invalid fallback provider/model before persisting a run", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      connection
+        .prepare("UPDATE provider_models SET enabled = 0 WHERE provider_id = ? AND model_name = ?")
+        .run("pro_b6m4q2r8t5v9x3z7k1n4p6s8", "gpt-4.1-mini");
+
+      assert.throws(
+        () =>
+          storage.prepareChatRequest({
+            messages: [
+              {
+                id: "msg_user_1",
+                role: "user",
+                parts: [{ type: "text", text: "Hello" }]
+              } as any
+            ]
+          }),
+        (error) => {
+          assert.ok(error instanceof ChatStorageResolutionError);
+          assert.equal(error.statusCode, 422);
+          assert.equal(error.errorCode, "provider_model_unresolved");
+          assert.equal(error.message, "No fallback provider/model is currently available for new chats.");
+          return true;
+        }
+      );
+
+      const runCount = connection.prepare("SELECT COUNT(*) AS count FROM runs").get() as { count: number };
+      const messageCount = connection.prepare("SELECT COUNT(*) AS count FROM messages").get() as { count: number };
+
+      assert.equal(runCount.count, 0);
+      assert.equal(messageCount.count, 0);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});

@@ -1485,9 +1485,20 @@ function resolveProviderAndModel(
     }
   }
 
+  const fallbackProvider = getEnabledProvider(connection, DEFAULT_OPENAI_PROVIDER_ID);
+  const fallbackModel = getEnabledProviderModel(connection, DEFAULT_OPENAI_MODEL_ID);
+
+  if (!fallbackProvider || !fallbackModel || fallbackModel.provider_id !== fallbackProvider.id) {
+    throw new ChatStorageResolutionError({
+      message: "No fallback provider/model is currently available for new chats.",
+      statusCode: 422,
+      errorCode: "provider_model_unresolved"
+    });
+  }
+
   return {
-    providerId: DEFAULT_OPENAI_PROVIDER_ID,
-    modelId: DEFAULT_OPENAI_MODEL_ID
+    providerId: fallbackProvider.id,
+    modelId: fallbackModel.id
   };
 }
 

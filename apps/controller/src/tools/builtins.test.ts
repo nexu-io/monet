@@ -254,6 +254,30 @@ test("read_file rejects symlink escapes outside authorized directories", async (
   }
 });
 
+test("read_file rejects oversized files before reading them into memory", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const oversizedPath = join(fixture.workspaceDir, "oversized.txt");
+    writeFileSync(oversizedPath, "x".repeat(1_000_001), "utf8");
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const readFileTool = runtimeTools.read_file!;
+
+    await assert.rejects(
+      readFileTool.execute(
+        {
+          path: oversizedPath
+        },
+        createExecutionContext()
+      ),
+      /read_file exceeded the size limit of 1000000 bytes/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("write_file rejects symlink escapes outside authorized directories", async () => {
   const fixture = createTestFixture();
 
