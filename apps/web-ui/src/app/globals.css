@@ -8,12 +8,22 @@
  *   - Layout tokens (shell width, page padding, gaps) are declared here once.
  *   - Soft, airy, light-default aesthetic — dark theme inherits tokens.
  *
- * NOTE: we explicitly pull in the design-system CSS here (tokens + ui-web)
- * so that variable + Tailwind class styles from the primitives are present.
+ * Import order is deliberate for the Tailwind v4 migration:
+ *   1. @nexu-design/tokens defines the design-token variables first.
+ *   2. @nexu-design/ui-web consumes those tokens for primitive/slot styles.
+ *   3. Tailwind is loaded after the primitives so app-authored utilities can
+ *      become the final component styling layer during migration.
+ *
+ * Tailwind Preflight/base styles are enabled. The app base rules below remain
+ * unlayered and after the Tailwind import, so they intentionally win for body,
+ * links, and form-control font inheritance where they overlap with Preflight.
+ * Existing ui-web primitive classes remain styled by the ui-web import; later
+ * app utilities/slot overrides may deliberately override them where needed.
  * ============================================================ */
 
 @import "@nexu-design/tokens/styles.css";
 @import "@nexu-design/ui-web/styles.css";
+@import "tailwindcss";
 
 :root {
   color-scheme: light dark;
