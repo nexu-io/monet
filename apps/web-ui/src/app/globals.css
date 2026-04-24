@@ -234,79 +234,6 @@ textarea {
  * Conversation header, composer, chat thread
  * ============================================================ */
 
-/* Composer (active chat) */
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--spacing) * 2.5);
-  padding: calc(var(--spacing) * 4);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-xl);
-  background: var(--color-surface-1);
-  box-shadow: var(--shadow-xs);
-  transition: box-shadow var(--duration-normal) var(--ease-standard),
-    border-color var(--duration-normal) var(--ease-standard);
-}
-
-.composer:focus-within {
-  border-color: var(--color-border-strong);
-  box-shadow: var(--shadow-sm);
-}
-
-.composer-input {
-  width: 100%;
-  min-height: calc(var(--spacing) * 18);
-  max-height: min(40vh, calc(var(--spacing) * 60));
-  resize: none;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--color-text-primary);
-  font-family: var(--font-sans);
-  font-size: var(--text-size-xl);
-  line-height: 1.55;
-  outline: none;
-}
-
-.composer-input::placeholder {
-  color: var(--color-text-placeholder);
-}
-
-.composer-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: calc(var(--spacing) * 3);
-  flex-wrap: wrap;
-}
-
-.composer-hints {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: calc(var(--spacing) * 2);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-size-sm);
-}
-
-.composer-hints kbd {
-  display: inline-flex;
-  align-items: center;
-  padding: calc(var(--spacing) * 0.5) calc(var(--spacing) * 1.5);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2);
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-size-2xs);
-}
-
-.composer-actions {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--spacing) * 2);
-}
-
 /* Chat thread layout */
 .chat-thread-layout {
   display: flex;
@@ -919,13 +846,11 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .composer-footer,
   .tool-card-header {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .composer-actions,
   .chat-message-card {
     width: 100%;
   }
