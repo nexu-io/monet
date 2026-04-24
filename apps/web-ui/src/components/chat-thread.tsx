@@ -248,7 +248,7 @@ function renderPart(
     return (
       <div key={`${part.type}-${index}`} className="tool-card" data-tool-phase={toolStateMeta.phase}>
         <div className="tool-card-header">
-          <div className="stack-tight">
+          <div className="flex flex-col gap-1">
             <span className="attachment-label">Tool call</span>
             <strong>{part.toolName}</strong>
           </div>
@@ -266,11 +266,11 @@ function renderPart(
               <span className="attachment-label">Content preview</span>
               <pre>{writeFilePreview?.content}</pre>
               {writeFilePreview?.wasTruncated ? (
-                <p className="muted">
+                <p className="m-0 leading-[1.5] text-text-muted">
                   Showing the first {Math.min(writeFilePreview.lineCount, WRITE_FILE_PREVIEW_MAX_LINES)} lines and up to {WRITE_FILE_PREVIEW_MAX_CHARS} characters.
                 </p>
               ) : (
-                <p className="muted">{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
+                <p className="m-0 leading-[1.5] text-text-muted">{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
               )}
             </div>
           </>
@@ -286,14 +286,14 @@ function renderPart(
         {part.state === "approval-requested" && isWriteFileCall ? (
           <div className="tool-card-section">
             <span className="attachment-label">Risk</span>
-            <p className="muted">This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
+            <p className="m-0 leading-[1.5] text-text-muted">This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
           </div>
         ) : null}
 
         {part.state === "approval-requested" && canApprove ? (
           <div className="tool-card-section">
             <span className="attachment-label">Confirmation</span>
-            <p className="muted">
+            <p className="m-0 leading-[1.5] text-text-muted">
               {isWriteFileCall
                 ? "This action can create or overwrite a file inside an authorized directory. Review the path and content preview before continuing."
                 : "Review the tool input, then approve or reject execution."}
@@ -330,7 +330,7 @@ function renderPart(
                 {isPendingApproval ? "Submitting..." : "Reject"}
               </Button>
             </div>
-            {isPendingApproval ? <p className="muted">Confirmation submitted. Waiting for the run to continue…</p> : null}
+            {isPendingApproval ? <p className="m-0 leading-[1.5] text-text-muted">Confirmation submitted. Waiting for the run to continue…</p> : null}
           </div>
         ) : null}
 
@@ -474,10 +474,10 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
     <section ref={rootRef} className="chat-thread" aria-label="Conversation transcript">
       {messages.length === 0 ? (
         <Card className="chat-empty-state">
-          <div className="stack-tight">
+          <div className="flex flex-col gap-1">
             <span className="attachment-label">Ready for first prompt</span>
             <strong>Send a message to verify the local chat stream.</strong>
-            <p className="muted">The chat surface is live — your next message will be answered by the configured model.</p>
+            <p className="m-0 leading-[1.5] text-text-muted">The chat surface is live — your next message will be answered by the configured model.</p>
           </div>
         </Card>
       ) : null}
@@ -512,10 +512,10 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
 
       {errorText ? (
         <Card className="chat-error-card">
-          <div className="stack-tight">
+          <div className="flex flex-col gap-1">
             <span className="attachment-label">Request error</span>
             <strong>Chat transport returned an error.</strong>
-            <p className="muted">{errorText}</p>
+            <p className="m-0 leading-[1.5] text-text-muted">{errorText}</p>
           </div>
         </Card>
       ) : null}

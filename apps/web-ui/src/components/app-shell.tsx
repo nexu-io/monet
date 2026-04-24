@@ -188,7 +188,7 @@ export function AppShell({
         <SidebarHeader className="sidebar-top">
           <div className="sidebar-brand">
             <span className="sidebar-brand-mark" aria-hidden="true">M</span>
-            <div className="stack-tight">
+            <div className="flex flex-col gap-1">
               <span className="sidebar-brand-name">Monet</span>
               <span className="sidebar-brand-tag">Your local AI workspace</span>
             </div>

@@ -50,20 +50,20 @@ export default function SessionsPage() {
       description="Browse, rename, and archive your saved chat sessions."
     >
       <section className="session-browser-layout">
-        <Card className="card stack">
+        <Card className="card flex flex-col gap-3">
           <CardHeader>
-            <div className="stack-tight">
-              <span className="eyebrow">Session browser</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Session browser</span>
               <CardTitle>Session history</CardTitle>
             </div>
-            <CardDescription className="muted">
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">
               Rename, archive, and inspect persisted session detail without leaving the static renderer shell.
             </CardDescription>
           </CardHeader>
 
           <CardContent>
-            {sessionsError ? <p className="muted">{sessionsError}</p> : null}
-            {isSessionsLoading ? <p className="muted">Loading sessions...</p> : null}
+            {sessionsError ? <p className="m-0 leading-[1.5] text-text-muted">{sessionsError}</p> : null}
+            {isSessionsLoading ? <p className="m-0 leading-[1.5] text-text-muted">Loading sessions...</p> : null}
             <ul className="session-browser-list">
               {sessions.map((session) => {
                 const isActive = session.id === currentSessionId;
@@ -77,7 +77,7 @@ export default function SessionsPage() {
                       onClick={() => openSession(session.id, "/sessions")}
                     >
                       <span className="session-browser-item-title">{session.title}</span>
-                      <span className="muted">{session.archivedAt ? "Archived" : "Active"}</span>
+                      <span className="m-0 leading-[1.5] text-text-muted">{session.archivedAt ? "Archived" : "Active"}</span>
                     </button>
                   </li>
                 );
@@ -86,20 +86,20 @@ export default function SessionsPage() {
           </CardContent>
         </Card>
 
-        <Card className="card stack">
+        <Card className="card flex flex-col gap-3">
           <CardHeader>
-            <div className="stack-tight">
-              <span className="eyebrow">Selected session</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected session</span>
               <CardTitle>{currentSessionDetail?.title ?? "No session selected"}</CardTitle>
             </div>
-            <CardDescription className="muted">
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">
               {currentSessionDetail ? currentSessionDetail.id : "Pick a session from the list to inspect its persisted messages."}
             </CardDescription>
           </CardHeader>
 
-          <CardContent className="stack-tight">
-            {isCurrentSessionLoading ? <p className="muted">Loading session detail...</p> : null}
-            {!isCurrentSessionLoading && !currentSessionDetail ? <p className="muted">Choose a session to inspect its detail.</p> : null}
+          <CardContent className="flex flex-col gap-1">
+            {isCurrentSessionLoading ? <p className="m-0 leading-[1.5] text-text-muted">Loading session detail...</p> : null}
+            {!isCurrentSessionLoading && !currentSessionDetail ? <p className="m-0 leading-[1.5] text-text-muted">Choose a session to inspect its detail.</p> : null}
             {currentSessionDetail ? (
               <>
                 <div className="session-browser-actions">

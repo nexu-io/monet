@@ -463,25 +463,25 @@ function GeneralSettingsPanel() {
 
   return (
     <div className="settings-general-layout">
-      <Card className="card stack">
+      <Card className="card flex flex-col gap-3">
         <CardHeader>
-          <div className="stack-tight">
-            <span className="eyebrow">Filesystem access</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Filesystem access</span>
             <CardTitle>Authorized directories</CardTitle>
-            <CardDescription className="muted">
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">
               File tools can only read and write inside directories you explicitly authorize here.
             </CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent className="stack">
-          <div className="settings-provider-item-meta muted">
+        <CardContent className="flex flex-col gap-3">
+          <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
             <span>{authorizedDirectories.length} authorized</span>
               <span>Saved to your local workspace</span>
           </div>
 
           <label className="settings-secret-field">
-            <span className="muted">Add a directory path manually</span>
+            <span className="m-0 leading-[1.5] text-text-muted">Add a directory path manually</span>
             <input
               type="text"
               value={directoryDraft}
@@ -502,16 +502,16 @@ function GeneralSettingsPanel() {
           </div>
 
           {!desktopApi?.pickDirectory ? (
-            <p className="muted">Native folder picking is only available inside the Electron desktop shell.</p>
+            <p className="m-0 leading-[1.5] text-text-muted">Native folder picking is only available inside the Electron desktop shell.</p>
           ) : null}
 
-          {authorizedDirectoriesState.loading ? <p className="muted">Loading authorized directories…</p> : null}
-          {authorizedDirectoriesState.error ? <p className="muted mono">{authorizedDirectoriesState.error}</p> : null}
+          {authorizedDirectoriesState.loading ? <p className="m-0 leading-[1.5] text-text-muted">Loading authorized directories…</p> : null}
+          {authorizedDirectoriesState.error ? <p className="m-0 leading-[1.5] text-text-muted mono">{authorizedDirectoriesState.error}</p> : null}
 
           {!authorizedDirectoriesState.loading && !authorizedDirectoriesState.error && authorizedDirectories.length === 0 ? (
             <div className="settings-empty-state">
-              <p className="muted">No directories are authorized yet.</p>
-              <p className="muted">Add one before using read_file or write_file in agent runs.</p>
+              <p className="m-0 leading-[1.5] text-text-muted">No directories are authorized yet.</p>
+              <p className="m-0 leading-[1.5] text-text-muted">Add one before using read_file or write_file in agent runs.</p>
             </div>
           ) : null}
 
@@ -521,11 +521,11 @@ function GeneralSettingsPanel() {
                 <span className="settings-directory-item-icon" aria-hidden="true">
                   📁
                 </span>
-                <div className="stack-tight">
+                <div className="flex flex-col gap-1">
                   <strong className="settings-directory-item-path mono" title={entry.path}>
                     {entry.path}
                   </strong>
-                  <div className="settings-provider-item-meta muted">
+                  <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
                     <span>Updated {formatTimestamp(entry.updatedAt)}</span>
                     <span>Added {formatTimestamp(entry.createdAt)}</span>
                   </div>
@@ -537,25 +537,25 @@ function GeneralSettingsPanel() {
             ))}
           </div>
 
-          {directoryFeedback ? <p className="muted mono">{directoryFeedback}</p> : null}
+          {directoryFeedback ? <p className="m-0 leading-[1.5] text-text-muted mono">{directoryFeedback}</p> : null}
         </CardContent>
       </Card>
 
-      <Card className="card stack">
+      <Card className="card flex flex-col gap-3">
         <CardHeader>
-          <div className="stack-tight">
-            <span className="eyebrow">Local storage</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Local storage</span>
             <CardTitle>Data directory</CardTitle>
-            <CardDescription className="muted">
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">
               Monet stores desktop state, secrets metadata, window state, and your local workspace database in the app data directory.
             </CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent className="stack">
-          <ul className="kv-list">
-            <li>
-              <Card variant="muted" padding="sm" className="card card-muted stack-tight">
+        <CardContent className="flex flex-col gap-3">
+          <ul className="grid list-none gap-2.5 p-0 m-0">
+            <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
+              <Card variant="muted" padding="sm" className="card card-muted flex flex-col gap-1">
                 <div className="settings-provider-item-header">
                   <strong>Application data path</strong>
                   <div className="settings-provider-chip-row">
@@ -577,27 +577,27 @@ function GeneralSettingsPanel() {
                     </button>
                   </div>
                 </div>
-                <div className="muted mono">{appPathsState.data?.userDataPath ?? "Unavailable outside the desktop shell."}</div>
+                <div className="m-0 leading-[1.5] text-text-muted mono">{appPathsState.data?.userDataPath ?? "Unavailable outside the desktop shell."}</div>
               </Card>
             </li>
           </ul>
 
-          {appPathsState.loading ? <p className="muted">Loading app paths…</p> : null}
-          {appPathsState.error ? <p className="muted">{appPathsState.error}</p> : null}
-          {pathFeedback ? <p className="muted mono">{pathFeedback}</p> : null}
+          {appPathsState.loading ? <p className="m-0 leading-[1.5] text-text-muted">Loading app paths…</p> : null}
+          {appPathsState.error ? <p className="m-0 leading-[1.5] text-text-muted">{appPathsState.error}</p> : null}
+          {pathFeedback ? <p className="m-0 leading-[1.5] text-text-muted mono">{pathFeedback}</p> : null}
         </CardContent>
       </Card>
 
-      <Card className="card stack">
+      <Card className="card flex flex-col gap-3">
         <CardHeader>
-          <div className="stack-tight">
-            <span className="eyebrow">Appearance</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Appearance</span>
             <CardTitle>Theme</CardTitle>
-            <CardDescription className="muted">Choose whether the renderer follows the system appearance or forces a specific theme.</CardDescription>
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">Choose whether the renderer follows the system appearance or forces a specific theme.</CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent className="stack">
+        <CardContent className="flex flex-col gap-3">
           <div className="settings-theme-options" role="list" aria-label="Theme options">
             {themeOptions.map((option) => (
               <button
@@ -608,15 +608,15 @@ function GeneralSettingsPanel() {
                 onClick={() => setTheme(option.value)}
               >
                 <span className="settings-theme-swatch" data-theme-preview={option.value} aria-hidden="true" />
-                <div className="stack-tight">
+                <div className="flex flex-col gap-1">
                   <strong>{option.label}</strong>
-                  <span className="muted">{option.detail}</span>
+                  <span className="m-0 leading-[1.5] text-text-muted">{option.detail}</span>
                 </div>
               </button>
             ))}
           </div>
 
-          <div className="settings-provider-item-meta muted">
+          <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
             <span>Saved preference: {theme}</span>
             <span>Currently applied: {resolvedTheme}</span>
           </div>
@@ -920,19 +920,19 @@ function ModelSettingsPanel() {
 
   if (providersState.loading) {
     return (
-      <Card className="card stack">
+      <Card className="card flex flex-col gap-3">
         <CardHeader>
-          <div className="stack-tight">
-            <span className="eyebrow">Provider configuration</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
             <CardTitle>Model routing and defaults</CardTitle>
-            <CardDescription className="muted">Loading providers, models, and validation status from your workspace.</CardDescription>
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">Loading providers, models, and validation status from your workspace.</CardDescription>
           </div>
         </CardHeader>
 
         <CardContent>
           <div className="settings-empty-state">
             <ValidationBadge state={{ loading: true, data: null, error: null }} />
-            <p className="muted">Checking provider records and syncing the current model catalog.</p>
+            <p className="m-0 leading-[1.5] text-text-muted">Checking provider records and syncing the current model catalog.</p>
           </div>
         </CardContent>
       </Card>
@@ -941,21 +941,21 @@ function ModelSettingsPanel() {
 
   if (providersState.error) {
     return (
-      <Card className="card stack">
+      <Card className="card flex flex-col gap-3">
         <CardHeader>
-          <div className="stack-tight">
-            <span className="eyebrow">Provider configuration</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
             <CardTitle>Model routing and defaults</CardTitle>
-            <CardDescription className="muted">Settings could not load provider metadata from your workspace.</CardDescription>
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">Settings could not load provider metadata from your workspace.</CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent className="stack">
+        <CardContent className="flex flex-col gap-3">
           <Badge variant="destructive" size="sm" radius="full" className="status-badge" data-tone="offline">
             <StatusDot status="error" size="xs" />
             <span>Provider list unavailable</span>
           </Badge>
-          <p className="muted mono">{providersState.error}</p>
+          <p className="m-0 leading-[1.5] text-text-muted mono">{providersState.error}</p>
           <Button type="button" variant="primary" onClick={() => void loadProviders()}>
             Retry provider load
           </Button>
@@ -966,25 +966,25 @@ function ModelSettingsPanel() {
 
   if (providers.length === 0) {
     return (
-      <Card className="card stack">
+      <Card className="card flex flex-col gap-3">
         <CardHeader>
-          <div className="stack-tight">
-            <span className="eyebrow">Provider configuration</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
             <CardTitle>No providers configured yet</CardTitle>
-            <CardDescription className="muted">
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">
               Monet needs at least one persisted provider record before new sessions can resolve a default model.
             </CardDescription>
           </div>
         </CardHeader>
 
-        <CardContent className="stack">
+        <CardContent className="flex flex-col gap-3">
           <div className="settings-empty-state">
             <Badge variant="warning" size="sm" radius="full" className="status-badge" data-tone="unknown">
               <StatusDot status="warning" size="xs" />
               <span>No provider records</span>
             </Badge>
 
-            <ul className="settings-list">
+            <ul className="grid list-none gap-2.5 p-0 m-0">
               <li>
                 <Card variant="muted" padding="sm" className="card card-muted">
                   Supported provider types in the current build are OpenAI and OpenRouter.
@@ -1014,19 +1014,19 @@ function ModelSettingsPanel() {
   return (
     <div className="settings-models-layout">
       {!hasReadyProvider && allValidationsSettled ? (
-        <Card className="card stack settings-callout-card">
+        <Card className="card flex flex-col gap-3 settings-callout-card">
           <CardHeader>
-            <div className="stack-tight">
-              <span className="eyebrow">Setup guidance</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Setup guidance</span>
               <CardTitle>No provider is ready for chat yet</CardTitle>
-              <CardDescription className="muted">
+              <CardDescription className="m-0 leading-[1.5] text-text-muted">
                 A session needs a validated provider and a resolved default model before it can call <span className="mono">/api/chat</span>.
               </CardDescription>
             </div>
           </CardHeader>
 
           <CardContent>
-            <ul className="settings-list">
+            <ul className="grid list-none gap-2.5 p-0 m-0">
               <li>
                 <Card variant="muted" padding="sm" className="card card-muted">
                   Start by fixing the provider cards marked with missing credentials, API errors, or default-model issues.
@@ -1043,12 +1043,12 @@ function ModelSettingsPanel() {
       ) : null}
 
       <div className="settings-provider-grid">
-        <Card className="card stack settings-provider-list-card">
+        <Card className="card flex flex-col gap-3 settings-provider-list-card">
           <CardHeader>
-            <div className="stack-tight">
-              <span className="eyebrow">Configured providers</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Configured providers</span>
               <CardTitle>Choose a provider</CardTitle>
-              <CardDescription className="muted">Validation status is loaded inline so you can see which provider is ready for new sessions.</CardDescription>
+              <CardDescription className="m-0 leading-[1.5] text-text-muted">Validation status is loaded inline so you can see which provider is ready for new sessions.</CardDescription>
             </div>
           </CardHeader>
 
@@ -1067,9 +1067,9 @@ function ModelSettingsPanel() {
                     onClick={() => setSelectedProviderId(provider.id)}
                   >
                     <div className="settings-provider-item-header">
-                      <div className="stack-tight">
+                      <div className="flex flex-col gap-1">
                         <strong>{provider.displayName}</strong>
-                        <span className="muted">{formatProviderType(provider.type)}</span>
+                        <span className="m-0 leading-[1.5] text-text-muted">{formatProviderType(provider.type)}</span>
                       </div>
                       <Badge variant={provider.enabled ? "secondary" : "warning"} size="sm" radius="full">
                         {provider.enabled ? "Enabled" : "Disabled"}
@@ -1078,7 +1078,7 @@ function ModelSettingsPanel() {
 
                     <ValidationBadge state={validationState} />
 
-                    <div className="settings-provider-item-meta muted">
+                    <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
                       <span>Default: {provider.defaultModelName ?? "Not set"}</span>
                       <span>ID: {provider.id}</span>
                     </div>
@@ -1090,22 +1090,22 @@ function ModelSettingsPanel() {
         </Card>
 
         {selectedProvider ? (
-          <div className="settings-provider-detail stack">
-            <Card className="card stack">
+          <div className="settings-provider-detail flex flex-col gap-3">
+            <Card className="card flex flex-col gap-3">
               <CardHeader>
-                <div className="stack-tight">
-                  <span className="eyebrow">Selected provider</span>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected provider</span>
                   <div className="settings-title-row">
                     <CardTitle>{selectedProvider.displayName}</CardTitle>
                     <ValidationBadge state={selectedValidation} />
                   </div>
-                  <CardDescription className="muted">
+                  <CardDescription className="m-0 leading-[1.5] text-text-muted">
                     Review the persisted provider metadata, current validation result, and enabled model catalog.
                   </CardDescription>
                 </div>
               </CardHeader>
 
-              <CardContent className="stack">
+              <CardContent className="flex flex-col gap-3">
                 <div className="settings-provider-chip-row">
                   <Badge variant="secondary" size="sm" radius="full">{formatProviderType(selectedProvider.type)}</Badge>
                   <Badge variant={selectedProvider.enabled ? "success" : "warning"} size="sm" radius="full">
@@ -1116,26 +1116,26 @@ function ModelSettingsPanel() {
                   </Badge>
                 </div>
 
-                <ul className="kv-list">
-                  <li>
+                <ul className="grid list-none gap-2.5 p-0 m-0">
+                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
                     <strong>Default model</strong>
-                    <div className="muted mono">{selectedProvider.defaultModelName ?? "Not configured"}</div>
+                    <div className="m-0 leading-[1.5] text-text-muted mono">{selectedProvider.defaultModelName ?? "Not configured"}</div>
                   </li>
-                  <li>
+                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
                     <strong>Base URL</strong>
-                    <div className="muted mono">{selectedProvider.baseUrl ?? "Provider default"}</div>
+                    <div className="m-0 leading-[1.5] text-text-muted mono">{selectedProvider.baseUrl ?? "Provider default"}</div>
                   </li>
-                  <li>
+                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
                     <strong>Updated</strong>
-                    <div className="muted">{formatTimestamp(selectedProvider.updatedAt)}</div>
+                    <div className="m-0 leading-[1.5] text-text-muted">{formatTimestamp(selectedProvider.updatedAt)}</div>
                   </li>
-                  <li>
+                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
                     <strong>Provider ID</strong>
-                    <div className="muted mono">{selectedProvider.id}</div>
+                    <div className="m-0 leading-[1.5] text-text-muted mono">{selectedProvider.id}</div>
                   </li>
                 </ul>
 
-                <div className="settings-validation-card card card-muted stack-tight">
+                <div className="settings-validation-card card card-muted flex flex-col gap-1">
                   <div className="settings-provider-item-header">
                     <strong>Local credentials</strong>
                     <div className="settings-provider-chip-row">
@@ -1160,15 +1160,15 @@ function ModelSettingsPanel() {
                     </div>
                   </div>
 
-                  <p className="muted">
+                  <p className="m-0 leading-[1.5] text-text-muted">
                     {secretStorageState.error ?? secretStorageState.data?.message ?? browserSecretStorageSnapshot.message}
                   </p>
-                  <p className="muted">
+                  <p className="m-0 leading-[1.5] text-text-muted">
                     Saved secrets are loaded on startup. Explicit environment variables still take precedence.
                   </p>
 
                   <label className="settings-secret-field">
-                    <span className="muted">{formatProviderType(selectedProvider.type)} API key</span>
+                    <span className="m-0 leading-[1.5] text-text-muted">{formatProviderType(selectedProvider.type)} API key</span>
                     <input
                       type="password"
                       value={secretInput}
@@ -1201,15 +1201,15 @@ function ModelSettingsPanel() {
                   </div>
 
                   {secretStorageState.data?.reason === "linux_keyring_unavailable" ? (
-                    <p className="muted">
+                    <p className="m-0 leading-[1.5] text-text-muted">
                       Linux fallback: secret persistence stays disabled until a supported system keyring is available. Validation can still succeed when provider credentials are supplied through environment variables.
                     </p>
                   ) : null}
 
-                  {secretFeedback ? <p className="muted mono">{secretFeedback}</p> : null}
+                  {secretFeedback ? <p className="m-0 leading-[1.5] text-text-muted mono">{secretFeedback}</p> : null}
                 </div>
 
-                <div className="settings-validation-card card card-muted stack-tight">
+                <div className="settings-validation-card card card-muted flex flex-col gap-1">
                   <div className="settings-provider-item-header">
                     <strong>Validate status</strong>
                     <Button
@@ -1222,12 +1222,12 @@ function ModelSettingsPanel() {
                     </Button>
                   </div>
 
-                  {selectedValidation?.error ? <p className="muted mono">{selectedValidation.error}</p> : null}
+                  {selectedValidation?.error ? <p className="m-0 leading-[1.5] text-text-muted mono">{selectedValidation.error}</p> : null}
                   {selectedValidation?.data ? (
                     <>
-                      <p className="muted">{selectedValidation.data.message}</p>
-                      <p className="muted">{selectedValidationMeta?.guidance}</p>
-                      <div className="settings-provider-item-meta muted">
+                      <p className="m-0 leading-[1.5] text-text-muted">{selectedValidation.data.message}</p>
+                      <p className="m-0 leading-[1.5] text-text-muted">{selectedValidationMeta?.guidance}</p>
+                      <div className="settings-provider-item-meta m-0 leading-[1.5] text-text-muted">
                         <span>Enabled models: {selectedValidation.data.availableModelCount}</span>
                         <span>Resolved default: {selectedValidation.data.defaultModelName ?? "Not resolved"}</span>
                       </div>
@@ -1237,20 +1237,20 @@ function ModelSettingsPanel() {
               </CardContent>
             </Card>
 
-            <Card className="card stack">
+            <Card className="card flex flex-col gap-3">
               <CardHeader>
-                <div className="stack-tight">
-                  <span className="eyebrow">Enabled catalog</span>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Enabled catalog</span>
                   <CardTitle>Provider models</CardTitle>
-                  <CardDescription className="muted">This list is refreshed from the selected provider when the panel loads.</CardDescription>
+                  <CardDescription className="m-0 leading-[1.5] text-text-muted">This list is refreshed from the selected provider when the panel loads.</CardDescription>
                 </div>
               </CardHeader>
 
-              <CardContent className="stack">
-                {modelsState.loading ? <p className="muted">Loading models…</p> : null}
-                {modelsState.error ? <p className="muted mono">{modelsState.error}</p> : null}
+              <CardContent className="flex flex-col gap-3">
+                {modelsState.loading ? <p className="m-0 leading-[1.5] text-text-muted">Loading models…</p> : null}
+                {modelsState.error ? <p className="m-0 leading-[1.5] text-text-muted mono">{modelsState.error}</p> : null}
                 {!modelsState.loading && !modelsState.error && (modelsState.data?.length ?? 0) === 0 ? (
-                  <p className="muted">No enabled models are currently available for this provider.</p>
+                  <p className="m-0 leading-[1.5] text-text-muted">No enabled models are currently available for this provider.</p>
                 ) : null}
 
                 <div className="settings-model-list" role="list" aria-label="Provider models">
@@ -1260,9 +1260,9 @@ function ModelSettingsPanel() {
                     return (
                       <div key={model.id} className="settings-model-item" role="listitem">
                         <div className="settings-provider-item-header">
-                          <div className="stack-tight">
+                          <div className="flex flex-col gap-1">
                             <strong>{model.displayName}</strong>
-                            <span className="muted mono">{model.modelName}</span>
+                            <span className="m-0 leading-[1.5] text-text-muted mono">{model.modelName}</span>
                           </div>
                           <div className="settings-provider-chip-row">
                             {isDefault ? <Badge variant="accent" size="sm" radius="full">Default</Badge> : null}

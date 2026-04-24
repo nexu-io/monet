@@ -25,9 +25,9 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
     <AppShell pathname={pathname}>
       <div className="settings-page">
         <div className="settings-page-header">
-          <span className="eyebrow">Workspace</span>
+          <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Workspace</span>
           <h2>Settings</h2>
-          <p className="muted">
+          <p className="m-0 leading-[1.5] text-text-muted">
             Configure providers, models, and local workspace preferences in one place.
           </p>
         </div>
