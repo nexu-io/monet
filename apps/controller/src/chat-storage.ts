@@ -746,6 +746,15 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       const now = new Date().toISOString();
       const sessionId = input.sessionId?.trim() || createPrefixedId("ses");
       const session = getSession(connection, sessionId);
+
+      if (session?.archived_at) {
+        throw new ChatStorageResolutionError({
+          message: `Session is archived: ${sessionId}`,
+          statusCode: 422,
+          errorCode: "invalid_state"
+        });
+      }
+
       const resolvedProviderId = input.providerId?.trim();
       const resolvedModelId = input.modelId?.trim();
       const target = resolveProviderAndModel(connection, {

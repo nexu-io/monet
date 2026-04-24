@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { createChatStorage } from "./chat-storage";
+import { ChatStorageResolutionError, createChatStorage } from "./chat-storage";
 
 function createStorageFixture() {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-chat-storage-tests-"));
@@ -180,6 +180,60 @@ test("message upserts preserve the original run linkage for existing idempotency
       assert.equal(row?.run_id, initial.runId);
       assert.notEqual(continued.runId, initial.runId);
       assert.match(row?.ui_message_json ?? "", /refreshed payload/);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("prepareChatRequest rejects archived sessions before creating a new run", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const initial = storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_user_1",
+          role: "user",
+          parts: [{ type: "text", text: "Archive this session." }]
+        } as any
+      ]
+    });
+
+    storage.archiveSession(initial.sessionId);
+
+    assert.throws(
+      () =>
+        storage.prepareChatRequest({
+          sessionId: initial.sessionId,
+          messages: [
+            {
+              id: "msg_user_2",
+              role: "user",
+              parts: [{ type: "text", text: "This should be rejected." }]
+            } as any
+          ]
+        }),
+      (error) => {
+        assert.ok(error instanceof ChatStorageResolutionError);
+        assert.equal(error.statusCode, 422);
+        assert.equal(error.errorCode, "invalid_state");
+        assert.equal(error.message, `Session is archived: ${initial.sessionId}`);
+        return true;
+      }
+    );
+
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      const runCount = connection
+        .prepare("SELECT COUNT(*) AS count FROM runs WHERE session_id = ?")
+        .get(initial.sessionId) as { count: number };
+
+      assert.equal(runCount.count, 1);
     } finally {
       connection.close();
     }
