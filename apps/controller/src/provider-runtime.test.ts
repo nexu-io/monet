@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createChatStorage } from "./chat-storage";
-import { createProviderRuntime } from "./provider-runtime";
+import { createFetchWithTimeout, createProviderRuntime } from "./provider-runtime";
 
 function createFixture() {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-provider-runtime-tests-"));
@@ -132,4 +132,32 @@ test("syncProviderCatalog loads OpenRouter models via OpenAI-compatible API", as
     globalThis.fetch = originalFetch;
     fixture.cleanup();
   }
+});
+
+test("createFetchWithTimeout enforces a fallback timeout when config is unset", async () => {
+  const fetchWithTimeout = createFetchWithTimeout(null, 5);
+  let aborted = false;
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async (_input, init) => {
+    return await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        aborted = true;
+        reject(init.signal?.reason ?? new Error("aborted"));
+      }, { once: true });
+    });
+  };
+
+  try {
+    await assert.rejects(
+      fetchWithTimeout("https://example.com/models", {
+        method: "GET"
+      }),
+      /Request timed out after 5ms/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(aborted, true);
 });

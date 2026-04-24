@@ -12,6 +12,7 @@ import { clearRuntimeChildOnExit, sendUtilityProcessSignal, waitForUtilityProces
 import { createLogger } from "./logger";
 import { isAllowedMainWindowNavigation, shouldOpenNavigationExternally } from "./navigation";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
+import { waitForRendererReady } from "./renderer-readiness";
 import { createDesktopUpdater, type UpdateStatePayload } from "./updater";
 
 export const desktopAppName = "@monet/desktop";
@@ -416,7 +417,14 @@ async function loadRenderer(window: BrowserWindow) {
       mode: "dev",
       rendererUrl
     });
-    await waitForRendererReady(rendererUrl);
+    await waitForRendererReady(rendererUrl, {
+      onReady(attempt, readyRendererUrl) {
+        logger.info("desktop.renderer_ready", {
+          attempt,
+          rendererUrl: readyRendererUrl
+        });
+      }
+    });
     await window.loadURL(rendererUrl);
     return;
   }
@@ -522,28 +530,6 @@ async function fileExists(filePath: string) {
   } catch {
     return false;
   }
-}
-
-async function waitForRendererReady(rendererUrl: string) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    try {
-      const response = await fetch(rendererUrl);
-
-      if (response.ok) {
-        logger.info("desktop.renderer_ready", {
-          attempt: attempt + 1,
-          rendererUrl
-        });
-        return;
-      }
-    } catch {
-      // Ignore early boot failures while the renderer dev server starts.
-    }
-
-    await sleep(500);
-  }
-
-  throw new Error(`Timed out waiting for renderer readiness at ${rendererUrl}.`);
 }
 
 function createLoadingScreenUrl() {
@@ -1029,12 +1015,6 @@ async function stopUtilityProcess(
     child.kill();
   }
   await waitForUtilityProcessExit(child, 1_000);
-}
-
-function sleep(durationMs: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, durationMs);
-  });
 }
 
 function getProviderSecretStore() {

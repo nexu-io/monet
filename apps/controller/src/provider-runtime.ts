@@ -7,6 +7,7 @@ import { createLogger } from "./logger";
 
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+export const DEFAULT_PROVIDER_FETCH_TIMEOUT_MS = 10_000;
 
 const providerLogger = createLogger("controller", {
   component: "provider-runtime"
@@ -275,16 +276,14 @@ function isReasoningModelName(modelName: string) {
   return /^(o1|o3|o4)/i.test(modelName) || /reason/i.test(modelName);
 }
 
-function createFetchWithTimeout(timeoutMs: number | null | undefined) {
+export function createFetchWithTimeout(timeoutMs: number | null | undefined, defaultTimeoutMs = DEFAULT_PROVIDER_FETCH_TIMEOUT_MS) {
   return async (input: string | URL | Request, init?: RequestInit) => {
-    if (!timeoutMs) {
-      return fetch(input, init);
-    }
+    const effectiveTimeoutMs = timeoutMs ?? defaultTimeoutMs;
 
     const timeoutController = new AbortController();
     const timeout = setTimeout(
-      () => timeoutController.abort(new Error(`Request timed out after ${timeoutMs}ms.`)),
-      timeoutMs
+      () => timeoutController.abort(new Error(`Request timed out after ${effectiveTimeoutMs}ms.`)),
+      effectiveTimeoutMs
     );
 
     try {
