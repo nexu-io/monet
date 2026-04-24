@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -75,7 +75,7 @@ export function AppShell({
   const isProviderReadinessLoading = providerReadiness.loading;
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const { controllerState, isDesktop } = useControllerState();
-  const desktopPlatform = typeof window === "undefined" ? undefined : window.monetDesktop?.platform;
+  const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>();
   const runtimeLifecycle = controllerState?.state;
   const runtimeLabel = runtimeLifecycle === "ready"
     ? "Runtime ready"
@@ -100,6 +100,10 @@ export function AppShell({
   const runtimeHint = sanitizeInternalRuntimeMessage(controllerState?.message) ?? (isDesktop ? "Local workspace" : "Browser workspace");
   const isSettingsOpen = pathname.startsWith("/settings");
   const openSettingsHref = "/settings/general";
+
+  useEffect(() => {
+    setDesktopPlatform(window.monetDesktop?.platform);
+  }, []);
 
   async function handleCreateSession() {
     if (providerSetupRequired) {

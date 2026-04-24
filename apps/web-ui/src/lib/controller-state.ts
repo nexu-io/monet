@@ -15,8 +15,9 @@ function getDesktopApi() {
 }
 
 export function useControllerState() {
-  const [config, setConfig] = useState<MonetClientConfig | null>(() => (typeof window === "undefined" ? null : getMonetClientConfig()));
-  const [controllerState, setControllerState] = useState<ControllerStatePayload | null>(() => getDesktopApi()?.getControllerState?.() ?? null);
+  const [config, setConfig] = useState<MonetClientConfig | null>(null);
+  const [controllerState, setControllerState] = useState<ControllerStatePayload | null>(null);
+  const [isDesktop, setIsDesktop] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateStatePayload | null>(null);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [restartPending, setRestartPending] = useState(false);
@@ -28,6 +29,7 @@ export function useControllerState() {
     const desktopApi = getDesktopApi();
     let cancelled = false;
 
+    setIsDesktop(Boolean(desktopApi));
     setConfig(getMonetClientConfig());
     setControllerState(desktopApi?.getControllerState?.() ?? null);
     void desktopApi?.getUpdateState?.().then((payload) => {
@@ -140,7 +142,7 @@ export function useControllerState() {
       config,
       controllerState,
       installUpdate,
-      isDesktop: Boolean(getDesktopApi()),
+      isDesktop,
       restartController,
       restartError,
       restartPending,
@@ -149,6 +151,6 @@ export function useControllerState() {
       updateInstallPending,
       updateState
     }),
-    [checkForUpdates, config, controllerState, installUpdate, restartController, restartError, restartPending, updateCheckPending, updateError, updateInstallPending, updateState]
+    [checkForUpdates, config, controllerState, installUpdate, isDesktop, restartController, restartError, restartPending, updateCheckPending, updateError, updateInstallPending, updateState]
   );
 }
