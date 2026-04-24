@@ -48,6 +48,13 @@ export interface WelcomeHomeProps {
   readonly modelSettingsHref: string;
 }
 
+const infoCardClassName = "flex cursor-pointer flex-col gap-1.5 rounded-xl border border-border-subtle bg-surface-1 p-4 text-left text-inherit transition-[transform,border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:-translate-y-px hover:border-border-strong hover:shadow-sm";
+const infoCardEyebrowClassName = "text-xs font-semibold uppercase tracking-[0.06em] text-text-tertiary";
+const infoCardValueClassName = "m-0 font-heading text-3xl font-bold tracking-[-0.01em] text-text-heading";
+const infoCardDescriptionClassName = "m-0 text-lg leading-normal text-text-secondary";
+const infoCardFooterClassName = "flex items-center gap-1.5 text-sm text-text-tertiary";
+const sectionHeadingClassName = "m-0 font-heading text-2xl font-semibold tracking-[-0.01em] text-text-heading";
+
 function greetingForNow(): string {
   const hour = new Date().getHours();
 
@@ -155,32 +162,37 @@ export function WelcomeHome({
               : "Preparing workspace…";
 
   return (
-    <div className="welcome">
-      <section className="welcome-hero" aria-labelledby="welcome-heading">
-        <Badge variant="outline" radius="full" className="welcome-badge" aria-live="polite">
+    <div className="mx-auto flex max-w-[var(--app-welcome-max-width)] flex-col items-stretch gap-7 pt-4 app:gap-10 app:pt-8">
+      <section className="flex flex-col items-center gap-4 text-center" aria-labelledby="welcome-heading">
+        <Badge
+          variant="outline"
+          radius="full"
+          className="border border-border-subtle bg-surface-1 px-3 py-1.25 text-sm font-medium normal-case tracking-normal text-text-secondary shadow-xs"
+          aria-live="polite"
+        >
           <StatusDot status={badgeTone} size="xs" className="size-2" pulse={controllerState?.state === "starting" || controllerState?.state === "restarting"} />
           <span>{badgeText}</span>
         </Badge>
 
-        <h1 id="welcome-heading" className="welcome-greeting">
+        <h1 id="welcome-heading" className="m-0 font-heading text-[clamp(2rem,4vw,3rem)] font-bold leading-[1.1] tracking-[-0.02em] text-text-heading">
           {greeting},{" "}
-          <span className="welcome-greeting-accent">ready when you are.</span>
+          <span className="font-semibold italic text-accent">ready when you are.</span>
         </h1>
 
-        <p className="welcome-subtitle">
+        <p className="m-0 max-w-[56ch] text-2xl text-text-secondary">
           Ask Monet to inspect the local app, wire providers, or drive your next build loop.
           Everything stays on your machine.
         </p>
       </section>
 
-      <section className="welcome-composer" aria-label="Start a new conversation">
+      <section className="flex flex-col gap-2.5 rounded-2xl border border-border-subtle bg-surface-1 p-5 shadow-sm transition-[box-shadow,border-color] duration-[var(--duration-normal)] ease-[var(--ease-standard)] focus-within:border-border-strong focus-within:shadow-md" aria-label="Start a new conversation">
         <label className="sr-only" htmlFor="welcome-composer-input">
           Message
         </label>
         <textarea
           id="welcome-composer-input"
           ref={textareaRef}
-          className="welcome-composer-textarea"
+          className="min-h-22 max-h-[40vh] w-full resize-none border-0 bg-transparent p-0 font-sans text-2xl leading-normal text-text-primary outline-none placeholder:text-text-placeholder"
           rows={3}
           placeholder={
             isComposerDisabled
@@ -193,17 +205,17 @@ export function WelcomeHome({
           disabled={isComposerDisabled || isSubmitting}
         />
 
-        <div className="welcome-composer-footer">
-          <div className="welcome-composer-hints">
-            <kbd>⏎</kbd>
+        <div className="flex flex-col flex-wrap items-start justify-between gap-3 app:flex-row app:items-center">
+          <div className="flex items-center gap-2 text-sm text-text-tertiary">
+            <kbd className="inline-flex items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-secondary">⏎</kbd>
             <span>to send</span>
             <span aria-hidden="true">·</span>
-            <kbd>⇧</kbd>
-            <kbd>⏎</kbd>
+            <kbd className="inline-flex items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-secondary">⇧</kbd>
+            <kbd className="inline-flex items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-secondary">⏎</kbd>
             <span>for newline</span>
           </div>
 
-          <div className="welcome-composer-actions">
+          <div className="flex w-full items-center gap-2 app:w-auto">
             <Button
               type="button"
               variant="primary"
@@ -218,51 +230,51 @@ export function WelcomeHome({
         </div>
       </section>
 
-      <section className="welcome-section" aria-labelledby="welcome-overview-heading">
-        <div className="welcome-section-header">
-          <h2 id="welcome-overview-heading" className="welcome-section-heading">
+      <section className="flex flex-col gap-4" aria-labelledby="welcome-overview-heading">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 id="welcome-overview-heading" className={sectionHeadingClassName}>
             Workspace at a glance
           </h2>
         </div>
 
-        <div className="welcome-grid">
-          <Link href={modelSettingsHref} className="welcome-info-card">
-            <span className="welcome-info-card-eyebrow">Models</span>
-            <span className="welcome-info-card-value">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
+          <Link href={modelSettingsHref} className={infoCardClassName}>
+            <span className={infoCardEyebrowClassName}>Models</span>
+            <span className={infoCardValueClassName}>
               {isStartupLoading ? "—" : readyProviderCount}
             </span>
-            <p className="welcome-info-card-description">
+            <p className={infoCardDescriptionClassName}>
               {providerSetupRequired
                 ? "No provider validated yet. Configure your first model to start chatting."
                 : readyProviderCount === 1
                   ? "One provider is ready to serve requests from this shell."
                   : `${readyProviderCount} provider routes are ready across your validated models.`}
             </p>
-            <span className="welcome-info-card-footer">
+            <span className={infoCardFooterClassName}>
               <GearIcon />
               <span>Manage providers</span>
             </span>
           </Link>
 
-          <Link href="/sessions" className="welcome-info-card">
-            <span className="welcome-info-card-eyebrow">Recent chats</span>
-            <span className="welcome-info-card-value">
+          <Link href="/sessions" className={infoCardClassName}>
+            <span className={infoCardEyebrowClassName}>Recent chats</span>
+            <span className={infoCardValueClassName}>
               {isStartupLoading ? "—" : recentCount}
             </span>
-            <p className="welcome-info-card-description">
+            <p className={infoCardDescriptionClassName}>
               {recentCount === 0
                 ? "You haven't started any sessions yet. Send your first prompt above."
                 : "Open your active sessions, rename them, or archive ones you're done with."}
             </p>
-            <span className="welcome-info-card-footer">
+            <span className={infoCardFooterClassName}>
               <ChatIcon />
               <span>Browse sessions</span>
             </span>
           </Link>
 
-          <div className="welcome-info-card" role="group" aria-label="Workspace status">
-            <span className="welcome-info-card-eyebrow">Workspace</span>
-            <span className="welcome-info-card-value" style={{ textTransform: "capitalize" }}>
+          <div className={infoCardClassName} role="group" aria-label="Workspace status">
+            <span className={infoCardEyebrowClassName}>Workspace</span>
+            <span className={`${infoCardValueClassName} capitalize`}>
               {controllerState?.state === "ready"
                 ? "Ready"
                 : controllerState?.state === "starting"
@@ -277,13 +289,13 @@ export function WelcomeHome({
                           ? "Preparing"
                           : "Browser"}
             </span>
-            <p className="welcome-info-card-description">
+            <p className={infoCardDescriptionClassName}>
               {workspaceMessage ??
                 (isDesktop
                   ? "Health and restart actions live in the sidebar status footer."
                   : "Running in the browser — your workspace is managed externally.")}
             </p>
-            <span className="welcome-info-card-footer">
+            <span className={infoCardFooterClassName}>
               <WrenchIcon />
               <span>{isDesktop ? "Desktop workspace" : "Browser workspace"}</span>
             </span>
@@ -291,13 +303,13 @@ export function WelcomeHome({
         </div>
       </section>
 
-      <section className="welcome-section" aria-labelledby="welcome-recent-heading">
-        <div className="welcome-section-header">
-          <h2 id="welcome-recent-heading" className="welcome-section-heading">
+      <section className="flex flex-col gap-4" aria-labelledby="welcome-recent-heading">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 id="welcome-recent-heading" className={sectionHeadingClassName}>
             Pick up where you left off
           </h2>
           {recentCount > 0 ? (
-            <Link href="/sessions" className="welcome-section-link">
+            <Link href="/sessions" className="text-sm font-medium text-text-tertiary hover:text-text-primary">
               View all →
             </Link>
           ) : null}
@@ -305,32 +317,31 @@ export function WelcomeHome({
 
         {activeRecentSessions.length === 0 ? (
           <div
-            className="welcome-info-card"
-            style={{ cursor: "default", alignItems: "flex-start" }}
+            className={`${infoCardClassName} cursor-default items-start`}
             role="note"
           >
-            <span style={{ color: "hsl(var(--accent))", display: "inline-flex" }}>
+            <span className="inline-flex text-accent">
               <SparkleIcon />
             </span>
-            <span className="welcome-info-card-title">No chats yet</span>
-            <p className="welcome-info-card-description">
+            <span className="m-0 text-2xl font-semibold tracking-[-0.005em] text-text-heading">No chats yet</span>
+            <p className={infoCardDescriptionClassName}>
               Every message you send is saved locally. Start a chat above and
               this list will fill up automatically.
             </p>
           </div>
         ) : (
-          <div className="welcome-grid">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
             {activeRecentSessions.map((session) => (
               <button
                 key={session.id}
                 type="button"
-                className="welcome-recent-card"
+                className="flex cursor-pointer flex-col gap-2 rounded-xl border border-border-subtle bg-surface-1 p-4 text-left text-inherit transition-[transform,border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:-translate-y-px hover:border-border-strong hover:shadow-sm"
                 onClick={() => onOpenSession(session.id)}
               >
-                <h3 className="welcome-recent-card-title">{session.title}</h3>
-                <div className="welcome-recent-card-meta">
+                <h3 className="m-0 line-clamp-2 text-xl font-semibold leading-[1.35] text-text-heading">{session.title}</h3>
+                <div className="flex items-center gap-2 text-sm text-text-tertiary">
                   <span>{formatRelativeTime(session.updatedAt)}</span>
-                  <span className="welcome-recent-card-meta-dot" aria-hidden="true" />
+                  <span className="size-1 rounded-full bg-text-tertiary" aria-hidden="true" />
                   <span>Open chat</span>
                 </div>
               </button>

@@ -405,7 +405,7 @@ export default function HomePage() {
         />
 
         {controllerOffline && isDesktop ? (
-          <div style={{ display: "flex", justifyContent: "center", marginTop: "calc(var(--spacing) * 4)" }}>
+          <div className="mt-4 flex justify-center">
             <button
               type="button"
               className="session-action-button session-action-button-primary"
@@ -418,7 +418,7 @@ export default function HomePage() {
         ) : null}
 
         {providerSetupRequired ? (
-          <div style={{ display: "flex", justifyContent: "center", marginTop: "calc(var(--spacing) * 4)" }}>
+          <div className="mt-4 flex justify-center">
             <Link href={modelSettingsHref} className="session-action-button session-action-button-primary">
               Open model settings
             </Link>
