@@ -25,28 +25,31 @@ This inventory is the pre-implementation map for the Tailwind v4 big-bang migrat
 | Responsive rules: `@media (max-width: 960px)`, `@media (max-width: 640px)` | Affects shell, welcome, conversation, composer, chat, sessions, settings. | Use a custom Tailwind breakpoint for `960px` and normal `sm`/`max-sm` handling for `640px`; keep root variable override for `--app-page-padding-x`. |
 | Keyframes: `@keyframes monet-pulse` | Referenced by `[data-slot="status-dot"][class*="animate-pulse"]`. | Keep globally unless replaced by Tailwind animation utilities with a token-backed theme mapping. |
 
-## Required Tailwind token aliases
+## Concrete Tailwind `@theme inline` contract
 
 Tailwind must expose semantic names that point to `@nexu-design/tokens` variables instead of duplicating scales.
 
 - Colors:
-  - `surface-0`, `surface-1`, `surface-2`
-  - `text-primary`, `text-secondary`, `text-tertiary`, `text-muted`, `text-placeholder`, `text-heading`
-  - `border`, `border-subtle`, `border-strong`, `border-hover`
-  - `accent`, `accent-foreground`
-  - `success`, `success-subtle`, `warning`, `warning-subtle`, `error`, `error-subtle`, `destructive`
+  - `surface-0`, `surface-1`, `surface-2`, `surface-3`, `surface-4` → `var(--color-surface-*)`
+  - `text-primary`, `text-secondary`, `text-tertiary`, `text-muted`, `text-disabled`, `text-placeholder`, `text-heading` → `var(--color-text-*)`
+  - `border`, `border-subtle`, `border-card`, `border-strong`, `border-hover` → `var(--color-border*)`
+  - `accent`, `accent-foreground`, `accent-subtle`, `accent-hover`, `accent-glow` → `hsl(var(--accent))` / token accent variables
+  - `success`, `success-subtle`, `success-foreground`, `warning`, `warning-subtle`, `warning-foreground`, `error`, `error-subtle`, `error-foreground`, `destructive`, `destructive-subtle`, `destructive-foreground`
   - App aliases: `app-canvas`, `app-sidebar`, `app-card`, `app-card-muted`, `app-hover`
 - Fonts: `sans`, `heading`, `mono`.
-- Text sizes used today: `2xs`, `xs`, `sm`, `lg`, `xl`, `2xl`, `3xl`, plus arbitrary/clamp values where already present (`welcome-greeting`).
-- Font weights: `medium`, `semibold`, `bold` mapped to token weights.
-- Radii: `sm`, `md`, `lg`, `xl`, `2xl`, `full`.
-- Shadows: `xs`, `sm`, `md`, `dropdown`, `focus`.
+- Text sizes: `2xs`, `xs`, `sm`, `base`, `lg`, `xl`, `2xl`, `3xl`, `4xl` mapped to `--text-size-*`; keep arbitrary/clamp values only for true one-off responsive display type.
+- Font weights: `normal`, `medium`, `semibold`, `bold` mapped to `--text-weight-*`.
+- Radii: `sm`, `md`, `lg`, `xl`, `2xl`, `pill`, `full` mapped to token radii (`full` aliases `--radius-pill`).
+- Shadows: `xs`, `sm`, `md`, `lg`, `xl`, `card`, `dropdown`, `focus`, `elevated`, `overlay`.
 - Spacing: keep Tailwind spacing values aligned with `calc(var(--spacing) * n)`. Current CSS uses fractional multipliers (`0.5`, `1.25`, `1.5`, `2.5`, `3.5`, `4.5`) and large app dimensions (`18`, `22`, `48`, `60`, `66`, `72`, `180`, `192`, `220`).
 - Durations/easing used by existing transitions: `fast`, `normal`, `standard` if Tailwind v4 theme variables are added for readable transition utilities.
+- Implementation rule: use `@theme inline reference` for these mappings because several semantic Tailwind utility names intentionally match imported token names (for example `surface-0` → `--color-surface-0`). `reference` avoids emitted theme variables that could overwrite token variables, while `inline` makes generated utilities resolve directly to the token/app variables.
+- Collision rule: never add emitted self-referential theme mappings such as `--color-surface-0: var(--color-surface-0)` or `--spacing: var(--spacing)` outside `@theme inline reference`. Raw token variables stay token-owned; new global app aliases must use `--app-*`; new Tailwind utility aliases must be added under the appropriate Tailwind namespace in the theme block.
+- Allowed arbitrary-value patterns: app layout variables (`max-w-[var(--app-content-max-width)]`, `max-w-[var(--app-welcome-max-width)]`, `px-[var(--app-page-padding-x)]`, `py-[var(--app-page-padding-y)]`), shell/grid templates (`grid-cols-[var(--app-shell-width)_minmax(0,1fr)]`), measured local constraints/overflow values, and unavoidable data/slot targeting. Do not use arbitrary colors/radii/shadows when a named token-backed utility exists.
 
 ## Custom breakpoints and responsive behavior
 
-- Required custom breakpoint: `960px` for the current tablet/mobile collapse. Use Tailwind variants equivalent to `max-width: 960px` and `min-width: 961px` when preserving desktop shell behavior.
+- Required custom breakpoint: `app` = `60rem` / `960px` via `@theme { --breakpoint-app: 60rem; }` for the current tablet/mobile collapse. Use Tailwind variants equivalent to `max-width: 960px` (`max-app:*`) and `min-width: 960px` (`app:*`) when preserving desktop shell behavior.
 - Existing `640px` behavior should map to Tailwind's `sm` boundary where possible.
 - Keep the `@media (max-width: 640px) { :root { --app-page-padding-x: ... } }` global variable override because it fans out to many descendants via `var(--app-page-padding-x)`.
 - Responsive states to preserve: desktop two-column shell, sticky/scrolling sidebar on desktop, mobile single-column shell, canvas overflow changes, welcome/composer action stacking, session split collapse, settings provider/theme grids collapse, and settings directory button wrapping.
@@ -59,6 +62,7 @@ Tailwind must expose semantic names that point to `@nexu-design/tokens` variable
   - `--app-canvas-bg: var(--color-dark-bg)`
   - `--app-sidebar-bg: var(--color-surface-1)`
 - Tailwind dark variants should target `html[data-theme="dark"]`, not only `.dark`, so utility classes can follow the app's existing theme attribute strategy.
+- Concrete variant declaration: `@custom-variant dark (&:where(html[data-theme="dark"], html[data-theme="dark"] *));`.
 
 ## Prose/rendered content rules
 
@@ -92,11 +96,15 @@ After migration, `globals.css` must be limited to the following concerns. Any co
 @import "@nexu-design/ui-web/styles.css";
 @import "tailwindcss";
 
-@theme inline {
-  /* token-backed aliases listed above */
+@custom-variant dark (&:where(html[data-theme="dark"], html[data-theme="dark"] *));
+
+@theme {
+  --breakpoint-app: 60rem;
 }
 
-@custom-variant dark (&:where(html[data-theme="dark"], html[data-theme="dark"] *));
+@theme inline reference {
+  /* token-backed aliases listed above; do not emit self-referential vars */
+}
 
 @layer base {
   :root {
