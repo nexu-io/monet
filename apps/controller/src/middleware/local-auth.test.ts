@@ -38,6 +38,30 @@ test("accepts valid localhost requests with a bearer token", async () => {
   assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:3000");
 });
 
+test("accepts default HTTP port loopback host headers without an explicit port", async () => {
+  const app = new Hono();
+
+  app.use(
+    "/api/*",
+    createLocalAuthMiddleware({
+      allowedOrigins: ["http://127.0.0.1:3000"],
+      bearerToken: "test-token",
+      port: 80
+    })
+  );
+  app.get("/api/health", (context) => context.text("ok"));
+
+  const response = await app.request("http://127.0.0.1/api/health", {
+    headers: {
+      Authorization: "Bearer test-token",
+      Host: "localhost",
+      Origin: "http://127.0.0.1:3000"
+    }
+  });
+
+  assert.equal(response.status, 200);
+});
+
 test("rejects missing bearer tokens", async () => {
   const response = await request({
     headers: {

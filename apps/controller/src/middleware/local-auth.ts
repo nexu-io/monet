@@ -79,7 +79,7 @@ function hasAllowedHost(header: string | undefined, port: number): boolean {
   }
 
   const host = stripPort(header.trim().toLowerCase());
-  const requestPort = extractPort(header);
+  const requestPort = extractPort(header) ?? defaultPortForHost(host);
 
   return requestPort === port && (host === "127.0.0.1" || host === "localhost");
 }
@@ -129,6 +129,14 @@ function extractPort(host: string): number | null {
   }
 
   return Number.parseInt(port, 10);
+}
+
+function defaultPortForHost(host: string): number | null {
+  if (host === "127.0.0.1" || host === "localhost") {
+    return 80;
+  }
+
+  return null;
 }
 
 function extractBearerToken(header: string | undefined): string | null {

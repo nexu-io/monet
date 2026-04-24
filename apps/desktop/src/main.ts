@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 
 import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen, shell, utilityProcess } from "electron";
 
+import { waitForControllerReady } from "./controller-readiness";
 import { clearRuntimeChildOnExit, sendUtilityProcessSignal, waitForUtilityProcessExit } from "./controller-process";
 import { createLogger } from "./logger";
 import { isAllowedMainWindowNavigation, shouldOpenNavigationExternally } from "./navigation";
@@ -749,7 +750,14 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   });
 
   try {
-    await waitForControllerReady(apiBase, bearerToken);
+    await waitForControllerReady(apiBase, bearerToken, {
+      onReady(attempt, healthUrl) {
+        logger.info("desktop.controller_healthcheck_ready", {
+          attempt,
+          healthUrl
+        });
+      }
+    });
   } catch (error) {
     await stopUtilityProcess(child, {
       markAsIntentional: true,
@@ -792,34 +800,6 @@ function dispatchDesktopShortcut(window: BrowserWindow, action: DesktopShortcutA
   window.webContents.send("monet:shortcut", {
     action
   });
-}
-
-async function waitForControllerReady(apiBase: string, bearerToken: string) {
-  const healthUrl = `${apiBase}/api/health`;
-
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    try {
-      const response = await fetch(healthUrl, {
-        headers: {
-          Authorization: `Bearer ${bearerToken}`
-        }
-      });
-
-      if (response.ok) {
-        logger.info("desktop.controller_healthcheck_ready", {
-          attempt: attempt + 1,
-          healthUrl
-        });
-        return;
-      }
-    } catch {
-      // Ignore early boot failures while the controller binds its port.
-    }
-
-    await sleep(250);
-  }
-
-  throw new Error(`Timed out waiting for controller readiness at ${healthUrl}.`);
 }
 
 function reserveEphemeralPort() {
