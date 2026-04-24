@@ -320,7 +320,9 @@ async function createMainWindow(runtime: ControllerRuntime) {
   mainWindow = window;
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (shouldOpenNavigationExternally(url)) {
+      void shell.openExternal(url);
+    }
 
     return { action: "deny" };
   });

@@ -34,3 +34,11 @@ test("blocks file navigation from being opened externally", () => {
   assert.equal(shouldOpenNavigationExternally("file:///tmp/attack.html"), false);
   assert.equal(shouldOpenNavigationExternally("https://example.com"), true);
 });
+
+test("allows only explicit external URL schemes", () => {
+  assert.equal(shouldOpenNavigationExternally("http://example.com"), true);
+  assert.equal(shouldOpenNavigationExternally("https://example.com"), true);
+  assert.equal(shouldOpenNavigationExternally("mailto:security@example.com"), true);
+  assert.equal(shouldOpenNavigationExternally("slack://channel?team=example"), false);
+  assert.equal(shouldOpenNavigationExternally("zoommtg://join?action=join"), false);
+});

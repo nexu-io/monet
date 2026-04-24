@@ -1,5 +1,6 @@
 const desktopRendererScheme = "app:";
 const desktopRendererHost = "monet";
+const externallyAllowedProtocols = new Set(["http:", "https:", "mailto:"]);
 
 function parseUrl(value: string) {
   try {
@@ -48,5 +49,5 @@ export function shouldOpenNavigationExternally(targetUrl: string) {
     return false;
   }
 
-  return target.protocol !== "file:";
+  return externallyAllowedProtocols.has(target.protocol);
 }
