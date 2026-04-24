@@ -37,6 +37,16 @@
  *        stack/grid/split/list helpers, or descendant selectors for controlled TSX
  *   Migration safety: keep feature CSS until its slice is migrated and verified;
  *   delete only the CSS block owned by the slice being converted.
+ *
+ * Slot/descendant audit residuals:
+ *   - No active @nexu-design/ui-web [data-slot] overrides remain. Controlled
+ *     CardTitle, Badge, StatusDot, and Button styling belongs in TSX className
+ *     props rather than global [data-slot] selectors.
+ *   - No prose/chat pre/code globals remain. Controlled rendered code blocks use
+ *     direct classes in chat/conversation components; only future uncontrolled
+ *     rich-text descendants may be added here.
+ *   - Remaining selectors below are limited to theme scaffolding, base element
+ *     defaults, .mono/.sr-only utilities, and responsive app variable overrides.
  * ============================================================ */
 
 @import "@nexu-design/tokens/styles.css";
@@ -228,15 +238,6 @@ textarea {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-/* ============================================================
- * Focus ring + small overrides for ui-web primitives
- * ============================================================ */
-
-.nav-link:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
 }
 
 /* ============================================================
