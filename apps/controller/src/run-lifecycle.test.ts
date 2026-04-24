@@ -176,3 +176,48 @@ test("stop endpoint returns ok for an active run", async () => {
   assert.deepEqual(await response.json(), { ok: true });
   assert.equal(abortReason, "stop_requested");
 });
+
+test("continue endpoint rejects requests without messages", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  let confirmCalled = false;
+
+  registerRunRoutes(app, {
+    runRegistry: createRunRegistry(),
+    providerRuntime: noopProviderRuntime as never,
+    toolRegistry: noopToolRegistry as never,
+    runtime: {
+      maxStepsPerRun: 1,
+      maxTokensPerRun: 32_768,
+      maxToolCallsPerRun: 1,
+      wallClockBudgetMs: 30_000
+    },
+    getChatStorage: () =>
+      ({
+        confirmToolCall() {
+          confirmCalled = true;
+        }
+      }) as unknown as ChatStorage
+  });
+
+  const response = await app.request("http://127.0.0.1:3030/api/runs/run_pending/continue", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      runId: "run_pending",
+      toolCallId: "tool_123",
+      decision: "approved",
+      confirmationToken: "confirm_123"
+    })
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: "invalid_request",
+      message: "Request validation failed."
+    }
+  });
+  assert.equal(confirmCalled, false);
+});

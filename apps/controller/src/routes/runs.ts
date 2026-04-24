@@ -26,7 +26,7 @@ const runIdParamSchema = z.object({
 });
 
 const continueRunRequestSchema = ConfirmToolRequestSchema.extend({
-  messages: z.array(z.unknown()).optional()
+  messages: z.array(z.unknown())
 });
 
 const stopRunRoute = createRoute({
@@ -122,7 +122,7 @@ export function registerRunRoutes(
 
     try {
       messages = await validateUIMessages({
-        messages: Array.isArray(body.messages) ? body.messages : []
+        messages: body.messages
       });
     } catch {
       return context.json(createErrorResponse("invalid_request", "`messages` must be a valid AI SDK UIMessage[] payload."), 400);

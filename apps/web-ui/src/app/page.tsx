@@ -237,11 +237,16 @@ function SessionChatSurface({
       throw new Error(errorMessage);
     }
 
-    pendingContinuationRef.current = input;
-    await addToolApprovalResponse({
-      id: input.confirmationToken,
-      approved: input.decision === "approved"
-    });
+    try {
+      await addToolApprovalResponse({
+        id: input.confirmationToken,
+        approved: input.decision === "approved"
+      });
+      pendingContinuationRef.current = input;
+    } catch (error) {
+      pendingContinuationRef.current = null;
+      throw error;
+    }
   }
 
   return (
