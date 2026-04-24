@@ -434,6 +434,31 @@ That preserves the same global class architecture. If a style needs a name, crea
 
 Acceptable `@apply` usage is limited to tiny global base patterns that cannot reasonably live in JSX.
 
+### 7.7 Global migration rule for every remaining slice
+
+Apply this gate to each component/page slice before marking that slice migrated:
+
+1. **Controlled markup gets local styling.** If the element is rendered by a TSX
+   file in `apps/web-ui/src`, move its layout, spacing, typography, color,
+   border, shadow, state, and responsive styles to direct Tailwind utilities or
+   to a small extracted React component/variant helper.
+2. **Do not recreate legacy global architecture.** Do not add a new global class,
+   descendant selector, slot selector, or `@apply` rule as a renamed replacement
+   for classes such as `.card`, `.stack`, `.composer-*`, `.chat-*`,
+   `.settings-*`, or similar app-authored helpers.
+3. **Residual CSS must be justified at the point of use.** A selector may remain
+   in `globals.css` only when it is rendered rich text/prose/pre/code that cannot
+   reasonably receive direct classes, a keyframe/animation primitive, a media
+   query that adjusts global app variables, or an unavoidable
+   `@nexu-design/ui-web` slot override with no component prop/className hook.
+4. **Delete by ownership, then search class-aware.** After converting a slice,
+   remove the matching CSS block from `globals.css` and search for exact legacy
+   class tokens before moving to the next slice. Avoid broad searches for words
+   like `card` or `grid` unless they are class-token bounded.
+
+This rule applies to all following slice tasks in the work breakdown, even when
+the slice-specific task text only says to “migrate” or “remove matching CSS.”
+
 ## 8. Residual `globals.css` Contract
 
 Establish this contract before migrating component slices so reviewers can tell
