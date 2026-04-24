@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { clearRuntimeChildOnExit, sendUtilityProcessSignal } from "./controller-process";
+import { clearRuntimeChildOnExit, sendUtilityProcessSignal, waitForUtilityProcessExit } from "./controller-process";
 
 test("clearRuntimeChildOnExit removes the exited child from runtime state", () => {
   const child = { pid: 123 };
@@ -37,4 +38,13 @@ test("sendUtilityProcessSignal uses the provided signal and ignores missing proc
     throw error;
   });
   assert.equal(missingProcess, false);
+});
+
+test("waitForUtilityProcessExit resolves when exit is observed after the wait starts", async () => {
+  const child = new EventEmitter();
+  const exitPromise = waitForUtilityProcessExit(child, 100);
+
+  child.emit("exit");
+
+  assert.equal(await exitPromise, true);
 });

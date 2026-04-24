@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen, shell, utilityProcess } from "electron";
 
-import { clearRuntimeChildOnExit, sendUtilityProcessSignal } from "./controller-process";
+import { clearRuntimeChildOnExit, sendUtilityProcessSignal, waitForUtilityProcessExit } from "./controller-process";
 import { createLogger } from "./logger";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
 import { createDesktopUpdater, type UpdateStatePayload } from "./updater";
@@ -1029,13 +1029,15 @@ async function stopUtilityProcess(
     reason: options.reason
   });
 
+  const exitWait = waitForUtilityProcessExit(child, 5_000);
+
   if (typeof child.pid === "number") {
     sendUtilityProcessSignal(child.pid, "SIGTERM");
   } else {
     child.kill();
   }
 
-  const exited = await waitForUtilityProcessExit(child, 5_000);
+  const exited = await exitWait;
 
   if (exited) {
     return;
@@ -1051,33 +1053,6 @@ async function stopUtilityProcess(
     child.kill();
   }
   await waitForUtilityProcessExit(child, 1_000);
-}
-
-function waitForUtilityProcessExit(child: Electron.UtilityProcess, timeoutMs: number) {
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const timeout = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      child.removeListener("exit", handleExit);
-      resolve(false);
-    }, timeoutMs);
-
-    const handleExit = () => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clearTimeout(timeout);
-      resolve(true);
-    };
-
-    child.once("exit", handleExit);
-  });
 }
 
 function sleep(durationMs: number) {

@@ -274,7 +274,7 @@ export function registerSessionRoutes(app: ControllerApp, options: { getChatStor
     try {
       payload = await context.req.json();
     } catch {
-      payload = {};
+      return context.json(createErrorResponse("invalid_request", "Malformed JSON request body."), 400);
     }
 
     const parsedBody = CreateSessionRequestSchema.safeParse(payload);
