@@ -294,11 +294,7 @@ function SessionChatSurface({
       header={(
         <ConversationHeader
           sessionTitle={session.title}
-          sessionId={session.id}
-          status={status}
           messageCount={messages.length}
-          hasError={error != null || approvalErrorText != null}
-          readyProviders={readyProviders}
           activeTarget={activeProviderTarget}
           isTargetOverridden={overrideProviderTarget !== null}
           onChangeTarget={handleChangeProviderTarget}
@@ -383,11 +379,7 @@ function EmptyChatConversation({
       header={(
         <ConversationHeader
           sessionTitle={DEFAULT_SESSION_TITLE}
-          sessionId="new-chat"
-          status="ready"
           messageCount={0}
-          hasError={false}
-          readyProviders={readyProviders}
           activeTarget={selectedProviderTarget}
           isTargetOverridden={overrideProviderTarget !== null}
           onChangeTarget={handleChangeProviderTarget}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, Button, StatusDot } from "@nexu-design/ui-web";
+import { Button } from "@nexu-design/ui-web";
 
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 
@@ -8,46 +8,19 @@ const headerCodeClassName = "rounded-sm bg-surface-2 px-1 font-mono text-[0.92em
 
 export interface ConversationHeaderProps {
   readonly sessionTitle: string;
-  readonly sessionId: string;
-  readonly status: "submitted" | "streaming" | "ready" | "error";
   readonly messageCount: number;
-  readonly hasError: boolean;
-  readonly readyProviders: ProviderReadinessTarget[];
   readonly activeTarget: ProviderReadinessTarget | null;
   readonly isTargetOverridden: boolean;
   readonly onChangeTarget: (target: ProviderReadinessTarget | null) => void;
 }
 
-function getStatusDescriptor(status: ConversationHeaderProps["status"], hasError: boolean) {
-  if (hasError) {
-    return { label: "Attention", tone: "error" as const };
-  }
-
-  switch (status) {
-    case "submitted":
-      return { label: "Submitting", tone: "warning" as const };
-    case "streaming":
-      return { label: "Streaming", tone: "warning" as const };
-    case "error":
-      return { label: "Error", tone: "error" as const };
-    default:
-      return { label: "Ready", tone: "success" as const };
-  }
-}
-
 export function ConversationHeader({
   sessionTitle,
-  sessionId,
-  status,
   messageCount,
-  hasError,
   activeTarget,
   isTargetOverridden,
   onChangeTarget
 }: ConversationHeaderProps) {
-  const isBusy = status === "submitted" || status === "streaming";
-  const statusDescriptor = getStatusDescriptor(status, hasError);
-
   return (
     <div className="flex flex-col items-start gap-4 app:flex-row app:flex-wrap app:justify-between">
       <div className="flex min-w-0 flex-col gap-1.5">
@@ -61,19 +34,12 @@ export function ConversationHeader({
             </>
           ) : null}
           {messageCount} {messageCount === 1 ? "message" : "messages"}
-          <span aria-hidden="true"> · </span>
-          <code className={headerCodeClassName}>{sessionId.slice(0, 8)}</code>
         </p>
       </div>
 
       <div className="flex w-full flex-wrap items-center justify-end gap-2 app:w-auto">
-        <Badge variant="outline" radius="full" size="sm">
-          <StatusDot status={statusDescriptor.tone} size="xs" className="size-2" pulse={isBusy} />
-          <span>{statusDescriptor.label}</span>
-        </Badge>
-
         {isTargetOverridden ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onChangeTarget(null)} disabled={isBusy}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChangeTarget(null)}>
             Reset route
           </Button>
         ) : null}

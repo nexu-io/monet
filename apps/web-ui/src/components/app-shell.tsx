@@ -12,13 +12,11 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarHeader,
-  StatusDot
+  SidebarHeader
 } from "@nexu-design/ui-web";
 
 import { useControllerState } from "../lib/controller-state";
 import { useSessions } from "./session-provider";
-import { sanitizeInternalRuntimeMessage } from "./workspace-copy";
 
 function formatSessionPreview(updatedAt: string) {
   const value = new Intl.DateTimeFormat(undefined, {
@@ -56,30 +54,8 @@ export function AppShell({
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 20);
   const isProviderReadinessLoading = providerReadiness.loading;
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
-  const { controllerState, isDesktop } = useControllerState();
+  const { isDesktop } = useControllerState();
   const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>();
-  const runtimeLifecycle = controllerState?.state;
-  const runtimeLabel = runtimeLifecycle === "ready"
-    ? "Runtime ready"
-    : runtimeLifecycle === "starting"
-      ? "Starting runtime"
-      : runtimeLifecycle === "restarting"
-        ? "Restarting runtime"
-        : runtimeLifecycle === "failed"
-          ? "Runtime unavailable"
-          : runtimeLifecycle === "stopped"
-            ? "Runtime stopped"
-            : isDesktop
-              ? "Preparing runtime"
-              : "Browser mode";
-  const runtimeStatus: "success" | "warning" | "error" | "neutral" = runtimeLifecycle === "ready"
-    ? "success"
-    : runtimeLifecycle === "starting" || runtimeLifecycle === "restarting"
-      ? "warning"
-      : runtimeLifecycle === "failed" || runtimeLifecycle === "stopped"
-        ? "error"
-        : "neutral";
-  const runtimeHint = sanitizeInternalRuntimeMessage(controllerState?.message) ?? (isDesktop ? "Local workspace" : "Browser workspace");
   const isSettingsOpen = pathname.startsWith("/settings");
   const openSettingsHref = "/settings/general";
 
@@ -259,19 +235,6 @@ export function AppShell({
               </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
-
-          <div className="flex items-center gap-2 rounded-md border border-border-subtle bg-surface-0 px-3 py-2.5 text-sm leading-[1.4] text-text-secondary" role="status" aria-live="polite">
-            <StatusDot
-              status={runtimeStatus}
-              size="sm"
-              className="size-2"
-              pulse={runtimeLifecycle === "starting" || runtimeLifecycle === "restarting"}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="font-medium text-text-heading">{runtimeLabel}</div>
-              <div className="text-text-tertiary">{runtimeHint}</div>
-            </div>
-          </div>
         </SidebarFooter>
       </Sidebar>
 
@@ -280,11 +243,11 @@ export function AppShell({
         data-has-composer={composer ? "true" : "false"}
       >
         {header ? <div className="border-b border-border-subtle bg-app-canvas px-[var(--app-page-padding-x)] pt-5 pb-4">{header}</div> : null}
-        <div className="min-h-0 overflow-auto">
+        <div className="min-h-0 overflow-auto" data-chat-scroll-container="true">
           <div className="mx-auto flex max-w-[var(--app-content-max-width)] flex-col gap-[var(--app-section-gap)] px-[var(--app-page-padding-x)] pt-6 pb-8">{children}</div>
         </div>
         {composer ? (
-          <div className="border-t border-border-subtle bg-app-canvas [&>*]:mx-auto [&>*]:max-w-[var(--app-content-max-width)] [&>*]:px-[var(--app-page-padding-x)] [&>*]:pt-4 [&>*]:pb-5">
+          <div className="bg-app-canvas [&>*]:mx-auto [&>*]:mb-4 [&>*]:max-w-[var(--app-content-max-width)] [&>*]:px-[var(--app-page-padding-x)] [&>*]:pt-4 [&>*]:pb-5">
             {composer}
           </div>
         ) : null}

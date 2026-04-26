@@ -107,17 +107,6 @@ function getToolStateMeta(state: string) {
   }
 }
 
-function getRoleLabel(role: ChatMessage["role"]) {
-  switch (role) {
-    case "assistant":
-      return "Assistant";
-    case "system":
-      return "System";
-    default:
-      return "You";
-  }
-}
-
 function isTextPart(part: ChatMessagePart): part is TextPart {
   return part.type === "text" && typeof part.text === "string";
 }
@@ -485,8 +474,26 @@ export interface ChatThreadProps {
 export function ChatThread({ messages, status, errorText, isArchived, onToolApproval }: ChatThreadProps) {
   const rootRef = useRef<HTMLElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
+  const lastLocatedUserMessageIdRef = useRef<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [pendingToolApprovalIds, setPendingToolApprovalIds] = useState<Set<string>>(new Set());
+
+  function getScrollContainer() {
+    return rootRef.current?.closest('[data-chat-scroll-container="true"]') ?? null;
+  }
+
+  function scrollToBottomNow(behavior: ScrollBehavior = "auto") {
+    const scrollContainer = getScrollContainer();
+
+    if (!(scrollContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior
+    });
+  }
 
   useEffect(() => {
     const activeApprovalIds = new Set(
@@ -509,7 +516,7 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
   }, [messages]);
 
   useEffect(() => {
-    const scrollContainer = rootRef.current?.closest(".canvas-body");
+    const scrollContainer = getScrollContainer();
 
     if (!(scrollContainer instanceof HTMLElement)) {
       return;
@@ -532,7 +539,7 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
   }, []);
 
   useEffect(() => {
-    const scrollContainer = rootRef.current?.closest(".canvas-body");
+    const scrollContainer = getScrollContainer();
     const isStreamingAssistantMessage = status === "streaming" && messages.at(-1)?.role === "assistant";
 
     if (!(scrollContainer instanceof HTMLElement) || (!shouldStickToBottomRef.current && !isStreamingAssistantMessage)) {
@@ -544,14 +551,48 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
       setShowScrollToBottom(false);
     }
 
-    scrollContainer.scrollTo({
-      top: scrollContainer.scrollHeight,
-      behavior: status === "streaming" ? "auto" : "smooth"
+    scrollToBottomNow(status === "streaming" ? "auto" : "smooth");
+  }, [messages, status]);
+
+  useEffect(() => {
+    const latestMessage = messages.at(-1);
+
+    if (!latestMessage || latestMessage.role !== "user" || latestMessage.id === lastLocatedUserMessageIdRef.current) {
+      return;
+    }
+
+    lastLocatedUserMessageIdRef.current = latestMessage.id;
+    shouldStickToBottomRef.current = false;
+
+    requestAnimationFrame(() => {
+      rootRef.current
+        ?.querySelector(`[data-message-id="${latestMessage.id}"]`)
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
     });
+  }, [messages]);
+
+  useEffect(() => {
+    if (status !== "streaming" || messages.at(-1)?.role !== "assistant" || !rootRef.current) {
+      return;
+    }
+
+    shouldStickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    scrollToBottomNow("auto");
+
+    const observer = new ResizeObserver(() => {
+      scrollToBottomNow("auto");
+    });
+
+    observer.observe(rootRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
   }, [messages, status]);
 
   function scrollToBottom() {
-    const scrollContainer = rootRef.current?.closest(".canvas-body");
+    const scrollContainer = getScrollContainer();
 
     if (!(scrollContainer instanceof HTMLElement)) {
       return;
@@ -601,21 +642,15 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
 
         if (message.role === "assistant") {
           return (
-            <article key={message.id} className="flex w-full flex-col gap-3" data-role={message.role}>
+            <article key={message.id} className="flex w-full flex-col gap-3" data-message-id={message.id} data-role={message.role}>
               {renderedParts}
             </article>
           );
         }
 
         return (
-          <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-role={message.role}>
-            <div className="flex items-center gap-2 text-xs text-text-tertiary">
-              <Badge variant={message.role === "user" ? "accent" : "secondary"} size="sm" radius="full">
-                {getRoleLabel(message.role)}
-              </Badge>
-            </div>
-
-            <Card className={`w-[min(100%,calc(var(--spacing)*180))] rounded-xl border border-border-subtle px-4.5 py-4 shadow-xs max-[960px]:w-full ${message.role === "user" ? "border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)]" : "bg-surface-1"}`}>
+          <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-message-id={message.id} data-role={message.role}>
+            <Card className={`rounded-xl border border-border-subtle px-4.5 shadow-xs ${message.role === "user" ? "w-fit max-w-[60%] border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)] py-2 [overflow-wrap:anywhere] max-[960px]:max-w-full" : "w-[min(100%,calc(var(--spacing)*180))] bg-surface-1 py-4 max-[960px]:w-full"}`}>
               <div className="flex flex-col gap-3">
                 {renderedParts}
               </div>
