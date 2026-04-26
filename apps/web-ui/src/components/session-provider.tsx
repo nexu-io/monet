@@ -2,7 +2,7 @@
 
 import { createContext, startTransition, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   archiveSession as archiveSessionRequest,
@@ -64,9 +64,10 @@ function upsertSession(sessions: SessionRecord[], nextSession: SessionRecord) {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname;
+  const [searchParams] = useSearchParams();
   const currentSessionId = searchParams.get(SESSION_QUERY_PARAM);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [currentSessionDetail, setCurrentSessionDetail] = useState<SessionDetailRecord | null>(null);
@@ -100,7 +101,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   function openSession(sessionId: string, targetPathname = pathname) {
     startTransition(() => {
-      router.push(buildSessionHref(targetPathname, sessionId));
+      navigate(buildSessionHref(targetPathname, sessionId));
     });
   }
 
@@ -232,7 +233,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (sessionId === currentSessionId && pathname === "/") {
       const nextSession = sessions.find((candidate) => candidate.id !== sessionId && candidate.archivedAt === null) ?? null;
       startTransition(() => {
-        router.replace(buildSessionHref(pathname, nextSession?.id ?? null));
+        navigate(buildSessionHref(pathname, nextSession?.id ?? null), { replace: true });
       });
     }
 
@@ -278,11 +279,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (shouldForceProviderSetup && !hasForcedProviderSetupRef.current) {
       hasForcedProviderSetupRef.current = true;
       startTransition(() => {
-        router.replace("/settings/models");
+        navigate("/settings/models", { replace: true });
       });
       return;
     }
-  }, [isSessionsLoading, pathname, providerReadiness.data, providerReadiness.error, providerReadiness.loading, router]);
+  }, [isSessionsLoading, navigate, pathname, providerReadiness.data, providerReadiness.error, providerReadiness.loading]);
 
   const currentSession = currentSessionDetail ?? sessions.find((session) => session.id === currentSessionId) ?? null;
   const value = useMemo<SessionContextValue>(

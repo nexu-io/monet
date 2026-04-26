@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Tabs,
   TabsContent,
@@ -11,14 +11,14 @@ import {
 import { AppShell } from "../../components/app-shell";
 import { settingsPanels } from "../../components/settings-panel-content";
 
-export default function SettingsLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const router = useRouter();
+export default function SettingsLayout({ children }: { children?: React.ReactNode }) {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
   
   const activePanel = pathname.includes("/settings/models") ? "models" : "general";
 
   function handleTabChange(nextValue: string) {
-    router.push(`/settings/${nextValue}`);
+    navigate(`/settings/${nextValue}`);
   }
 
   return (
@@ -47,7 +47,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
             </TabsList>
 
             <TabsContent value={activePanel} className="flex min-h-0 flex-1 flex-col gap-(--app-section-gap) overflow-auto px-6 py-5 data-[state=inactive]:hidden max-app:px-4 max-app:py-4 max-sm:p-4">
-              {children}
+              {children ?? <Outlet />}
             </TabsContent>
           </Tabs>
         </div>

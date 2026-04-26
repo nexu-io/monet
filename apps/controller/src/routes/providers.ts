@@ -8,6 +8,8 @@ import {
   ErrorResponseSchema,
   ListModelsResponseSchema,
   ListProvidersResponseSchema,
+  ProviderSchema,
+  CreateProviderRequestSchema,
   ValidateProviderResponseSchema,
   createErrorResponse
 } from "../openapi";
@@ -32,6 +34,81 @@ const listProvidersRoute = createRoute({
       content: {
         "application/json": {
           schema: ListProvidersResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const createProviderRoute = createRoute({
+  method: "post",
+  path: "/api/providers",
+  tags: ["Providers"],
+  summary: "Create provider",
+  description: "Creates a new provider record.",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CreateProviderRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    201: {
+      description: "Provider created successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderSchema
+        }
+      }
+    },
+    404: {
+      description: "Not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The provider could not be created.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const deleteProviderRoute = createRoute({
+  method: "delete",
+  path: "/api/providers/{providerId}",
+  tags: ["Providers"],
+  summary: "Delete provider",
+  description: "Deletes a provider record and its models.",
+  request: {
+    params: providerIdParamSchema
+  },
+  responses: {
+    204: {
+      description: "Provider deleted successfully."
+    },
+    404: {
+      description: "Not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The provider could not be deleted.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
         }
       }
     }
@@ -157,6 +234,27 @@ export function registerProviderRoutes(
       },
       200
     );
+  });
+
+  app.openapi(createProviderRoute, async (context) => {
+    try {
+      const input = context.req.valid("json");
+      const provider = options.getChatStorage().createProvider(input);
+      return context.json(provider, 201);
+    } catch (error) {
+      const response = createProviderErrorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(deleteProviderRoute, async (context) => {
+    try {
+      options.getChatStorage().deleteProvider(context.req.valid("param").providerId);
+      return new Response(null, { status: 204 });
+    } catch (error) {
+      const response = createProviderErrorResponse(error);
+      return context.json(response.body, response.status);
+    }
   });
 
   app.openapi(listModelsRoute, async (context) => {

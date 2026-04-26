@@ -520,7 +520,7 @@ function buildRendererAssetCandidates(normalizedTarget: string, rendererOutputDi
     return [directCandidate];
   }
 
-  return [directCandidate, nestedIndexCandidate];
+  return [directCandidate, nestedIndexCandidate, path.join(rendererOutputDirectory, "index.html")];
 }
 
 async function fileExists(filePath: string) {

@@ -83,10 +83,19 @@ export const ProviderSchema = z
     defaultModelName: z.string().nullable().openapi({ example: null }),
     enabled: z.boolean().openapi({ example: true }),
     timeoutMs: z.number().int().nullable().openapi({ example: null }),
-    createdAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" }),
-    updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" })
+    createdAt: z.string().datetime().openapi({ example: "2024-01-01T00:00:00Z" }),
+    updatedAt: z.string().datetime().openapi({ example: "2024-01-01T00:00:00Z" })
   })
   .openapi("Provider");
+
+export const CreateProviderRequestSchema = z
+  .object({
+    type: z.enum(["openai", "openrouter"]).openapi({ example: "openai" }),
+    displayName: z.string().min(1).openapi({ example: "My OpenAI Provider" }),
+    baseUrl: z.string().url().nullable().optional().openapi({ example: null }),
+    timeoutMs: z.number().int().positive().nullable().optional().openapi({ example: null })
+  })
+  .openapi("CreateProviderRequest");
 
 export const ProviderModelSchema = z
   .object({

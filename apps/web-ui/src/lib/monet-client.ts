@@ -75,7 +75,7 @@ declare global {
 export interface MonetClientConfig {
   readonly apiBase: string;
   readonly bearerToken: string | null;
-  readonly source: "preload" | "next-public-env" | "default";
+  readonly source: "preload" | "vite-public-env" | "default";
 }
 
 export interface ControllerHealthResponse {
@@ -100,14 +100,14 @@ export function getMonetClientConfig(): MonetClientConfig {
     };
   }
 
-  const envApiBase = process.env.NEXT_PUBLIC_MONET_CONTROLLER_URL?.trim();
-  const envBearerToken = process.env.NEXT_PUBLIC_MONET_CONTROLLER_BEARER_TOKEN?.trim();
+  const envApiBase = import.meta.env.VITE_MONET_CONTROLLER_URL?.trim();
+  const envBearerToken = import.meta.env.VITE_MONET_CONTROLLER_BEARER_TOKEN?.trim();
 
   if (envApiBase) {
     return {
       apiBase: envApiBase,
       bearerToken: envBearerToken || null,
-      source: "next-public-env"
+      source: "vite-public-env"
     };
   }
 

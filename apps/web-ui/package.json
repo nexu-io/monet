@@ -3,10 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/app/page.tsx",
   "scripts": {
-    "build": "next build",
-    "dev": "next dev --hostname 127.0.0.1 --port 42832",
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1 --port 42832 --strictPort",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -16,16 +15,18 @@
     "@nexu-design/ui-web": "^1.0.2",
     "@tanstack/react-query": "^5.90.5",
     "ai": "^6.0.168",
-    "next": "^15.3.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.9.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.4",
+    "@vitejs/plugin-react": "^5.0.4",
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "tailwindcss": "^4.2.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vite": "^7.1.12"
   }
 }

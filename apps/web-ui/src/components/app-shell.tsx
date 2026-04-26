@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Button,
   NavigationMenu,
@@ -45,7 +44,7 @@ export function AppShell({
   composer?: ReactNode;
   onDesktopStopShortcut?: () => void;
 }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const {
     createSession,
     currentSessionId,
@@ -90,7 +89,7 @@ export function AppShell({
 
   async function handleCreateSession() {
     if (providerSetupRequired) {
-      router.push("/settings/models");
+      navigate("/settings/models");
       return;
     }
 
@@ -111,10 +110,10 @@ export function AppShell({
       }
 
       if (action === "open-settings") {
-        router.push("/settings/general");
+        navigate("/settings/general");
       }
     });
-  }, [onDesktopStopShortcut, pathname, router]);
+  }, [navigate, onDesktopStopShortcut, pathname]);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -137,7 +136,7 @@ export function AppShell({
       event.preventDefault();
 
       if (pathname.startsWith("/settings")) {
-        router.push("/");
+        navigate("/");
         return;
       }
 
@@ -157,7 +156,7 @@ export function AppShell({
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [isDesktop, onDesktopStopShortcut, pathname, router]);
+  }, [isDesktop, navigate, onDesktopStopShortcut, pathname]);
 
   return (
     <div
@@ -246,7 +245,7 @@ export function AppShell({
                   active={isSettingsOpen}
                   className="group inline-flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-lg font-medium text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:font-semibold data-[active=true]:text-text-heading data-[state=selected]:bg-app-hover data-[state=selected]:font-semibold data-[state=selected]:text-text-heading"
                 >
-                  <Link href={openSettingsHref}>
+                  <Link to={openSettingsHref}>
                     <span className="inline-flex size-[18px] items-center justify-center text-current opacity-75 group-hover:opacity-100 group-data-[active=true]:opacity-100" aria-hidden="true">
                       <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="8" cy="8" r="2" />

@@ -44,6 +44,12 @@ type AsyncState<T> = {
 
 type ProviderValidationState = AsyncState<ValidateProviderResponse>;
 type ProviderSecretStorageState = AsyncState<ProviderSecretStorageSnapshot>;
+type CreateProviderDraft = {
+  readonly type: Provider["type"];
+  readonly displayName: string;
+  readonly baseUrl: string;
+  readonly timeoutMs: string;
+};
 type AuthorizedDirectory = {
   readonly path: string;
   readonly createdAt: string;
@@ -151,14 +157,14 @@ const settingsModelsStackClassName = "flex flex-col gap-4";
 const settingsListStackClassName = "flex flex-col gap-3";
 const settingsEmptyStateClassName = "flex flex-col items-start gap-3";
 const settingsItemCardClassName = "flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-1 p-3 shadow-xs";
-const settingsProviderItemClassName = `${settingsItemCardClassName} text-left transition-colors hover:border-accent/40 hover:bg-accent/5 data-[active=true]:border-accent/40 data-[active=true]:bg-accent/5`;
+const settingsProviderItemClassName = "flex flex-col gap-2 rounded-xl border border-border-subtle bg-surface-1 p-4 text-left transition-all hover:border-border-strong hover:bg-surface-2 data-[active=true]:border-accent data-[active=true]:bg-accent/5 data-[active=true]:shadow-sm";
 const settingsDirectoryItemClassName = "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border-subtle bg-surface-1 p-3 shadow-xs max-sm:grid-cols-[auto_minmax(0,1fr)]";
 const settingsDirectoryIconClassName = "inline-flex size-9 items-center justify-center rounded-md bg-accent/10 text-accent";
 const settingsDirectoryPathClassName = "block truncate text-text-heading";
 const settingsThemeOptionsClassName = "grid grid-cols-3 gap-3 max-app:grid-cols-1";
 const settingsThemeOptionClassName = `${settingsItemCardClassName} cursor-pointer transition-colors hover:border-accent/40 data-[active=true]:border-accent/40 data-[active=true]:shadow-focus`;
 const settingsThemeSwatchBaseClassName = "h-12 rounded-md border border-border-subtle";
-const settingsProviderGridClassName = "grid grid-cols-[minmax(280px,0.9fr)_minmax(0,1.6fr)] items-start gap-4 max-app:grid-cols-1";
+const settingsProviderGridClassName = "grid grid-cols-[320px_minmax(0,1fr)] items-start gap-6 max-app:grid-cols-1";
 const settingsProviderDetailClassName = "flex flex-col gap-3";
 const settingsRowClassName = "flex flex-wrap items-center justify-between gap-2 max-sm:items-start";
 const settingsChipRowClassName = "flex flex-wrap items-center justify-start gap-2";
@@ -683,6 +689,16 @@ function ModelSettingsPanel() {
   const [secretBusyAction, setSecretBusyAction] = useState<"save" | "clear" | null>(null);
   const [secretFeedback, setSecretFeedback] = useState<string | null>(null);
 
+  const [isCreatingProvider, setIsCreatingProvider] = useState(false);
+  const [createProviderDraft, setCreateProviderDraft] = useState<CreateProviderDraft>({
+    type: "openai",
+    displayName: "",
+    baseUrl: "",
+    timeoutMs: ""
+  });
+  const [createProviderBusy, setCreateProviderBusy] = useState(false);
+  const [createProviderError, setCreateProviderError] = useState<string | null>(null);
+
   const providers = providersState.data ?? [];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? null;
 
@@ -923,6 +939,55 @@ function ModelSettingsPanel() {
     }
   }, [loadProviders, secretInput, selectedProvider, validateProvider]);
 
+  const saveProvider = useCallback(async () => {
+    setCreateProviderBusy(true);
+    setCreateProviderError(null);
+
+    try {
+      const body = {
+        type: createProviderDraft.type,
+        displayName: createProviderDraft.displayName.trim() || (createProviderDraft.type === "openai" ? "OpenAI" : "OpenRouter"),
+        baseUrl: createProviderDraft.baseUrl.trim() || null,
+        timeoutMs: createProviderDraft.timeoutMs.trim() ? parseInt(createProviderDraft.timeoutMs, 10) : null
+      };
+
+      const result = await requestControllerJson<Provider>("/api/providers", {
+        method: "POST",
+        body: JSON.stringify(body)
+      });
+
+      await loadProviders();
+      setIsCreatingProvider(false);
+      setSelectedProviderId(result.id);
+      setCreateProviderDraft({
+        type: "openai",
+        displayName: "",
+        baseUrl: "",
+        timeoutMs: ""
+      });
+    } catch (error) {
+      setCreateProviderError(error instanceof Error ? error.message : "Unable to create provider.");
+    } finally {
+      setCreateProviderBusy(false);
+    }
+  }, [createProviderDraft, loadProviders]);
+
+  const deleteProvider = useCallback(async (providerId: string) => {
+    try {
+      await requestControllerJson(`/api/providers/${providerId}`, {
+        method: "DELETE"
+      });
+
+      if (selectedProviderId === providerId) {
+        setSelectedProviderId(null);
+      }
+
+      await loadProviders();
+    } catch (error) {
+      console.error("Failed to delete provider", error);
+    }
+  }, [loadProviders, selectedProviderId]);
+
   const clearProviderSecret = useCallback(async () => {
     if (!selectedProvider) {
       return;
@@ -1010,56 +1075,11 @@ function ModelSettingsPanel() {
     );
   }
 
-  if (providers.length === 0) {
-    return (
-      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
-        <CardHeader>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
-            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">No providers configured yet</CardTitle>
-            <CardDescription className="m-0 leading-[1.5] text-text-muted">
-              Monet needs at least one persisted provider record before new sessions can resolve a default model.
-            </CardDescription>
-          </div>
-        </CardHeader>
-
-        <CardContent className="flex flex-col gap-3">
-          <div className={settingsEmptyStateClassName}>
-            <Badge variant="warning" size="sm" radius="full" className={getStatusBadgeClassName("unknown")}>
-              <StatusDot status="warning" size="xs" className="size-2" />
-              <span>No provider records</span>
-            </Badge>
-
-            <ul className="grid list-none gap-2.5 p-0 m-0">
-              <li>
-                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
-                  Supported provider types in the current build are OpenAI and OpenRouter.
-                </Card>
-              </li>
-              <li>
-                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
-                  Once a provider exists, this page will surface its default model, enabled catalog, and validation result.
-                </Card>
-              </li>
-              <li>
-                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
-                  After provider setup is available, return here and run validation to confirm the desktop app can start chats.
-                </Card>
-              </li>
-            </ul>
-
-            <Button type="button" variant="primary" onClick={() => void loadProviders()}>
-              Refresh providers
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const showCreateForm = isCreatingProvider || providers.length === 0;
 
   return (
     <div className={settingsModelsStackClassName}>
-      {!hasReadyProvider && allValidationsSettled ? (
+      {!hasReadyProvider && allValidationsSettled && providers.length > 0 ? (
         <Card className={`${surfaceCardClassName} flex flex-col gap-3 border-dashed`}>
           <CardHeader>
             <div className="flex flex-col gap-1">
@@ -1088,30 +1108,36 @@ function ModelSettingsPanel() {
         </Card>
       ) : null}
 
-      <div className={settingsProviderGridClassName}>
-        <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
-          <CardHeader>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Configured providers</span>
-              <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Choose a provider</CardTitle>
+      <div className={providers.length === 0 ? "mx-auto flex w-full max-w-2xl flex-col gap-6" : settingsProviderGridClassName}>
+        {providers.length > 0 && (
+          <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
+            <CardHeader>
+              <div className={settingsRowClassName}>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Configured providers</span>
+                  <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Providers</CardTitle>
+                </div>
+                <Button type="button" variant="primary" disabled={showCreateForm} onClick={() => { setIsCreatingProvider(true); setSelectedProviderId(null); }}>
+                  Add provider
+                </Button>
+              </div>
               <CardDescription className="m-0 leading-[1.5] text-text-muted">Validation status is loaded inline so you can see which provider is ready for new sessions.</CardDescription>
-            </div>
-          </CardHeader>
+            </CardHeader>
 
-          <CardContent>
-            <div className={settingsListStackClassName} role="list" aria-label="Configured providers">
-              {providers.map((provider) => {
-                const validationState = validationByProviderId[provider.id];
-                const isSelected = provider.id === selectedProviderId;
+            <CardContent>
+              <div className={settingsListStackClassName} role="list" aria-label="Configured providers">
+                {providers.map((provider) => {
+                  const validationState = validationByProviderId[provider.id];
+                  const isSelected = provider.id === selectedProviderId && !showCreateForm;
 
-                return (
-                  <button
-                    key={provider.id}
-                    type="button"
-                    className={settingsProviderItemClassName}
-                    data-active={isSelected ? "true" : "false"}
-                    onClick={() => setSelectedProviderId(provider.id)}
-                  >
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      className={settingsProviderItemClassName}
+                      data-active={isSelected ? "true" : "false"}
+                      onClick={() => { setSelectedProviderId(provider.id); setIsCreatingProvider(false); }}
+                    >
                     <div className={settingsRowClassName}>
                       <div className="flex flex-col gap-1">
                         <strong>{provider.displayName}</strong>
@@ -1128,19 +1154,119 @@ function ModelSettingsPanel() {
                       <span>Default: {provider.defaultModelName ?? "Not set"}</span>
                       <span>ID: {provider.id}</span>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-        {selectedProvider ? (
+        {showCreateForm ? (
+          <div className={settingsProviderDetailClassName}>
+            <Card className={`${surfaceCardClassName} flex flex-col gap-3 ${providers.length === 0 ? 'border-accent/30 shadow-md' : ''}`}>
+              <CardHeader>
+                <div className="flex flex-col gap-1">
+                  <span className={`text-xs font-semibold uppercase tracking-[0.08em] ${providers.length === 0 ? 'text-accent' : 'text-text-tertiary'}`}>
+                    {providers.length === 0 ? "Getting Started" : "New Provider"}
+                  </span>
+                  <CardTitle className="m-0 text-2xl font-semibold text-text-heading">
+                    {providers.length === 0 ? "Add your first provider" : "Add a provider"}
+                  </CardTitle>
+                  <CardDescription className="m-0 leading-[1.5] text-text-muted">
+                    {providers.length === 0
+                      ? "To start chatting, configure an AI provider like OpenAI or OpenRouter. You'll need an API key from your chosen service."
+                      : "Configure a new provider to use for chat sessions."}
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6">
+                <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+                  <label className={settingsSecretFieldClassName}>
+                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Provider Type</span>
+                    <select
+                      value={createProviderDraft.type}
+                      onChange={(e) => setCreateProviderDraft({
+                        ...createProviderDraft,
+                        type: e.currentTarget.value as Provider["type"]
+                      })}
+                      className={settingsSecretInputClassName}
+                      disabled={createProviderBusy}
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="openrouter">OpenRouter</option>
+                    </select>
+                  </label>
+                  <label className={settingsSecretFieldClassName}>
+                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Display Name</span>
+                    <input
+                      type="text"
+                      value={createProviderDraft.displayName}
+                      placeholder={createProviderDraft.type === "openai" ? "OpenAI" : "OpenRouter"}
+                      onChange={(e) => setCreateProviderDraft({ ...createProviderDraft, displayName: e.currentTarget.value })}
+                      className={settingsSecretInputClassName}
+                      disabled={createProviderBusy}
+                    />
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+                  <label className={settingsSecretFieldClassName}>
+                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Base URL <span className="text-text-tertiary font-normal">(Optional)</span></span>
+                    <input
+                      type="url"
+                      value={createProviderDraft.baseUrl}
+                      placeholder={createProviderDraft.type === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1"}
+                      onChange={(e) => setCreateProviderDraft({ ...createProviderDraft, baseUrl: e.currentTarget.value })}
+                      className={settingsSecretInputClassName}
+                      disabled={createProviderBusy}
+                    />
+                  </label>
+                  <label className={settingsSecretFieldClassName}>
+                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Timeout in ms <span className="text-text-tertiary font-normal">(Optional)</span></span>
+                    <input
+                      type="number"
+                      value={createProviderDraft.timeoutMs}
+                      placeholder="30000"
+                      onChange={(e) => setCreateProviderDraft({ ...createProviderDraft, timeoutMs: e.currentTarget.value })}
+                      className={settingsSecretInputClassName}
+                      disabled={createProviderBusy}
+                    />
+                  </label>
+                </div>
+
+                {createProviderError ? <p className="m-0 leading-[1.5] text-error mono">{createProviderError}</p> : null}
+
+                <div className={settingsChipRowClassName}>
+                  <Button type="button" variant="primary" disabled={createProviderBusy} onClick={() => void saveProvider()}>
+                    {createProviderBusy ? "Saving…" : "Save provider"}
+                  </Button>
+                  {providers.length > 0 && (
+                    <Button type="button" variant="secondary" disabled={createProviderBusy} onClick={() => {
+                      setIsCreatingProvider(false);
+                      setSelectedProviderId(providers[0]?.id ?? null);
+                    }}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : selectedProvider ? (
           <div className={settingsProviderDetailClassName}>
             <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
               <CardHeader>
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected provider</span>
+                  <div className={settingsRowClassName}>
+                    <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected provider</span>
+                    <button
+                      type="button"
+                      className={settingsInlineActionClassName}
+                      onClick={() => void deleteProvider(selectedProvider.id)}
+                    >
+                      Delete provider
+                    </button>
+                  </div>
                   <div className={settingsRowClassName}>
                     <CardTitle className="m-0 text-2xl font-semibold text-text-heading">{selectedProvider.displayName}</CardTitle>
                     <ValidationBadge state={selectedValidation} />
@@ -1162,7 +1288,7 @@ function ModelSettingsPanel() {
                   </Badge>
                 </div>
 
-                <ul className="grid list-none gap-2.5 p-0 m-0">
+                <ul className="grid grid-cols-2 list-none gap-2.5 p-0 m-0 max-sm:grid-cols-1">
                   <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
                     <strong>Default model</strong>
                     <div className="m-0 leading-[1.5] text-text-muted mono">{selectedProvider.defaultModelName ?? "Not configured"}</div>

@@ -13,8 +13,8 @@ This runbook makes the final visual QA task executable after the Tailwind v4 mig
    If running only the web UI, point it at a controller:
 
    ```bash
-   NEXT_PUBLIC_MONET_CONTROLLER_URL=http://127.0.0.1:42831 \
-   NEXT_PUBLIC_MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token \
+   VITE_MONET_CONTROLLER_URL=http://127.0.0.1:42831 \
+   VITE_MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token \
    pnpm --filter @monet/web-ui dev
    ```
 

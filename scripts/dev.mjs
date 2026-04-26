@@ -9,8 +9,8 @@ const webPort = new URL(webUrl).port;
 const defaultEnv = {
   ...process.env,
   MONET_CONTROLLER_BEARER_TOKEN: controllerToken,
-  NEXT_PUBLIC_MONET_CONTROLLER_URL: controllerUrl,
-  NEXT_PUBLIC_MONET_CONTROLLER_BEARER_TOKEN: controllerToken,
+  VITE_MONET_CONTROLLER_URL: controllerUrl,
+  VITE_MONET_CONTROLLER_BEARER_TOKEN: controllerToken,
   MONET_DESKTOP_RENDERER_URL: webUrl,
   MONET_DESKTOP_CONTROLLER_URL: controllerUrl,
   MONET_DESKTOP_CONTROLLER_BEARER_TOKEN: controllerToken
@@ -92,6 +92,14 @@ async function ensureWebReady() {
   if (await isMonetWebReady()) {
     console.log(`[monet dev] reusing web dev server on ${new URL(webUrl).host}`);
     return true;
+  }
+
+  const webPids = await listWebPids();
+
+  if (webPids.length > 0) {
+    console.log(`[monet dev] resetting unhealthy web dev server (${webPids.join(", ")})`);
+    await terminatePids(webPids);
+    await waitForCondition(async () => (await listWebPids()).length === 0, 10000, 200, "web dev server to exit");
   }
 
   if (await isPortReachable(webUrl)) {
@@ -295,7 +303,12 @@ async function isMonetWebReady() {
     }
 
     const body = await response.text();
-    return body.includes("<title>Monet</title>");
+    if (!body.includes("<title>Monet</title>")) {
+      return false;
+    }
+
+    const settingsResponse = await fetch(`${webUrl}/settings/models/`);
+    return settingsResponse.ok;
   } catch {
     return false;
   }
@@ -331,6 +344,13 @@ async function resetDevSession() {
 
   console.log(`[monet dev] resetting Monet dev session (${pids.join(", ")})`);
 
+  await terminatePids(pids);
+
+  await waitForDevSessionExit();
+  return true;
+}
+
+async function terminatePids(pids) {
   for (const pid of pids) {
     try {
       process.kill(pid, "SIGTERM");
@@ -340,9 +360,6 @@ async function resetDevSession() {
       }
     }
   }
-
-  await waitForDevSessionExit();
-  return true;
 }
 
 function waitForDevSessionExit() {
@@ -371,7 +388,7 @@ function listControllerPids() {
 }
 
 function listWebPids() {
-  return execPgrep(["-f", `next-server \\(v|next dev --hostname 127.0.0.1 --port ${webPort}`]);
+  return execPgrep(["-f", `vite.*(--port ${webPort}|127.0.0.1:${webPort})|next-server \\(v|next dev --hostname 127.0.0.1 --port ${webPort}`]);
 }
 
 function execPgrep(args) {

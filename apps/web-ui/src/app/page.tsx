@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 
@@ -502,7 +502,7 @@ export default function HomePage() {
 
         {providerSetupRequired ? (
           <div className="fixed right-6 bottom-6 z-10">
-            <Link href="/settings/models" className={primarySessionActionButtonClassName}>
+            <Link to="/settings/models" className={primarySessionActionButtonClassName}>
               Open model settings
             </Link>
           </div>

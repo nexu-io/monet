@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-
 import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import type { UIMessage } from "ai";
 
@@ -225,6 +224,13 @@ export interface ProviderValidationResult {
   readonly availableModelCount: number;
 }
 
+export interface CreateProviderInput {
+  readonly type: ProviderType;
+  readonly displayName: string;
+  readonly baseUrl?: string | null | undefined;
+  readonly timeoutMs?: number | null | undefined;
+}
+
 export interface ProviderCatalogModelInput {
   readonly modelName: string;
   readonly displayName: string;
@@ -289,6 +295,8 @@ export interface ChatStorage {
   updateSessionTitle(input: { sessionId: string; title: string }): StoredSession;
   archiveSession(sessionId: string): StoredSession;
   listProviders(): StoredProvider[];
+  createProvider(input: CreateProviderInput): StoredProvider;
+  deleteProvider(providerId: string): void;
   getProvider(providerId: string): StoredProvider;
   listModels(providerId?: string): StoredProviderModel[];
   getModel(modelId: string): StoredProviderModel;
@@ -503,6 +511,32 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .all() as unknown as ProviderRow[];
 
       return rows.map(mapProviderRow);
+    },
+
+    createProvider(input) {
+      const now = new Date().toISOString();
+      const id = createPrefixedId("pro");
+
+      connection
+        .prepare(
+          `INSERT INTO providers (id, type, display_name, base_url, timeout_ms, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, input.type, input.displayName, input.baseUrl ?? null, input.timeoutMs ?? null, now, now);
+
+      return this.getProvider(id);
+    },
+
+    deleteProvider(providerId) {
+      try {
+        connection.exec("BEGIN");
+        connection.prepare(`DELETE FROM provider_models WHERE provider_id = ?`).run(providerId);
+        connection.prepare(`DELETE FROM providers WHERE id = ?`).run(providerId);
+        connection.exec("COMMIT");
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
     },
 
     getProvider(providerId) {
