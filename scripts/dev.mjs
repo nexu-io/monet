@@ -30,34 +30,24 @@ async function main() {
     env: defaultEnv
   });
 
-  const controllerManaged = !(await ensureControllerReady());
-  const webManaged = !(await ensureWebReady());
   const skipDesktop = process.env.MONET_DEV_SKIP_DESKTOP === "1";
+
+  if (!skipDesktop && (await shouldResetDevSession())) {
+    await resetDevSession();
+  }
+
+  const controllerReused = await ensureControllerReady();
+  const webReused = await ensureWebReady();
 
   if (skipDesktop) {
     console.log("[monet dev] skipping desktop launch (MONET_DEV_SKIP_DESKTOP=1)");
   } else {
-    if (await shouldResetDevSession()) {
-      await resetDevSession();
-    }
-
-    const controllerReadyAfterReset = await ensureControllerReady();
-    const webReadyAfterReset = await ensureWebReady();
-
-    if (!controllerManaged && controllerReadyAfterReset) {
-      throw new Error("controller unexpectedly remained managed after reset");
-    }
-
-    if (!webManaged && webReadyAfterReset) {
-      throw new Error("web unexpectedly remained managed after reset");
-    }
-
     spawnManaged("desktop", "pnpm", ["--filter", "@monet/desktop", "dev"], {
       env: defaultEnv
     });
   }
 
-  if (!controllerManaged && !webManaged && skipDesktop) {
+  if (controllerReused && webReused && skipDesktop) {
     console.log("[monet dev] controller and web dev server already running; nothing to start.");
     return;
   }
