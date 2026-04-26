@@ -2098,9 +2098,9 @@ function isKnownUiMessagePart(part: Record<string, unknown>) {
     case "file":
       return typeof part.filename === "string";
     case "source-url":
-      return typeof part.title === "string" && typeof part.url === "string";
+      return (part.title === undefined || typeof part.title === "string") && typeof part.url === "string";
     case "source-document":
-      return typeof part.title === "string";
+      return part.title === undefined || typeof part.title === "string";
     case "dynamic-tool":
       return typeof part.toolName === "string" && typeof part.state === "string";
     default:

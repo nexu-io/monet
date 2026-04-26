@@ -226,6 +226,41 @@ test("stored typed tool parts remain renderable when toolName is omitted", () =>
   }
 });
 
+test("stored source parts remain renderable when title is omitted", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_user_sources",
+          role: "user",
+          parts: [{ type: "text", text: "Show sources." }]
+        } as any,
+        {
+          id: "msg_assistant_sources",
+          role: "assistant",
+          parts: [
+            { type: "source-url", url: "https://example.com/report" },
+            { type: "source-document", snippet: "Relevant source excerpt" }
+          ]
+        } as any
+      ]
+    });
+    const detail = storage.getSessionDetail(prepared.sessionId);
+    const assistantMessage = detail.messages.find((message) => message.id === "msg_assistant_sources");
+    const persistedUiMessage = assistantMessage?.uiMessage as { parts?: unknown[] } | undefined;
+
+    assert.deepEqual(persistedUiMessage?.parts, [
+      { type: "source-url", url: "https://example.com/report" },
+      { type: "source-document", snippet: "Relevant source excerpt" }
+    ]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("message upserts preserve the original run linkage for existing idempotency keys", () => {
   const fixture = createStorageFixture();
 
