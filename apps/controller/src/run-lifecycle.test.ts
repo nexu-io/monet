@@ -54,6 +54,35 @@ function createTestStorage() {
     }
   });
 
+  const now = new Date().toISOString();
+  const connection = new DatabaseSync(databasePath);
+
+  connection.exec("BEGIN");
+
+  try {
+    connection
+      .prepare(
+        `INSERT INTO providers (id, type, display_name, base_url, default_model_name, enabled, timeout_ms, created_at, updated_at)
+         VALUES ('pro_test_openai', 'openai', 'OpenAI', NULL, 'gpt-4o-mini', 1, NULL, ?, ?)`
+      )
+      .run(now, now);
+
+    connection
+      .prepare(
+        `INSERT INTO provider_models (id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at)
+         VALUES ('mod_pro_test_openai', 'pro_test_openai', 'gpt-4o-mini', 'gpt-4o-mini', 1, 1, 1, NULL, ?, ?)`
+      )
+      .run(now, now);
+
+    connection.exec("COMMIT");
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    connection.close();
+    throw error;
+  }
+
+  connection.close();
+
   return {
     storage,
     databasePath,
@@ -199,7 +228,7 @@ test("stop endpoint returns ok for an active run", async () => {
       }) as unknown as ChatStorage
   });
 
-  const response = await app.request("http://127.0.0.1:3030/api/runs/run_active/stop", {
+  const response = await app.request("http://127.0.0.1:42831/api/runs/run_active/stop", {
     method: "POST"
   });
 
@@ -230,7 +259,7 @@ test("continue endpoint rejects requests without messages", async () => {
       }) as unknown as ChatStorage
   });
 
-  const response = await app.request("http://127.0.0.1:3030/api/runs/run_pending/continue", {
+  const response = await app.request("http://127.0.0.1:42831/api/runs/run_pending/continue", {
     method: "POST",
     headers: {
       "content-type": "application/json"
@@ -245,10 +274,8 @@ test("continue endpoint rejects requests without messages", async () => {
 
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), {
-    error: {
-      code: "invalid_request",
-      message: "Request validation failed."
-    }
+    error: "invalid_request",
+    message: "Request validation failed."
   });
   assert.equal(confirmCalled, false);
 });
@@ -294,7 +321,7 @@ test("continue endpoint rejects runs that have exhausted their max-step budget",
       }) as unknown as ChatStorage
   });
 
-  const response = await app.request("http://127.0.0.1:3030/api/runs/run_pending/continue", {
+  const response = await app.request("http://127.0.0.1:42831/api/runs/run_pending/continue", {
     method: "POST",
     headers: {
       "content-type": "application/json"
@@ -304,16 +331,20 @@ test("continue endpoint rejects runs that have exhausted their max-step budget",
       toolCallId: "tool_123",
       decision: "approved",
       confirmationToken: "confirm_123",
-      messages: []
+      messages: [
+        {
+          id: "msg_user",
+          role: "user",
+          parts: [{ type: "text", text: "continue" }]
+        }
+      ]
     })
   });
 
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), {
-    error: {
-      code: "invalid_state",
-      message: "Run has exhausted its max-step budget."
-    }
+    error: "invalid_state",
+    message: "Run has exhausted its max-step budget."
   });
   assert.equal(persistCalled, false);
   assert.equal(resumeCalled, false);

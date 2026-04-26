@@ -9,7 +9,6 @@ import { ChatThread } from "../components/chat-thread";
 import { Composer } from "../components/composer";
 import { ConversationHeader } from "../components/conversation-header";
 import { PageFrame } from "../components/page-frame";
-import { WelcomeHome } from "../components/welcome-home";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { sanitizeInternalRuntimeMessage } from "../components/workspace-copy";
 import { useControllerState } from "../lib/controller-state";
@@ -64,7 +63,7 @@ function SessionChatSurface({
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
-        api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:3030"}/api/chat`,
+        api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:42831"}/api/chat`,
         credentials: "omit",
         headers: (): Record<string, string> => {
           if (!controllerConfig?.bearerToken) {
@@ -93,7 +92,7 @@ function SessionChatSurface({
           }
 
           return {
-            api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:3030"}/api/runs/${pendingContinuation.runId}/continue`,
+            api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:42831"}/api/runs/${pendingContinuation.runId}/continue`,
             headers,
             credentials,
             body: {
@@ -239,7 +238,7 @@ function SessionChatSurface({
       headers.set("Authorization", `Bearer ${controllerConfig.bearerToken}`);
     }
 
-    const response = await fetch(`${controllerConfig?.apiBase ?? "http://127.0.0.1:3030"}/api/tools/confirm`, {
+    const response = await fetch(`${controllerConfig?.apiBase ?? "http://127.0.0.1:42831"}/api/tools/confirm`, {
       method: "POST",
       headers,
       credentials: "omit",
@@ -321,12 +320,104 @@ function SessionChatSurface({
   );
 }
 
+function EmptyChatConversation({
+  activeProviderTarget,
+  composerDisabledReason,
+  isComposerDisabled,
+  onCreateSession,
+  readyProviders
+}: {
+  activeProviderTarget: ProviderReadinessTarget | null;
+  composerDisabledReason?: string;
+  isComposerDisabled: boolean;
+  onCreateSession: (prompt: string, providerTarget: ProviderReadinessTarget | null) => Promise<void>;
+  readyProviders: ProviderReadinessTarget[];
+}) {
+  const [input, setInput] = useState("");
+  const [overrideProviderTarget, setOverrideProviderTarget] = useState<ProviderReadinessTarget | null>(null);
+  const selectedProviderTarget = overrideProviderTarget ?? activeProviderTarget;
+
+  function handleChangeProviderTarget(target: ProviderReadinessTarget | null) {
+    if (
+      target &&
+      activeProviderTarget &&
+      target.providerId === activeProviderTarget.providerId &&
+      target.modelId === activeProviderTarget.modelId
+    ) {
+      setOverrideProviderTarget(null);
+      return;
+    }
+
+    setOverrideProviderTarget(target);
+  }
+
+  async function handleSubmit() {
+    const text = input.trim();
+
+    if (!text || isComposerDisabled) {
+      return;
+    }
+
+    await onCreateSession(text, selectedProviderTarget);
+    setInput("");
+  }
+
+  return (
+    <PageFrame
+      pathname="/"
+      title="Chat"
+      description="Desktop-first chat shell wired to your local workspace with streaming AI SDK UI message rendering."
+      header={(
+        <ConversationHeader
+          sessionTitle={DEFAULT_SESSION_TITLE}
+          sessionId="new-chat"
+          status="ready"
+          messageCount={0}
+          hasError={false}
+          canRegenerate={false}
+          readyProviders={readyProviders}
+          activeTarget={selectedProviderTarget}
+          isTargetOverridden={overrideProviderTarget !== null}
+          onChangeTarget={handleChangeProviderTarget}
+          onRegenerate={() => undefined}
+          onStop={() => undefined}
+        />
+      )}
+      composer={(
+        <Composer
+          value={input}
+          status="ready"
+          canRegenerate={false}
+          disabled={isComposerDisabled}
+          {...(isComposerDisabled && composerDisabledReason ? { disabledReason: composerDisabledReason } : {})}
+          onValueChange={setInput}
+          onSubmit={() => void handleSubmit()}
+          onRegenerate={() => undefined}
+          onStop={() => undefined}
+        />
+      )}
+    >
+      <div className="flex flex-col gap-6">
+        <ChatThread
+          messages={[]}
+          status="ready"
+          errorText={undefined}
+          isArchived={false}
+          onToolApproval={async () => {
+            throw new Error("Tool confirmation is unavailable before a chat starts.");
+          }}
+        />
+      </div>
+    </PageFrame>
+  );
+}
+
 /**
  * Home route.
  *
  * Two visual states:
- *   - Welcome: no active session (first run, archived, or between chats) →
- *     a large centered hero with badge, greeting, big prompt card, info/recents grids.
+ *   - Empty chat: no active session selected → classic conversation shell with
+ *     an empty thread and composer.
  *   - Chat: an active session detail is loaded → classic conversation surface
  *     with header, streaming thread, and composer.
  */
@@ -335,25 +426,18 @@ export default function HomePage() {
   const {
     createSession,
     currentSessionDetail,
-    isCurrentSessionLoading,
-    isSessionsLoading,
-    openSession,
     providerReadiness,
     refreshCurrentSession,
     refreshSessions,
     renameSession,
-    sessions,
     sessionsError
   } = useSessions();
 
-  const activeSessions = sessions.filter((session) => session.archivedAt === null);
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
-  const modelSettingsHref = "/settings/models";
   const controllerStateLabel = controllerState?.state;
   const readyProviders = providerReadiness.data?.readyProviders ?? [];
   const activeProviderTarget =
     providerReadiness.data?.firstReadyProvider ?? null;
-  const isStartupLoading = isSessionsLoading || isCurrentSessionLoading || providerReadiness.loading;
 
   async function handleRenameSession(sessionId: string, title: string) {
     try {
@@ -363,7 +447,7 @@ export default function HomePage() {
     }
   }
 
-  async function handleWelcomeSend(prompt: string) {
+  async function handleEmptyChatSend(prompt: string, providerTarget: ProviderReadinessTarget | null) {
     if (providerSetupRequired) return;
     // Stash the pending prompt so the new chat surface picks it up on mount.
     // We use sessionStorage (not localStorage) so it never leaks across tabs.
@@ -372,11 +456,12 @@ export default function HomePage() {
     } catch {
       // Non-fatal — user can retype in the chat composer.
     }
-    await createSession({ pathname: "/" });
+    await createSession({
+      pathname: "/",
+      ...(providerTarget ? { providerId: providerTarget.providerId, modelId: providerTarget.modelId } : {})
+    });
   }
 
-  // Welcome surface: no hydrated session detail OR the local workspace is still
-  // starting up / blocked on provider setup.
   if (!currentSessionDetail) {
     const controllerOffline =
       controllerStateLabel === "failed" || controllerStateLabel === "stopped";
@@ -393,22 +478,17 @@ export default function HomePage() {
           : sessionsError ?? undefined;
 
     return (
-      <PageFrame pathname="/" title="Chat" description="Your local agent workspace.">
-        <WelcomeHome
-          recentSessions={activeSessions}
+      <>
+        <EmptyChatConversation
           readyProviders={readyProviders}
           activeProviderTarget={activeProviderTarget}
-          providerSetupRequired={providerSetupRequired}
-          isStartupLoading={isStartupLoading}
-          onOpenSession={(id) => openSession(id, "/")}
-          onSend={handleWelcomeSend}
           isComposerDisabled={composerDisabled}
           {...(composerDisabledReason ? { composerDisabledReason } : {})}
-          modelSettingsHref={modelSettingsHref}
+          onCreateSession={handleEmptyChatSend}
         />
 
         {controllerOffline && isDesktop ? (
-          <div className="mt-4 flex justify-center">
+          <div className="fixed right-6 bottom-6 z-10">
             <button
               type="button"
               className={primarySessionActionButtonClassName}
@@ -421,13 +501,13 @@ export default function HomePage() {
         ) : null}
 
         {providerSetupRequired ? (
-          <div className="mt-4 flex justify-center">
-            <Link href={modelSettingsHref} className={primarySessionActionButtonClassName}>
+          <div className="fixed right-6 bottom-6 z-10">
+            <Link href="/settings/models" className={primarySessionActionButtonClassName}>
               Open model settings
             </Link>
           </div>
         ) : null}
-      </PageFrame>
+      </>
     );
   }
 

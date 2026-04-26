@@ -57,7 +57,7 @@ test("settings routes list and replace authorized directories", async () => {
       getChatStorage: () => storage
     });
 
-    const listResponse = await app.request("http://127.0.0.1:3030/api/settings/authorized-directories", {
+    const listResponse = await app.request("http://127.0.0.1:42831/api/settings/authorized-directories", {
       method: "GET"
     });
 
@@ -66,7 +66,7 @@ test("settings routes list and replace authorized directories", async () => {
       resolve(fixture.projectDir)
     ]);
 
-    const replaceResponse = await app.request("http://127.0.0.1:3030/api/settings/authorized-directories", {
+    const replaceResponse = await app.request("http://127.0.0.1:42831/api/settings/authorized-directories", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json"

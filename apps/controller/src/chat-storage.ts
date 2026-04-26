@@ -7,13 +7,6 @@ import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import type { UIMessage } from "ai";
 
 const DEFAULT_SESSION_TITLE = "New chat";
-const DEFAULT_OPENAI_PROVIDER_ID = "pro_b6m4q2r8t5v9x3z7k1n4p6s8";
-const DEFAULT_OPENAI_MODEL_ID = "mod_c7n5r3t9w2y6k4m8p1s5v7x9";
-const DEFAULT_OPENROUTER_PROVIDER_ID = "pro_q4w8e2r6t1y5u9i3o7p1a5s9";
-const DEFAULT_OPENROUTER_MODEL_ID = "mod_h3j7k1l5z9x3c7v1b5n9m3q7";
-const DEFAULT_PROVIDER_TYPE = "openai";
-const DEFAULT_PROVIDER_DISPLAY_NAME = "OpenAI";
-const DEFAULT_OPENROUTER_PROVIDER_DISPLAY_NAME = "OpenRouter";
 const CURRENT_UI_MESSAGE_SCHEMA_VERSION = "v1";
 const MAX_PERSISTED_TOOL_OUTPUT_BYTES = 8 * 1024;
 const ALWAYS_TRUNCATED_PERSISTED_TOOL_NAMES = new Set(["fetch_url", "read_file"]);
@@ -355,24 +348,6 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   connection.exec("PRAGMA foreign_keys = ON");
 
   bootstrapSchema(connection);
-  ensureProviderAndDefaultModel(connection, {
-    providerId: DEFAULT_OPENAI_PROVIDER_ID,
-    providerType: DEFAULT_PROVIDER_TYPE,
-    providerDisplayName: DEFAULT_PROVIDER_DISPLAY_NAME,
-    modelId: DEFAULT_OPENAI_MODEL_ID,
-    baseUrl: options.openai.baseUrl,
-    defaultModel: options.openai.defaultModel,
-    timeoutMs: options.openai.timeoutMs
-  });
-  ensureProviderAndDefaultModel(connection, {
-    providerId: DEFAULT_OPENROUTER_PROVIDER_ID,
-    providerType: "openrouter",
-    providerDisplayName: DEFAULT_OPENROUTER_PROVIDER_DISPLAY_NAME,
-    modelId: DEFAULT_OPENROUTER_MODEL_ID,
-    baseUrl: options.openrouter.baseUrl,
-    defaultModel: options.openrouter.defaultModel,
-    timeoutMs: options.openrouter.timeoutMs
-  });
   ensureSqliteFilePermissions(options.databasePath);
 
   return {
@@ -1303,85 +1278,6 @@ function splitMigrationStatements(sql: string, hasBreakpoints: boolean) {
   return statement.length > 0 ? [statement] : [];
 }
 
-function ensureProviderAndDefaultModel(
-  connection: DatabaseSync,
-  options: {
-    readonly providerId: string;
-    readonly providerType: ProviderType;
-    readonly providerDisplayName: string;
-    readonly modelId: string;
-    readonly baseUrl: string | null;
-    readonly defaultModel: string;
-    readonly timeoutMs: number | null;
-  }
-) {
-  const now = new Date().toISOString();
-
-  connection
-    .prepare(
-      `INSERT INTO providers (
-        id,
-        type,
-        display_name,
-        base_url,
-        default_model_name,
-        enabled,
-        timeout_ms,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        display_name = excluded.display_name,
-        base_url = excluded.base_url,
-        default_model_name = excluded.default_model_name,
-        timeout_ms = excluded.timeout_ms,
-        updated_at = excluded.updated_at`
-    )
-    .run(
-      options.providerId,
-      options.providerType,
-      options.providerDisplayName,
-      options.baseUrl,
-      options.defaultModel,
-      options.timeoutMs,
-      now,
-      now
-    );
-
-  connection
-    .prepare(
-      `INSERT INTO provider_models (
-        id,
-        provider_id,
-        model_name,
-        display_name,
-        supports_tools,
-        supports_reasoning,
-        enabled,
-        capabilities_json,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, 1, ?, 1, NULL, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        provider_id = excluded.provider_id,
-        model_name = excluded.model_name,
-        display_name = excluded.display_name,
-        supports_tools = excluded.supports_tools,
-        supports_reasoning = excluded.supports_reasoning,
-        enabled = excluded.enabled,
-        updated_at = excluded.updated_at`
-    )
-    .run(
-      options.modelId,
-      options.providerId,
-      options.defaultModel,
-      options.defaultModel,
-      isReasoningModelName(options.defaultModel) ? 1 : 0,
-      now,
-      now
-    );
-}
-
 function resolveProviderAndModel(
   connection: DatabaseSync,
   options: {
@@ -1511,10 +1407,9 @@ function resolveProviderAndModel(
     }
   }
 
-  const fallbackProvider = getEnabledProvider(connection, DEFAULT_OPENAI_PROVIDER_ID);
-  const fallbackModel = getEnabledProviderModel(connection, DEFAULT_OPENAI_MODEL_ID);
+  const fallback = getFirstEnabledProviderModel(connection);
 
-  if (!fallbackProvider || !fallbackModel || fallbackModel.provider_id !== fallbackProvider.id) {
+  if (!fallback) {
     throw new ChatStorageResolutionError({
       message: "No fallback provider/model is currently available for new chats.",
       statusCode: 422,
@@ -1523,8 +1418,8 @@ function resolveProviderAndModel(
   }
 
   return {
-    providerId: fallbackProvider.id,
-    modelId: fallbackModel.id
+    providerId: fallback.providerId,
+    modelId: fallback.modelId
   };
 }
 
@@ -1610,6 +1505,26 @@ function getEnabledProviderModelByName(connection: DatabaseSync, providerId: str
        LIMIT 1`
     )
     .get(providerId, modelName) as ProviderModelRow | undefined;
+}
+
+function getFirstEnabledProviderModel(connection: DatabaseSync) {
+  const row = connection
+    .prepare(
+      `SELECT providers.id AS provider_id, provider_models.id AS model_id
+       FROM providers
+       INNER JOIN provider_models ON provider_models.provider_id = providers.id
+       WHERE providers.enabled = 1 AND provider_models.enabled = 1
+       ORDER BY providers.display_name ASC, provider_models.display_name ASC, provider_models.created_at ASC
+       LIMIT 1`
+    )
+    .get() as { provider_id: string; model_id: string } | undefined;
+
+  return row
+    ? {
+        providerId: row.provider_id,
+        modelId: row.model_id
+      }
+    : null;
 }
 
 function upsertSession(

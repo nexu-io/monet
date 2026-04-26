@@ -20,6 +20,6 @@ test("rejects zero as a controller port", () => {
 test("allows both loopback web dev origins by default", () => {
   const config = createControllerConfig(createEnv());
 
-  assert.ok(config.allowedOrigins.includes("http://127.0.0.1:3000"));
-  assert.ok(config.allowedOrigins.includes("http://localhost:3000"));
+  assert.ok(config.allowedOrigins.includes("http://127.0.0.1:42832"));
+  assert.ok(config.allowedOrigins.includes("http://localhost:42832"));
 });

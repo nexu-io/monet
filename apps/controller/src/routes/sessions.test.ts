@@ -51,7 +51,7 @@ test("create session route rejects malformed JSON bodies", async () => {
       getChatStorage: () => storage
     });
 
-    const response = await app.request("http://127.0.0.1:3030/api/sessions", {
+    const response = await app.request("http://127.0.0.1:42831/api/sessions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -80,7 +80,7 @@ test("create session route accepts an empty body", async () => {
       getChatStorage: () => storage
     });
 
-    const response = await app.request("http://127.0.0.1:3030/api/sessions", {
+    const response = await app.request("http://127.0.0.1:42831/api/sessions", {
       method: "POST"
     });
 

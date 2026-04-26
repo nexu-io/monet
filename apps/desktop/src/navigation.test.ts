@@ -9,22 +9,22 @@ test("allows packaged renderer navigation inside the desktop protocol origin", (
 
 test("allows dev renderer navigation only for the same origin", () => {
   assert.equal(
-    isAllowedMainWindowNavigation("http://127.0.0.1:3000/settings?tab=general", "http://127.0.0.1:3000"),
+    isAllowedMainWindowNavigation("http://127.0.0.1:42832/settings?tab=general", "http://127.0.0.1:42832"),
     true
   );
   assert.equal(
-    isAllowedMainWindowNavigation("http://127.0.0.1:3000.evil.tld/settings", "http://127.0.0.1:3000"),
+    isAllowedMainWindowNavigation("http://127.0.0.1:42832.evil.tld/settings", "http://127.0.0.1:42832"),
     false
   );
 });
 
 test("allows dev renderer navigation only inside the configured pathname scope", () => {
   assert.equal(
-    isAllowedMainWindowNavigation("http://127.0.0.1:3000/app/settings", "http://127.0.0.1:3000/app"),
+    isAllowedMainWindowNavigation("http://127.0.0.1:42832/app/settings", "http://127.0.0.1:42832/app"),
     true
   );
   assert.equal(
-    isAllowedMainWindowNavigation("http://127.0.0.1:3000/application", "http://127.0.0.1:3000/app"),
+    isAllowedMainWindowNavigation("http://127.0.0.1:42832/application", "http://127.0.0.1:42832/app"),
     false
   );
 });

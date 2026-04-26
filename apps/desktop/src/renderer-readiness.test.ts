@@ -7,7 +7,7 @@ test("waitForRendererReady aborts stalled probes and eventually times out", asyn
   let attempts = 0;
 
   await assert.rejects(
-    waitForRendererReady("http://127.0.0.1:3000", {
+    waitForRendererReady("http://127.0.0.1:42832", {
       attempts: 2,
       attemptTimeoutMs: 5,
       intervalMs: 0,

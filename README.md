@@ -49,8 +49,8 @@ From the repository root:
 - `pnpm release:desktop`: build the workspace and publish desktop artifacts through Electron Builder's GitHub release flow.
 - `pnpm typecheck`: run TypeScript checks across every workspace package that currently has sources.
 - `pnpm dev`: start the controller, Next.js dev server, and Electron desktop app using the shared local dev token `monet-dev-token`.
-- `pnpm dev:controller`: run the Hono controller only on `127.0.0.1:3030`.
-- `pnpm dev:web`: run the Next.js renderer only on `127.0.0.1:3000`.
+- `pnpm dev:controller`: run the Hono controller only on `127.0.0.1:42831`.
+- `pnpm dev:web`: run the Next.js renderer only on `127.0.0.1:42832`.
 - `pnpm dev:desktop`: build the desktop TypeScript entrypoints once and launch Electron against the local dev controller and renderer.
 - `pnpm db:generate`: generate Drizzle migrations for `@monet/database`.
 - `pnpm db:migrate`: apply Drizzle migrations for `@monet/database`.

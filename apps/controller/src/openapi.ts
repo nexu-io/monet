@@ -22,8 +22,8 @@ export const SessionSchema = z
     createdAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" }),
     updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" }),
     archivedAt: z.string().datetime().nullable().openapi({ example: null }),
-    defaultProviderId: z.string().nullable().openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" }),
-    defaultModelId: z.string().nullable().openapi({ example: "mod_c7n5r3t9w2y6k4m8p1s5v7x9" })
+    defaultProviderId: z.string().nullable().openapi({ example: null }),
+    defaultModelId: z.string().nullable().openapi({ example: null })
   })
   .openapi("Session");
 
@@ -76,11 +76,11 @@ export const ArchiveSessionResponseSchema = z
 
 export const ProviderSchema = z
   .object({
-    id: z.string().openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" }),
+    id: z.string().openapi({ example: "pro_123" }),
     type: z.enum(["openai", "openrouter"]).openapi({ example: "openai" }),
-    displayName: z.string().openapi({ example: "Local Stub Provider" }),
+    displayName: z.string().openapi({ example: "Provider" }),
     baseUrl: z.string().url().nullable().openapi({ example: null }),
-    defaultModelName: z.string().nullable().openapi({ example: "controller-echo" }),
+    defaultModelName: z.string().nullable().openapi({ example: null }),
     enabled: z.boolean().openapi({ example: true }),
     timeoutMs: z.number().int().nullable().openapi({ example: null }),
     createdAt: z.string().datetime().openapi({ example: "2026-04-23T10:00:00.000Z" }),
@@ -90,10 +90,10 @@ export const ProviderSchema = z
 
 export const ProviderModelSchema = z
   .object({
-    id: z.string().openapi({ example: "mod_c7n5r3t9w2y6k4m8p1s5v7x9" }),
-    providerId: z.string().openapi({ example: "pro_b6m4q2r8t5v9x3z7k1n4p6s8" }),
-    modelName: z.string().openapi({ example: "controller-echo" }),
-    displayName: z.string().openapi({ example: "Controller Echo" }),
+    id: z.string().openapi({ example: "mod_123" }),
+    providerId: z.string().openapi({ example: "pro_123" }),
+    modelName: z.string().openapi({ example: "model-name" }),
+    displayName: z.string().openapi({ example: "Model name" }),
     supportsTools: z.boolean().openapi({ example: false }),
     supportsReasoning: z.boolean().openapi({ example: false }),
     enabled: z.boolean().openapi({ example: true }),
@@ -131,9 +131,9 @@ export const ValidateProviderResponseSchema = z
       ])
       .openapi({ example: "ok" }),
     message: z.string().openapi({ example: "Provider configuration is valid." }),
-    defaultModelId: z.string().nullable().openapi({ example: "mod_c7n5r3t9w2y6k4m8p1s5v7x9" }),
-    defaultModelName: z.string().nullable().openapi({ example: "controller-echo" }),
-    availableModelCount: z.number().int().nonnegative().openapi({ example: 1 })
+    defaultModelId: z.string().nullable().openapi({ example: null }),
+    defaultModelName: z.string().nullable().openapi({ example: null }),
+    availableModelCount: z.number().int().nonnegative().openapi({ example: 0 })
   })
   .openapi("ValidateProviderResponse");
 

@@ -5,7 +5,7 @@ Date: 2026-04-24
 ## Setup
 
 - Controller: `MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/controller dev`
-- Renderer: static export from `pnpm --filter @monet/web-ui build`, served from `apps/web-ui/out` on `http://127.0.0.1:3000`
+- Renderer: static export from `pnpm --filter @monet/web-ui build`, served from `apps/web-ui/out` on `http://127.0.0.1:42832`
 - Seeded QA sessions:
   - blank chat: `ses_dm6w3ygow0mov2jkfa37hkn8`
   - message/tool chat: `ses_vqa_message_tool`

@@ -28,7 +28,7 @@ async function main() {
       defaultModel: "openai/gpt-4.1-mini",
       timeoutMs: null
     },
-    port: 3030
+    port: 42831
   });
   const document = app.getOpenAPI31Document({
     openapi: "3.1.0",

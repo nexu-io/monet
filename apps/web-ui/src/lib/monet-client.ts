@@ -84,7 +84,7 @@ export interface ControllerHealthResponse {
   readonly version: string;
 }
 
-const defaultApiBase = "http://127.0.0.1:3030";
+const defaultApiBase = "http://127.0.0.1:42831";
 
 export function getMonetClientConfig(): MonetClientConfig {
   const desktopApi = typeof window !== "undefined" ? window.monetDesktop : undefined;

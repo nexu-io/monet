@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 
-const defaultControllerPort = 3030;
+const defaultControllerPort = 42831;
 const defaultControllerHost = "127.0.0.1";
-const defaultAllowedOrigins = ["null", "app://monet", "http://127.0.0.1:3000", "http://localhost:3000"] as const;
+const defaultAllowedOrigins = ["null", "app://monet", "http://127.0.0.1:42832", "http://localhost:42832"] as const;
 const defaultAllowedToolDirectories = [] as const;
 const defaultAgentMaxStepsPerRun = 8;
 const defaultAgentMaxTokensPerRun = 32_768;

@@ -21,23 +21,6 @@ import { useControllerState } from "../lib/controller-state";
 import { useSessions } from "./session-provider";
 import { sanitizeInternalRuntimeMessage } from "./workspace-copy";
 
-type NavigationItem = {
-  href: string;
-  label: string;
-  description?: string;
-};
-
-const primaryNavItems: NavigationItem[] = [
-  {
-    href: "/",
-    label: "Chat"
-  },
-  {
-    href: "/sessions",
-    label: "Sessions"
-  }
-];
-
 function formatSessionPreview(updatedAt: string) {
   const value = new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -176,10 +159,6 @@ export function AppShell({
     };
   }, [isDesktop, onDesktopStopShortcut, pathname, router]);
 
-  function isNavItemActive(item: NavigationItem) {
-    return pathname === item.href && !pathname.startsWith("/settings");
-  }
-
   return (
     <div
       className="grid h-screen min-h-0 grid-cols-[var(--app-shell-width)_minmax(0,1fr)] overflow-hidden bg-app-canvas max-app:h-auto max-app:min-h-screen max-app:grid-cols-1 max-app:overflow-visible"
@@ -213,35 +192,11 @@ export function AppShell({
                 : "+ New chat"}
           </Button>
 
-          <NavigationMenu>
-            <NavigationMenuList>
-              {primaryNavItems.map((item) => {
-                const href = item.href;
-                const selected = isNavItemActive(item);
-
-                return (
-                  <NavigationMenuItem key={item.href}>
-                    <NavigationMenuButton
-                      asChild
-                      active={selected}
-                      className="w-full justify-start rounded-md px-2.5 py-2 text-lg font-medium text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:font-semibold data-[active=true]:text-text-heading data-[state=selected]:bg-app-hover data-[state=selected]:font-semibold data-[state=selected]:text-text-heading"
-                    >
-                      <Link href={href}>{item.label}</Link>
-                    </NavigationMenuButton>
-                  </NavigationMenuItem>
-                );
-              })}
-            </NavigationMenuList>
-          </NavigationMenu>
-
           <section className="flex min-h-0 flex-col gap-2" aria-labelledby="recent-sessions-heading">
             <div className="flex items-baseline justify-between gap-2 px-2">
               <NavigationMenuLabel className="text-2xs font-semibold tracking-[0.1em] text-text-tertiary uppercase" id="recent-sessions-heading">
                 Recent
               </NavigationMenuLabel>
-              <Link href="/sessions" className="text-xs font-medium text-text-tertiary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:text-text-primary">
-                View all
-              </Link>
             </div>
 
             <div className="flex min-h-0 flex-col gap-0.5 overflow-auto">

@@ -11,9 +11,9 @@ function createTestApp() {
   app.use(
     "/api/*",
     createLocalAuthMiddleware({
-      allowedOrigins: ["null", "app://monet", "http://127.0.0.1:3000"],
+      allowedOrigins: ["null", "app://monet", "http://127.0.0.1:42832"],
       bearerToken: "test-token",
-      port: 3030
+      port: 42831
     })
   );
   app.get("/api/health", (context) => context.text("ok"));
@@ -22,20 +22,20 @@ function createTestApp() {
 }
 
 async function request(init?: RequestInit) {
-  return createTestApp().request("http://127.0.0.1:3030/api/health", init);
+  return createTestApp().request("http://127.0.0.1:42831/api/health", init);
 }
 
 test("accepts valid localhost requests with a bearer token", async () => {
   const response = await request({
     headers: {
       Authorization: "Bearer test-token",
-      Host: "127.0.0.1:3030",
-      Origin: "http://127.0.0.1:3000"
+      Host: "127.0.0.1:42831",
+      Origin: "http://127.0.0.1:42832"
     }
   });
 
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:3000");
+  assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:42832");
 });
 
 test("accepts default HTTP port loopback host headers without an explicit port", async () => {
@@ -44,7 +44,7 @@ test("accepts default HTTP port loopback host headers without an explicit port",
   app.use(
     "/api/*",
     createLocalAuthMiddleware({
-      allowedOrigins: ["http://127.0.0.1:3000"],
+      allowedOrigins: ["http://127.0.0.1:42832"],
       bearerToken: "test-token",
       port: 80
     })
@@ -55,7 +55,7 @@ test("accepts default HTTP port loopback host headers without an explicit port",
     headers: {
       Authorization: "Bearer test-token",
       Host: "localhost",
-      Origin: "http://127.0.0.1:3000"
+      Origin: "http://127.0.0.1:42832"
     }
   });
 
@@ -65,7 +65,7 @@ test("accepts default HTTP port loopback host headers without an explicit port",
 test("rejects missing bearer tokens", async () => {
   const response = await request({
     headers: {
-      Host: "127.0.0.1:3030"
+      Host: "127.0.0.1:42831"
     }
   });
 
@@ -76,7 +76,7 @@ test("rejects requests for unexpected hosts", async () => {
   const response = await request({
     headers: {
       Authorization: "Bearer test-token",
-      Host: "example.com:3030"
+      Host: "example.com:42831"
     }
   });
 
@@ -87,7 +87,7 @@ test("rejects requests from unexpected origins", async () => {
   const response = await request({
     headers: {
       Authorization: "Bearer test-token",
-      Host: "127.0.0.1:3030",
+      Host: "127.0.0.1:42831",
       Origin: "https://example.com"
     }
   });
@@ -100,7 +100,7 @@ test("rejects cookie-bearing requests", async () => {
     headers: {
       Authorization: "Bearer test-token",
       Cookie: "session=abc",
-      Host: "127.0.0.1:3030"
+      Host: "127.0.0.1:42831"
     }
   });
 
@@ -113,13 +113,13 @@ test("accepts CORS preflight requests from allowed origins", async () => {
     headers: {
       "Access-Control-Request-Headers": "authorization, content-type",
       "Access-Control-Request-Method": "POST",
-      Host: "127.0.0.1:3030",
-      Origin: "http://127.0.0.1:3000"
+      Host: "127.0.0.1:42831",
+      Origin: "http://127.0.0.1:42832"
     }
   });
 
   assert.equal(response.status, 204);
-  assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:3000");
+  assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:42832");
   assert.equal(response.headers.get("access-control-allow-methods"), "POST");
   assert.equal(response.headers.get("access-control-allow-headers"), "authorization, content-type");
 });
@@ -128,7 +128,7 @@ test("allows null origins for packaged desktop renderers", async () => {
   const response = await request({
     headers: {
       Authorization: "Bearer test-token",
-      Host: "127.0.0.1:3030",
+      Host: "127.0.0.1:42831",
       Origin: "null"
     }
   });

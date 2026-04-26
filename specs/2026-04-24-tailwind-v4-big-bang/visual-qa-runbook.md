@@ -13,12 +13,12 @@ This runbook makes the final visual QA task executable after the Tailwind v4 mig
    If running only the web UI, point it at a controller:
 
    ```bash
-   NEXT_PUBLIC_MONET_CONTROLLER_URL=http://127.0.0.1:3030 \
+   NEXT_PUBLIC_MONET_CONTROLLER_URL=http://127.0.0.1:42831 \
    NEXT_PUBLIC_MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token \
    pnpm --filter @monet/web-ui dev
    ```
 
-2. Open `http://127.0.0.1:3000`.
+2. Open `http://127.0.0.1:42832`.
 3. Keep browser devtools available for viewport resizing and theme inspection.
 4. Run the route matrix in all required viewport widths:
    - desktop: `1280x900` or wider (`> 960px`)

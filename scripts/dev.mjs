@@ -2,8 +2,10 @@ import { execFile, spawn } from "node:child_process";
 import process from "node:process";
 
 const controllerToken = "monet-dev-token";
-const controllerUrl = "http://127.0.0.1:3030";
-const webUrl = "http://127.0.0.1:3000";
+const controllerUrl = "http://127.0.0.1:42831";
+const webUrl = "http://127.0.0.1:42832";
+const controllerPort = new URL(controllerUrl).port;
+const webPort = new URL(webUrl).port;
 const defaultEnv = {
   ...process.env,
   MONET_CONTROLLER_BEARER_TOKEN: controllerToken,
@@ -62,15 +64,15 @@ async function main() {
 
 async function ensureControllerReady() {
   if (await isMonetControllerReady()) {
-    console.log("[monet dev] reusing controller on 127.0.0.1:3030");
+    console.log(`[monet dev] reusing controller on ${new URL(controllerUrl).host}`);
     return true;
   }
 
   if (await isPortReachable(controllerUrl)) {
-    throw new Error("port 3030 is already in use by a non-Monet service");
+    throw new Error(`port ${controllerPort} is already in use by a non-Monet service`);
   }
 
-  console.log("[monet dev] starting controller on 127.0.0.1:3030");
+  console.log(`[monet dev] starting controller on ${new URL(controllerUrl).host}`);
   const child = spawnManaged("controller", "pnpm", ["--filter", "@monet/controller", "dev"], {
     env: defaultEnv,
     readinessCheck: isMonetControllerReady
@@ -88,15 +90,15 @@ async function ensureControllerReady() {
 
 async function ensureWebReady() {
   if (await isMonetWebReady()) {
-    console.log("[monet dev] reusing web dev server on 127.0.0.1:3000");
+    console.log(`[monet dev] reusing web dev server on ${new URL(webUrl).host}`);
     return true;
   }
 
   if (await isPortReachable(webUrl)) {
-    throw new Error("port 3000 is already in use by a non-Monet service");
+    throw new Error(`port ${webPort} is already in use by a non-Monet service`);
   }
 
-  console.log("[monet dev] starting web dev server on 127.0.0.1:3000");
+  console.log(`[monet dev] starting web dev server on ${new URL(webUrl).host}`);
   const child = spawnManaged("web", "pnpm", ["--filter", "@monet/web-ui", "dev"], {
     env: defaultEnv,
     readinessCheck: isMonetWebReady
@@ -280,6 +282,12 @@ async function isMonetControllerReady() {
 
 async function isMonetWebReady() {
   try {
+    const webPids = await listWebPids();
+
+    if (webPids.length === 0) {
+      return false;
+    }
+
     const response = await fetch(webUrl);
 
     if (!response.ok) {
@@ -363,7 +371,7 @@ function listControllerPids() {
 }
 
 function listWebPids() {
-  return execPgrep(["-f", "next-server \\(v|next dev --hostname 127.0.0.1 --port 3000"]);
+  return execPgrep(["-f", `next-server \\(v|next dev --hostname 127.0.0.1 --port ${webPort}`]);
 }
 
 function execPgrep(args) {

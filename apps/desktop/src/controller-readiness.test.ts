@@ -6,7 +6,7 @@ import { waitForControllerReady } from "./controller-readiness";
 test("waitForControllerReady accepts a healthy controller response", async () => {
   let observedAuthorizationHeader: string | null = null;
 
-  await waitForControllerReady("http://127.0.0.1:3030", "token", {
+  await waitForControllerReady("http://127.0.0.1:42831", "token", {
     attempts: 1,
     fetchImpl: async (_input, init) => {
       observedAuthorizationHeader = new Headers(init?.headers).get("authorization");
@@ -22,7 +22,7 @@ test("waitForControllerReady accepts a healthy controller response", async () =>
 test("waitForControllerReady aborts a stalled healthcheck attempt and retries", async () => {
   let callCount = 0;
 
-  await waitForControllerReady("http://127.0.0.1:3030", "token", {
+  await waitForControllerReady("http://127.0.0.1:42831", "token", {
     attempts: 2,
     attemptTimeoutMs: 10,
     intervalMs: 0,

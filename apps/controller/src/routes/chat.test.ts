@@ -49,7 +49,7 @@ test("chat endpoint rejects invalid identifier types before storage resolution",
       }) as unknown as ChatStorage
   });
 
-  const response = await app.request("http://127.0.0.1:3030/api/chat", {
+  const response = await app.request("http://127.0.0.1:42831/api/chat", {
     method: "POST",
     headers: {
       "content-type": "application/json"
@@ -91,7 +91,7 @@ test("chat endpoint rejects non-array messages before storage resolution", async
       }) as unknown as ChatStorage
   });
 
-  const response = await app.request("http://127.0.0.1:3030/api/chat", {
+  const response = await app.request("http://127.0.0.1:42831/api/chat", {
     method: "POST",
     headers: {
       "content-type": "application/json"
@@ -138,7 +138,7 @@ test("chat endpoint rejects archived sessions", async () => {
       }) as unknown as ChatStorage
   });
 
-  const response = await app.request("http://127.0.0.1:3030/api/chat", {
+  const response = await app.request("http://127.0.0.1:42831/api/chat", {
     method: "POST",
     headers: {
       "content-type": "application/json"

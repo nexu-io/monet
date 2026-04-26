@@ -33,7 +33,7 @@ interface SessionContextValue {
   readonly isSessionsLoading: boolean;
   readonly isCurrentSessionLoading: boolean;
   readonly providerReadiness: ProviderReadinessState;
-  readonly createSession: (options?: { pathname?: string }) => Promise<SessionRecord>;
+  readonly createSession: (options?: { pathname?: string; providerId?: string; modelId?: string }) => Promise<SessionRecord>;
   readonly openSession: (sessionId: string, pathname?: string) => void;
   readonly buildSessionHref: (pathname: string, sessionId: string | null) => string;
   readonly refreshSessions: () => Promise<void>;
@@ -178,10 +178,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function createSession(options?: { pathname?: string }) {
+  async function createSession(options?: { pathname?: string; providerId?: string; modelId?: string }) {
     const readyProvider = providerReadiness.data?.firstReadyProvider;
     const session = await createSessionRequest(
-      readyProvider
+      options?.providerId && options.modelId
+        ? {
+            providerId: options.providerId,
+            modelId: options.modelId
+          }
+        : readyProvider
         ? {
             providerId: readyProvider.providerId,
             modelId: readyProvider.modelId
@@ -256,7 +261,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [currentSessionId]);
 
   useEffect(() => {
-    if (pathname !== "/" && pathname !== "/sessions") {
+    if (pathname !== "/") {
       return;
     }
 
@@ -264,8 +269,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const params = new URLSearchParams(searchParams.toString());
-    let changed = false;
     const shouldForceProviderSetup = !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
 
     if (providerReadiness.data?.hasReadyProvider) {
@@ -279,25 +282,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
       return;
     }
-    if (!currentSessionId) {
-      const nextSession = sessions.find((session) => session.archivedAt === null) ?? null;
-
-      if (nextSession) {
-        params.set(SESSION_QUERY_PARAM, nextSession.id);
-        changed = true;
-      }
-    }
-
-    if (!changed) {
-      return;
-    }
-
-    const query = params.toString();
-
-    startTransition(() => {
-      router.replace(query ? `${pathname}?${query}` : pathname);
-    });
-  }, [currentSessionId, isSessionsLoading, pathname, providerReadiness.data, providerReadiness.error, providerReadiness.loading, router, searchParams, sessions]);
+  }, [isSessionsLoading, pathname, providerReadiness.data, providerReadiness.error, providerReadiness.loading, router]);
 
   const currentSession = currentSessionDetail ?? sessions.find((session) => session.id === currentSessionId) ?? null;
   const value = useMemo<SessionContextValue>(

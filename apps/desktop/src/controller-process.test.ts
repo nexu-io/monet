@@ -8,14 +8,14 @@ test("clearRuntimeChildOnExit removes the exited child from runtime state", () =
   const child = { pid: 123 };
   const otherChild = { pid: 456 };
   const runtime = {
-    apiBase: "http://127.0.0.1:3030",
+    apiBase: "http://127.0.0.1:42831",
     bearerToken: "token",
     managed: true,
     child
   };
 
   assert.deepEqual(clearRuntimeChildOnExit(runtime, child), {
-    apiBase: "http://127.0.0.1:3030",
+    apiBase: "http://127.0.0.1:42831",
     bearerToken: "token",
     managed: true
   });

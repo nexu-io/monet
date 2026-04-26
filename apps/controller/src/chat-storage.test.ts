@@ -43,6 +43,65 @@ function createStorage(databasePath: string) {
   });
 }
 
+function seedRuntimeProviders(databasePath: string, options: { openaiDefaultModel: string; openrouterDefaultModel: string }) {
+  const now = new Date().toISOString();
+  const connection = new DatabaseSync(databasePath);
+
+  try {
+    connection.exec("BEGIN");
+
+    try {
+      const openaiProviderId = "pro_test_openai";
+      const openrouterProviderId = "pro_test_openrouter";
+
+      connection
+        .prepare(
+          `INSERT INTO providers (id, type, display_name, base_url, default_model_name, enabled, timeout_ms, created_at, updated_at)
+           VALUES (?, 'openai', 'OpenAI', NULL, ?, 1, NULL, ?, ?)`
+        )
+        .run(openaiProviderId, options.openaiDefaultModel, now, now);
+
+      connection
+        .prepare(
+          `INSERT INTO provider_models (id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 1, 1, 1, NULL, ?, ?)`
+        )
+        .run(`mod_${openaiProviderId}`, openaiProviderId, options.openaiDefaultModel, options.openaiDefaultModel, now, now);
+
+      connection
+        .prepare(
+          `INSERT INTO providers (id, type, display_name, base_url, default_model_name, enabled, timeout_ms, created_at, updated_at)
+           VALUES (?, 'openrouter', 'OpenRouter', NULL, ?, 1, NULL, ?, ?)`
+        )
+        .run(openrouterProviderId, options.openrouterDefaultModel, now, now);
+
+      connection
+        .prepare(
+          `INSERT INTO provider_models (id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 1, 0, 1, NULL, ?, ?)`
+        )
+        .run(`mod_${openrouterProviderId}`, openrouterProviderId, options.openrouterDefaultModel, options.openrouterDefaultModel, now, now);
+
+      connection.exec("COMMIT");
+    } catch (error) {
+      connection.exec("ROLLBACK");
+      throw error;
+    }
+  } finally {
+    connection.close();
+  }
+}
+
+function createStorageWithRuntimeData(databasePath: string) {
+  const storage = createStorage(databasePath);
+  seedRuntimeProviders(databasePath, {
+    openaiDefaultModel: "gpt-4.1-mini",
+    openrouterDefaultModel: "openai/gpt-4.1-mini"
+  });
+
+  return storage;
+}
+
 test("authorized directory allowlist persists across storage reopen", () => {
   const fixture = createStorageFixture();
 
@@ -71,32 +130,14 @@ test("authorized directory allowlist persists across storage reopen", () => {
   }
 });
 
-test("storage bootstraps OpenAI and OpenRouter providers", () => {
+test("storage has no runtime provider/model bootstrap by default", () => {
   const fixture = createStorageFixture();
 
   try {
     const storage = createStorage(fixture.databasePath);
     const providers = storage.listProviders();
 
-    assert.deepEqual(
-      providers.map((provider) => ({
-        type: provider.type,
-        displayName: provider.displayName,
-        defaultModelName: provider.defaultModelName
-      })),
-      [
-        {
-          type: "openai",
-          displayName: "OpenAI",
-          defaultModelName: "gpt-4.1-mini"
-        },
-        {
-          type: "openrouter",
-          displayName: "OpenRouter",
-          defaultModelName: "openai/gpt-4.1-mini"
-        }
-      ]
-    );
+    assert.deepEqual(providers, []);
   } finally {
     fixture.cleanup();
   }
@@ -106,7 +147,7 @@ test("persisted tool outputs are truncated for oversized or file-like payloads",
   const fixture = createStorageFixture();
 
   try {
-    const storage = createStorage(fixture.databasePath);
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
     const prepared = storage.prepareChatRequest({
       messages: [
         {
@@ -148,7 +189,7 @@ test("message upserts preserve the original run linkage for existing idempotency
   const fixture = createStorageFixture();
 
   try {
-    const storage = createStorage(fixture.databasePath);
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
     const initial = storage.prepareChatRequest({
       messages: [
         {
@@ -192,7 +233,7 @@ test("prepareChatRequest rejects archived sessions before creating a new run", (
   const fixture = createStorageFixture();
 
   try {
-    const storage = createStorage(fixture.databasePath);
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
     const initial = storage.prepareChatRequest({
       messages: [
         {
@@ -246,13 +287,13 @@ test("prepareChatRequest rejects invalid fallback provider/model before persisti
   const fixture = createStorageFixture();
 
   try {
-    const storage = createStorage(fixture.databasePath);
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
     const connection = new DatabaseSync(fixture.databasePath);
 
     try {
       connection
-        .prepare("UPDATE provider_models SET enabled = 0 WHERE provider_id = ? AND model_name = ?")
-        .run("pro_b6m4q2r8t5v9x3z7k1n4p6s8", "gpt-4.1-mini");
+        .prepare("UPDATE provider_models SET enabled = 0")
+        .run();
 
       assert.throws(
         () =>

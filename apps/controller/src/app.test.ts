@@ -74,7 +74,7 @@ test("controller app keeps persisted authorized directories when env uses defaul
         defaultModel: "openai/gpt-4.1-mini",
         timeoutMs: null
       },
-      port: 3030
+      port: 42831
     });
 
     const reopenedStorage = createStorage(fixture.databasePath);

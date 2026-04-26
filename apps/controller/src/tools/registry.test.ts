@@ -39,6 +39,35 @@ function createTestStorage() {
     }
   });
 
+  const now = new Date().toISOString();
+  const connection = new DatabaseSync(databasePath);
+
+  connection.exec("BEGIN");
+
+  try {
+    connection
+      .prepare(
+        `INSERT INTO providers (id, type, display_name, base_url, default_model_name, enabled, timeout_ms, created_at, updated_at)
+         VALUES ('pro_test_openai', 'openai', 'OpenAI', NULL, 'gpt-4o-mini', 1, NULL, ?, ?)`
+      )
+      .run(now, now);
+
+    connection
+      .prepare(
+        `INSERT INTO provider_models (id, provider_id, model_name, display_name, supports_tools, supports_reasoning, enabled, capabilities_json, created_at, updated_at)
+         VALUES ('mod_pro_test_openai', 'pro_test_openai', 'gpt-4o-mini', 'gpt-4o-mini', 1, 1, 1, NULL, ?, ?)`
+      )
+      .run(now, now);
+
+    connection.exec("COMMIT");
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    connection.close();
+    throw error;
+  }
+
+  connection.close();
+
   return {
     storage,
     databasePath,
