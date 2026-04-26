@@ -72,6 +72,19 @@ export type ListProvidersResponse = {
     providers: Array<Provider>;
 };
 
+export type CreateProviderRequest = {
+    type: 'openai' | 'openrouter';
+    displayName: string;
+    baseUrl?: string | null;
+    timeoutMs?: number | null;
+};
+
+export type UpdateProviderRequest = {
+    displayName?: string;
+    baseUrl?: string | null;
+    timeoutMs?: number | null;
+};
+
 export type ProviderModel = {
     id: string;
     providerId: string;
@@ -89,6 +102,17 @@ export type ListModelsResponse = {
     models: Array<ProviderModel>;
 };
 
+export type CreateProviderModelRequest = {
+    modelName: string;
+    displayName?: string;
+    supportsTools?: boolean;
+    supportsReasoning?: boolean;
+};
+
+export type CreateProviderModelWithProviderRequest = CreateProviderModelRequest & {
+    providerId: string;
+};
+
 export type ValidateProviderResponse = {
     provider: Provider;
     valid: boolean;
@@ -97,6 +121,10 @@ export type ValidateProviderResponse = {
     defaultModelId: string | null;
     defaultModelName: string | null;
     availableModelCount: number;
+};
+
+export type UpdateProviderModelRequest = {
+    enabled: boolean;
 };
 
 export type AuthorizedDirectory = {
@@ -332,6 +360,97 @@ export type GetApiProvidersResponses = {
 
 export type GetApiProvidersResponse = GetApiProvidersResponses[keyof GetApiProvidersResponses];
 
+export type PostApiProvidersData = {
+    body?: CreateProviderRequest;
+    path?: never;
+    query?: never;
+    url: '/api/providers';
+};
+
+export type PostApiProvidersErrors = {
+    /**
+     * Not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The provider could not be created.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiProvidersError = PostApiProvidersErrors[keyof PostApiProvidersErrors];
+
+export type PostApiProvidersResponses = {
+    /**
+     * Provider created successfully.
+     */
+    201: Provider;
+};
+
+export type PostApiProvidersResponse = PostApiProvidersResponses[keyof PostApiProvidersResponses];
+
+export type DeleteApiProvidersByProviderIdData = {
+    body?: never;
+    path: {
+        providerId: string;
+    };
+    query?: never;
+    url: '/api/providers/{providerId}';
+};
+
+export type DeleteApiProvidersByProviderIdErrors = {
+    /**
+     * Not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The provider could not be deleted.
+     */
+    500: ErrorResponse;
+};
+
+export type DeleteApiProvidersByProviderIdError = DeleteApiProvidersByProviderIdErrors[keyof DeleteApiProvidersByProviderIdErrors];
+
+export type DeleteApiProvidersByProviderIdResponses = {
+    /**
+     * Provider deleted successfully.
+     */
+    204: void;
+};
+
+export type DeleteApiProvidersByProviderIdResponse = DeleteApiProvidersByProviderIdResponses[keyof DeleteApiProvidersByProviderIdResponses];
+
+export type PatchApiProvidersByProviderIdData = {
+    body?: UpdateProviderRequest;
+    path: {
+        providerId: string;
+    };
+    query?: never;
+    url: '/api/providers/{providerId}';
+};
+
+export type PatchApiProvidersByProviderIdErrors = {
+    /**
+     * Not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The provider could not be updated.
+     */
+    500: ErrorResponse;
+};
+
+export type PatchApiProvidersByProviderIdError = PatchApiProvidersByProviderIdErrors[keyof PatchApiProvidersByProviderIdErrors];
+
+export type PatchApiProvidersByProviderIdResponses = {
+    /**
+     * Provider updated successfully.
+     */
+    200: Provider;
+};
+
+export type PatchApiProvidersByProviderIdResponse = PatchApiProvidersByProviderIdResponses[keyof PatchApiProvidersByProviderIdResponses];
+
 export type GetApiModelsData = {
     body?: never;
     path?: never;
@@ -379,6 +498,97 @@ export type GetApiProvidersByProviderIdModelsResponses = {
 
 export type GetApiProvidersByProviderIdModelsResponse = GetApiProvidersByProviderIdModelsResponses[keyof GetApiProvidersByProviderIdModelsResponses];
 
+export type PostApiProvidersByProviderIdModelsData = {
+    body?: CreateProviderModelRequest;
+    path: {
+        providerId: string;
+    };
+    query?: never;
+    url: '/api/providers/{providerId}/models';
+};
+
+export type PostApiProvidersByProviderIdModelsErrors = {
+    /**
+     * The requested provider was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The provider model could not be created.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiProvidersByProviderIdModelsError = PostApiProvidersByProviderIdModelsErrors[keyof PostApiProvidersByProviderIdModelsErrors];
+
+export type PostApiProvidersByProviderIdModelsResponses = {
+    /**
+     * Provider model created successfully.
+     */
+    201: ProviderModel;
+};
+
+export type PostApiProvidersByProviderIdModelsResponse = PostApiProvidersByProviderIdModelsResponses[keyof PostApiProvidersByProviderIdModelsResponses];
+
+export type PostApiProviderModelsData = {
+    body?: CreateProviderModelWithProviderRequest;
+    path?: never;
+    query?: never;
+    url: '/api/provider-models';
+};
+
+export type PostApiProviderModelsErrors = {
+    /**
+     * The requested provider was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The provider model could not be created.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiProviderModelsError = PostApiProviderModelsErrors[keyof PostApiProviderModelsErrors];
+
+export type PostApiProviderModelsResponses = {
+    /**
+     * Provider model created successfully.
+     */
+    201: ProviderModel;
+};
+
+export type PostApiProviderModelsResponse = PostApiProviderModelsResponses[keyof PostApiProviderModelsResponses];
+
+export type PostApiProvidersByProviderIdCatalogData = {
+    body?: never;
+    path: {
+        providerId: string;
+    };
+    query?: never;
+    url: '/api/providers/{providerId}/catalog';
+};
+
+export type PostApiProvidersByProviderIdCatalogErrors = {
+    /**
+     * The requested provider was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The provider catalog could not be fetched.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiProvidersByProviderIdCatalogError = PostApiProvidersByProviderIdCatalogErrors[keyof PostApiProvidersByProviderIdCatalogErrors];
+
+export type PostApiProvidersByProviderIdCatalogResponses = {
+    /**
+     * Provider catalog fetched successfully.
+     */
+    200: ListModelsResponse;
+};
+
+export type PostApiProvidersByProviderIdCatalogResponse = PostApiProvidersByProviderIdCatalogResponses[keyof PostApiProvidersByProviderIdCatalogResponses];
+
 export type PostApiProvidersByProviderIdValidateData = {
     body?: never;
     path: {
@@ -409,6 +619,117 @@ export type PostApiProvidersByProviderIdValidateResponses = {
 };
 
 export type PostApiProvidersByProviderIdValidateResponse = PostApiProvidersByProviderIdValidateResponses[keyof PostApiProvidersByProviderIdValidateResponses];
+
+export type PatchApiProviderModelsByModelIdData = {
+    body?: UpdateProviderModelRequest;
+    path: {
+        modelId: string;
+    };
+    query?: never;
+    url: '/api/provider-models/{modelId}';
+};
+
+export type PatchApiProviderModelsByModelIdErrors = {
+    /**
+     * Not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The provider model could not be updated.
+     */
+    500: ErrorResponse;
+};
+
+export type PatchApiProviderModelsByModelIdError = PatchApiProviderModelsByModelIdErrors[keyof PatchApiProviderModelsByModelIdErrors];
+
+export type PatchApiProviderModelsByModelIdResponses = {
+    /**
+     * Provider model updated successfully.
+     */
+    200: ProviderModel;
+};
+
+export type PatchApiProviderModelsByModelIdResponse = PatchApiProviderModelsByModelIdResponses[keyof PatchApiProviderModelsByModelIdResponses];
+
+export type DeleteApiProviderCredentialsByProviderTypeData = {
+    body?: never;
+    path: {
+        providerType: 'openai' | 'openrouter';
+    };
+    query?: never;
+    url: '/api/provider-credentials/{providerType}';
+};
+
+export type DeleteApiProviderCredentialsByProviderTypeResponses = {
+    /**
+     * Provider credential cleared successfully.
+     */
+    200: {
+        providerType: 'openai' | 'openrouter';
+        hasCredential: boolean;
+        source: 'env' | 'runtime' | 'none';
+        version: number;
+    };
+};
+
+export type DeleteApiProviderCredentialsByProviderTypeResponse = DeleteApiProviderCredentialsByProviderTypeResponses[keyof DeleteApiProviderCredentialsByProviderTypeResponses];
+
+export type GetApiProviderCredentialsByProviderTypeData = {
+    body?: never;
+    path: {
+        providerType: 'openai' | 'openrouter';
+    };
+    query?: never;
+    url: '/api/provider-credentials/{providerType}';
+};
+
+export type GetApiProviderCredentialsByProviderTypeResponses = {
+    /**
+     * Provider credential status fetched successfully.
+     */
+    200: {
+        providerType: 'openai' | 'openrouter';
+        hasCredential: boolean;
+        source: 'env' | 'runtime' | 'none';
+        version: number;
+    };
+};
+
+export type GetApiProviderCredentialsByProviderTypeResponse = GetApiProviderCredentialsByProviderTypeResponses[keyof GetApiProviderCredentialsByProviderTypeResponses];
+
+export type PutApiProviderCredentialsByProviderTypeData = {
+    body?: {
+        apiKey: string;
+    };
+    path: {
+        providerType: 'openai' | 'openrouter';
+    };
+    query?: never;
+    url: '/api/provider-credentials/{providerType}';
+};
+
+export type PutApiProviderCredentialsByProviderTypeErrors = {
+    /**
+     * Invalid request.
+     */
+    400: ErrorResponse;
+};
+
+export type PutApiProviderCredentialsByProviderTypeError = PutApiProviderCredentialsByProviderTypeErrors[keyof PutApiProviderCredentialsByProviderTypeErrors];
+
+export type PutApiProviderCredentialsByProviderTypeResponses = {
+    /**
+     * Provider credential updated successfully.
+     */
+    200: {
+        providerType: 'openai' | 'openrouter';
+        hasCredential: boolean;
+        source: 'env' | 'runtime' | 'none';
+        version: number;
+    };
+};
+
+export type PutApiProviderCredentialsByProviderTypeResponse = PutApiProviderCredentialsByProviderTypeResponses[keyof PutApiProviderCredentialsByProviderTypeResponses];
 
 export type GetApiSettingsAuthorizedDirectoriesData = {
     body?: never;

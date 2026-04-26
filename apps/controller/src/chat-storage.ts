@@ -306,6 +306,13 @@ export interface ChatStorage {
   deleteProvider(providerId: string): void;
   getProvider(providerId: string): StoredProvider;
   listModels(providerId?: string): StoredProviderModel[];
+  createProviderModel(input: {
+    providerId: string;
+    modelName: string;
+    displayName?: string;
+    supportsTools?: boolean;
+    supportsReasoning?: boolean;
+  }): StoredProviderModel;
   getModel(modelId: string): StoredProviderModel;
   updateProviderModel(input: { modelId: string; enabled: boolean }): StoredProviderModel;
   validateProvider(providerId: string): ProviderValidationResult;
@@ -664,6 +671,106 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       }
 
       return mapProviderModelRow(model);
+    },
+
+    createProviderModel({ providerId, modelName, displayName, supportsTools, supportsReasoning }) {
+      const provider = getProviderById(connection, providerId);
+
+      if (!provider) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown providerId: ${providerId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const normalizedModelName = modelName.trim();
+
+      if (!normalizedModelName) {
+        throw new ChatStorageResolutionError({
+          message: "Model name is required.",
+          statusCode: 422,
+          errorCode: "invalid_request"
+        });
+      }
+
+      const existingModel = getProviderModelByProviderAndName(connection, providerId, normalizedModelName);
+      const now = new Date().toISOString();
+      const inferredSupportsReasoning = /^(o1|o3|o4)/i.test(normalizedModelName) || /reason/i.test(normalizedModelName);
+
+      if (existingModel) {
+        connection
+          .prepare(
+            `UPDATE provider_models
+             SET display_name = ?, supports_tools = ?, supports_reasoning = ?, enabled = 1, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(
+            displayName?.trim() || existingModel.display_name || normalizedModelName,
+            (supportsTools ?? Boolean(existingModel.supports_tools)) ? 1 : 0,
+            (supportsReasoning ?? Boolean(existingModel.supports_reasoning)) ? 1 : 0,
+            now,
+            existingModel.id
+          );
+
+        connection
+          .prepare(
+            `UPDATE providers
+             SET default_model_name = ?, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(normalizedModelName, now, providerId);
+
+        return this.getModel(existingModel.id);
+      }
+
+      const modelId = createPrefixedId("mod");
+
+      connection.exec("BEGIN");
+
+      try {
+        connection
+          .prepare(
+            `INSERT INTO provider_models (
+              id,
+              provider_id,
+              model_name,
+              display_name,
+              supports_tools,
+              supports_reasoning,
+              enabled,
+              capabilities_json,
+              created_at,
+              updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
+          )
+          .run(
+            modelId,
+            providerId,
+            normalizedModelName,
+            displayName?.trim() || normalizedModelName,
+            (supportsTools ?? true) ? 1 : 0,
+            (supportsReasoning ?? inferredSupportsReasoning) ? 1 : 0,
+            JSON.stringify({ source: "manual" }),
+            now,
+            now
+          );
+
+        connection
+          .prepare(
+            `UPDATE providers
+             SET default_model_name = ?, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(normalizedModelName, now, providerId);
+
+        connection.exec("COMMIT");
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+
+      return this.getModel(modelId);
     },
 
     updateProviderModel({ modelId, enabled }) {

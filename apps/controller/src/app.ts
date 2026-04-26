@@ -3,6 +3,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { createChatStorage } from "./chat-storage";
 import { createRequestId, createLogger } from "./logger";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
+import { createProviderCredentialRegistry } from "./provider-credentials";
 import { createProviderRuntime } from "./provider-runtime";
 import { getRequestId, requestIdKey } from "./request-context";
 import { registerChatRoutes } from "./routes/chat";
@@ -86,10 +87,15 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       timeoutMs: options.openrouter.timeoutMs
     }
   });
+  const providerCredentials = createProviderCredentialRegistry({
+    openai: options.openai,
+    openrouter: options.openrouter
+  });
   const providerRuntime = createProviderRuntime({
     getChatStorage,
     openai: options.openai,
-    openrouter: options.openrouter
+    openrouter: options.openrouter,
+    providerCredentials
   });
   const persistedAllowedDirectories = chatStorage.listAuthorizedDirectories().map((entry) => entry.path);
   const effectiveAllowedToolDirectories =
@@ -232,7 +238,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerChatRoutes(app, { getChatStorage, providerRuntime, runRegistry, toolRegistry, runtime: options.agentRuntime });
   registerRunRoutes(app, { getChatStorage, runRegistry, providerRuntime, toolRegistry, runtime: options.agentRuntime });
   registerSessionRoutes(app, { getChatStorage });
-  registerProviderRoutes(app, { getChatStorage, providerRuntime });
+  registerProviderRoutes(app, { getChatStorage, providerCredentials, providerRuntime });
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });
 

@@ -486,6 +486,54 @@
           "models"
         ]
       },
+      "CreateProviderModelRequest": {
+        "type": "object",
+        "properties": {
+          "modelName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "example": "gpt-4.1-mini"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "example": "GPT 4.1 Mini"
+          },
+          "supportsTools": {
+            "type": "boolean",
+            "example": true
+          },
+          "supportsReasoning": {
+            "type": "boolean",
+            "example": false
+          }
+        },
+        "required": [
+          "modelName"
+        ]
+      },
+      "CreateProviderModelWithProviderRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreateProviderModelRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "providerId": {
+                "type": "string",
+                "minLength": 1,
+                "example": "pro_123"
+              }
+            },
+            "required": [
+              "providerId"
+            ]
+          }
+        ]
+      },
       "ValidateProviderResponse": {
         "type": "object",
         "properties": {
@@ -1233,6 +1281,169 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Create provider model",
+        "description": "Manually adds or enables a provider model without fetching the provider catalog.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "pro_123"
+            },
+            "required": true,
+            "name": "providerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProviderModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Provider model created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested provider was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider model could not be created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/provider-models": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Create provider model",
+        "description": "Manually adds or enables a provider model without fetching the provider catalog.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProviderModelWithProviderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Provider model created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested provider was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider model could not be created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/{providerId}/catalog": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Fetch provider catalog",
+        "description": "Fetches the external provider model catalog, persists it, and returns the updated persisted models.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "pro_123"
+            },
+            "required": true,
+            "name": "providerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider catalog fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListModelsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested provider was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider catalog could not be fetched.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/providers/{providerId}/catalog": {
@@ -1396,6 +1607,229 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/provider-credentials/{providerType}": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Get provider credential status",
+        "description": "Returns whether a provider credential is available without exposing the credential value.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "openai",
+                "openrouter"
+              ],
+              "example": "openai"
+            },
+            "required": true,
+            "name": "providerType",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider credential status fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providerType": {
+                      "type": "string",
+                      "enum": [
+                        "openai",
+                        "openrouter"
+                      ]
+                    },
+                    "hasCredential": {
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "env",
+                        "runtime",
+                        "none"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "providerType",
+                    "hasCredential",
+                    "source",
+                    "version"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Update runtime provider credential",
+        "description": "Updates the running controller's in-memory credential for a provider without returning the credential value.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "openai",
+                "openrouter"
+              ],
+              "example": "openai"
+            },
+            "required": true,
+            "name": "providerType",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "apiKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  }
+                },
+                "required": [
+                  "apiKey"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider credential updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providerType": {
+                      "type": "string",
+                      "enum": [
+                        "openai",
+                        "openrouter"
+                      ]
+                    },
+                    "hasCredential": {
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "env",
+                        "runtime",
+                        "none"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "providerType",
+                    "hasCredential",
+                    "source",
+                    "version"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Clear runtime provider credential",
+        "description": "Clears the running controller's in-memory credential for a provider. Environment credentials, if present, remain effective.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "openai",
+                "openrouter"
+              ],
+              "example": "openai"
+            },
+            "required": true,
+            "name": "providerType",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider credential cleared successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "providerType": {
+                      "type": "string",
+                      "enum": [
+                        "openai",
+                        "openrouter"
+                      ]
+                    },
+                    "hasCredential": {
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "env",
+                        "runtime",
+                        "none"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "providerType",
+                    "hasCredential",
+                    "source",
+                    "version"
+                  ]
                 }
               }
             }

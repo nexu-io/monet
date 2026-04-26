@@ -4,6 +4,7 @@ import { streamText } from "ai";
 import type { ChatStorage, ProviderValidationResult, StoredProvider } from "./chat-storage";
 import type { OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
 import { createLogger } from "./logger";
+import type { ProviderCredentialRegistry } from "./provider-credentials";
 
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -44,6 +45,7 @@ const PROVIDER_CATALOG_CACHE_TTL_MS = 5 * 60_000;
 const PROVIDER_VALIDATION_CACHE_TTL_MS = 60_000;
 
 interface ProviderCacheEntry<T> {
+  readonly credentialVersion: number;
   readonly providerUpdatedAt: string;
   readonly value: T;
   readonly cachedAt: number;
@@ -53,6 +55,7 @@ export function createProviderRuntime(options: {
   getChatStorage: () => ChatStorage;
   openai: OpenAIProviderConfig;
   openrouter: OpenRouterProviderConfig;
+  providerCredentials: ProviderCredentialRegistry;
 }): ProviderRuntime {
   const catalogSyncCache = new Map<string, ProviderCacheEntry<true>>();
   const catalogSyncRequests = new Map<string, Promise<void>>();
@@ -79,6 +82,7 @@ export function createProviderRuntime(options: {
 
       for (const provider of providers) {
         if (provider.type === "openai" || provider.type === "openrouter") {
+          const credentialVersion = options.providerCredentials.getVersion(provider.type);
           const cachedSync = catalogSyncCache.get(provider.id);
           const now = Date.now();
 
@@ -86,6 +90,7 @@ export function createProviderRuntime(options: {
             !syncOptions?.force &&
             cachedSync &&
             cachedSync.providerUpdatedAt === provider.updatedAt &&
+            cachedSync.credentialVersion === credentialVersion &&
             now - cachedSync.cachedAt < PROVIDER_CATALOG_CACHE_TTL_MS
           ) {
             continue;
@@ -105,6 +110,7 @@ export function createProviderRuntime(options: {
           })
             .then(() => {
               catalogSyncCache.set(provider.id, {
+                credentialVersion: options.providerCredentials.getVersion(provider.type),
                 providerUpdatedAt: options.getChatStorage().getProvider(provider.id).updatedAt,
                 value: true,
                 cachedAt: Date.now()
@@ -124,6 +130,7 @@ export function createProviderRuntime(options: {
     async validateProvider(providerId, validationOptions) {
       const storage = options.getChatStorage();
       const provider = storage.getProvider(providerId);
+      const credentialVersion = provider.type === "openai" || provider.type === "openrouter" ? options.providerCredentials.getVersion(provider.type) : 0;
       const cachedValidation = validationCache.get(providerId);
       const now = Date.now();
 
@@ -131,6 +138,7 @@ export function createProviderRuntime(options: {
         !validationOptions?.force &&
         cachedValidation &&
         cachedValidation.providerUpdatedAt === provider.updatedAt &&
+        cachedValidation.credentialVersion === credentialVersion &&
         now - cachedValidation.cachedAt < PROVIDER_VALIDATION_CACHE_TTL_MS
       ) {
         return cachedValidation.value;
@@ -155,12 +163,30 @@ export function createProviderRuntime(options: {
             );
           }
 
+          try {
+            await runtime.syncProviderCatalog(providerId, validationOptions);
+          } catch (error) {
+            providerLogger.warn("providers.validate_failed", {
+              providerId,
+              providerType: provider.type,
+              reason: error instanceof Error ? error.message : "unknown_error"
+            });
+
+            return buildInvalidProviderValidation(
+              provider,
+              "provider_api_error",
+              error instanceof Error ? error.message : "Failed to fetch provider models."
+            );
+          }
+
         }
 
         return storage.validateProvider(providerId);
       })()
         .then((result) => {
           validationCache.set(providerId, {
+            credentialVersion:
+              provider.type === "openai" || provider.type === "openrouter" ? options.providerCredentials.getVersion(provider.type) : 0,
             providerUpdatedAt: options.getChatStorage().getProvider(providerId).updatedAt,
             value: result,
             cachedAt: Date.now()
@@ -199,7 +225,9 @@ export function createProviderRuntime(options: {
 
       switch (provider.type) {
         case "openai": {
-          if (!options.openai.apiKey) {
+          const providerConfig = getProviderConfig(provider.type, options);
+
+          if (!providerConfig.apiKey) {
             throw new ProviderRuntimeError({
               message: "OpenAI API key is not configured.",
               statusCode: 422,
@@ -208,15 +236,17 @@ export function createProviderRuntime(options: {
           }
 
           const openai = createOpenAI({
-            apiKey: options.openai.apiKey,
-            baseURL: resolveProviderBaseUrl(provider, options.openai),
-            fetch: createFetchWithTimeout(provider.timeoutMs ?? options.openai.timeoutMs)
+            apiKey: providerConfig.apiKey,
+            baseURL: resolveProviderBaseUrl(provider, providerConfig),
+            fetch: createFetchWithTimeout(provider.timeoutMs ?? providerConfig.timeoutMs)
           });
 
           return openai.responses(model.modelName);
         }
         case "openrouter": {
-          if (!options.openrouter.apiKey) {
+          const providerConfig = getProviderConfig(provider.type, options);
+
+          if (!providerConfig.apiKey) {
             throw new ProviderRuntimeError({
               message: "OpenRouter API key is not configured.",
               statusCode: 422,
@@ -226,12 +256,12 @@ export function createProviderRuntime(options: {
 
           const openrouter = createOpenAI({
             name: "openrouter",
-            apiKey: options.openrouter.apiKey,
-            baseURL: resolveProviderBaseUrl(provider, options.openrouter),
+            apiKey: providerConfig.apiKey,
+            baseURL: resolveProviderBaseUrl(provider, providerConfig),
             headers: {
               "X-Title": "Monet"
             },
-            fetch: createFetchWithTimeout(provider.timeoutMs ?? options.openrouter.timeoutMs)
+            fetch: createFetchWithTimeout(provider.timeoutMs ?? providerConfig.timeoutMs)
           });
 
           return openrouter.chat(model.modelName);
@@ -307,9 +337,19 @@ async function fetchOpenAIModels(options: { apiKey: string; baseUrl: string; tim
 
 function getProviderConfig(
   providerType: StoredProvider["type"],
-  options: { openai: OpenAIProviderConfig; openrouter: OpenRouterProviderConfig }
+  options: { openai: OpenAIProviderConfig; openrouter: OpenRouterProviderConfig; providerCredentials: ProviderCredentialRegistry }
 ) {
-  return providerType === "openrouter" ? options.openrouter : options.openai;
+  if (providerType === "openrouter") {
+    return {
+      ...options.openrouter,
+      apiKey: options.providerCredentials.getApiKey("openrouter")
+    };
+  }
+
+  return {
+    ...options.openai,
+    apiKey: options.providerCredentials.getApiKey("openai")
+  };
 }
 
 function resolveProviderBaseUrl(

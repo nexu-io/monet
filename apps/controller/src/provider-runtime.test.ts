@@ -6,7 +6,18 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { createChatStorage } from "./chat-storage";
+import { createProviderCredentialRegistry } from "./provider-credentials";
 import { createFetchWithTimeout, createProviderRuntime } from "./provider-runtime";
+
+function createProviderRuntimeFixture(options: Omit<Parameters<typeof createProviderRuntime>[0], "providerCredentials">) {
+  return createProviderRuntime({
+    ...options,
+    providerCredentials: createProviderCredentialRegistry({
+      openai: options.openai,
+      openrouter: options.openrouter
+    })
+  });
+}
 
 function createFixture() {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-provider-runtime-tests-"));
@@ -84,7 +95,7 @@ test("validateProvider reports missing OpenRouter credentials", async () => {
 
     assert.ok(provider);
 
-    const runtime = createProviderRuntime({
+    const runtime = createProviderRuntimeFixture({
       getChatStorage: () => fixture.storage,
       openai: {
         apiKey: null,
@@ -116,7 +127,7 @@ test("syncProviderCatalog loads OpenRouter models via OpenAI-compatible API", as
 
   assert.ok(provider);
 
-  const runtime = createProviderRuntime({
+  const runtime = createProviderRuntimeFixture({
     getChatStorage: () => fixture.storage,
     openai: {
       apiKey: null,
@@ -163,7 +174,7 @@ test("syncProviderCatalog loads OpenRouter models via OpenAI-compatible API", as
     const models = fixture.storage.listModels(provider.id);
 
     assert.deepEqual(
-      models.map((model) => model.modelName),
+      models.map((model) => model.modelName).sort((left, right) => left.localeCompare(right)),
       ["anthropic/claude-3.7-sonnet", "google/gemini-2.5-flash", "openai/gpt-4.1-mini"]
     );
 

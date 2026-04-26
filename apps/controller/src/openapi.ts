@@ -138,6 +138,19 @@ export const UpdateProviderModelRequestSchema = z
   })
   .openapi("UpdateProviderModelRequest");
 
+export const CreateProviderModelRequestSchema = z
+  .object({
+    modelName: z.string().trim().min(1).max(300).openapi({ example: "gpt-4.1-mini" }),
+    displayName: z.string().trim().min(1).max(300).optional().openapi({ example: "GPT 4.1 Mini" }),
+    supportsTools: z.boolean().optional().openapi({ example: true }),
+    supportsReasoning: z.boolean().optional().openapi({ example: false })
+  })
+  .openapi("CreateProviderModelRequest");
+
+export const CreateProviderModelWithProviderRequestSchema = CreateProviderModelRequestSchema.extend({
+  providerId: z.string().trim().min(1).openapi({ example: "pro_123" })
+}).openapi("CreateProviderModelWithProviderRequest");
+
 export const ValidateProviderResponseSchema = z
   .object({
     provider: ProviderSchema,

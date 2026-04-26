@@ -351,7 +351,20 @@ async function requestControllerJson<T>(path: string, init?: RequestInit): Promi
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  const body = await response.text();
+
+  if (!body.trim()) {
+    return undefined as T;
+  }
+
+  return JSON.parse(body) as T;
+}
+
+async function applyProviderCredentialToController(providerType: Provider["type"], secret: string | null) {
+  await requestControllerJson(`/api/provider-credentials/${providerType}`, {
+    method: secret?.trim() ? "PUT" : "DELETE",
+    ...(secret?.trim() ? { body: JSON.stringify({ apiKey: secret.trim() }) } : {})
+  });
 }
 
 function ValidationBadge({ state }: { state: ProviderValidationState | null | undefined }) {
@@ -763,6 +776,8 @@ function ModelSettingsPanel() {
   const [modelsState, setModelsState] = useState<AsyncState<ProviderModel[]>>(initialModelsState);
   const [modelsCacheByProviderId, setModelsCacheByProviderId] = useState<Record<string, ProviderModelsCacheEntry>>({});
   const [modelSearch, setModelSearch] = useState("");
+  const [manualModelName, setManualModelName] = useState("");
+  const [manualModelError, setManualModelError] = useState<string | null>(null);
   const [selectedModelIdsByProviderId, setSelectedModelIdsByProviderId] = useState<Record<string, string[]>>({});
   const [modelSelectionBusyId, setModelSelectionBusyId] = useState<string | null>(null);
   const [isCatalogRefreshLoading, setIsCatalogRefreshLoading] = useState(false);
@@ -880,6 +895,8 @@ function ModelSettingsPanel() {
           error: null
         }
       }));
+
+      return result;
     } catch (error) {
       setValidationByProviderId((current) => ({
         ...current,
@@ -889,6 +906,8 @@ function ModelSettingsPanel() {
           error: error instanceof Error ? error.message : "Unable to validate provider."
         }
       }));
+
+      return null;
     }
   }, []);
 
@@ -1024,9 +1043,23 @@ function ModelSettingsPanel() {
       if (selectedProviderIdRef.current === providerId) {
         setModelsState(nextState);
       }
-    } catch {
-      // Background catalog refresh is best-effort and should never block or
-      // surface errors in normal settings navigation.
+    } catch (error) {
+      if (options?.visible) {
+        const nextState = {
+          loading: false,
+          data: null,
+          error: error instanceof Error ? error.message : "Unable to load provider catalog."
+        } satisfies ProviderModelsCacheEntry;
+
+        setModelsCacheByProviderId((current) => ({
+          ...current,
+          [providerId]: nextState
+        }));
+
+        if (selectedProviderIdRef.current === providerId) {
+          setModelsState(nextState);
+        }
+      }
     } finally {
       if (options?.visible) {
         setIsCatalogRefreshLoading(false);
@@ -1046,6 +1079,8 @@ function ModelSettingsPanel() {
     setSecretInput("");
     setProviderBaseUrlInput(selectedProvider?.baseUrl ?? "");
     setModelSearch("");
+    setManualModelName("");
+    setManualModelError(null);
   }, [selectedProvider?.baseUrl, selectedProviderId]);
 
   useEffect(() => {
@@ -1097,40 +1132,62 @@ function ModelSettingsPanel() {
         });
       }
 
-      let restartResult: { restarted?: boolean } | undefined;
+      let controllerSync: { applied: boolean; reason?: string } | undefined;
 
       if (shouldSaveSecret && desktopApi?.saveProviderSecret) {
-        setSecretStorageState({
-          loading: false,
-          data: await desktopApi.saveProviderSecret({
-            providerType: selectedProvider.type,
-            secret: secretInput
-          }),
-          error: null
+        const result = await desktopApi.saveProviderSecret({
+          providerType: selectedProvider.type,
+          secret: secretInput
         });
 
-        restartResult = await desktopApi.restartController?.();
+        controllerSync = result.controllerSync;
+
+        try {
+          await applyProviderCredentialToController(selectedProvider.type, secretInput);
+          controllerSync = { applied: true };
+        } catch (error) {
+          controllerSync = {
+            applied: false,
+            reason: error instanceof Error ? error.message : "controller request failed"
+          };
+        }
+
+        setSecretStorageState({
+          loading: false,
+          data: result.storage,
+          error: null
+        });
+      }
+
+      if (shouldSaveSecret && controllerSync?.applied !== false) {
+        await refreshProviderCatalog(selectedProvider.id, { visible: true });
       }
 
       await loadProviders();
+      const validationResult = await validateProvider(selectedProvider.id);
       setSecretInput("");
+      const validationStillMissingCredentials = validationResult?.reason === "missing_credentials";
       setSecretFeedback(
         shouldUpdateProvider && shouldSaveSecret
-          ? restartResult?.restarted === false
-            ? "Provider URL and secret saved. Restart the workspace manually before revalidating provider access."
-            : "Provider URL and secret saved."
+          ? validationStillMissingCredentials
+            ? "Provider URL and secret saved, but this controller still reports missing credentials. Reconnect the controller or restart it before testing."
+            : controllerSync?.applied === false
+            ? `Provider URL and secret saved, but the running controller could not be updated: ${controllerSync.reason ?? "unknown reason"}. Restart or reconnect the controller before testing.`
+            : "Provider URL and secret saved and applied to the running controller."
           : shouldUpdateProvider
             ? "Provider URL saved."
-            : restartResult?.restarted === false
-              ? "Secret saved to secure storage. Restart the workspace manually before revalidating provider access."
-              : "Secret saved to secure storage and the workspace was restarted."
+            : validationStillMissingCredentials
+              ? "Secret saved to secure storage, but this controller still reports missing credentials. Reconnect the controller or restart it before testing."
+              : controllerSync?.applied === false
+              ? `Secret saved to secure storage, but the running controller could not be updated: ${controllerSync.reason ?? "unknown reason"}. Restart or reconnect the controller before testing.`
+              : "Secret saved to secure storage and applied to the running controller."
       );
     } catch (error) {
       setSecretFeedback(error instanceof Error ? error.message : "Unable to save provider settings.");
     } finally {
       setSecretBusyAction(null);
     }
-  }, [loadProviders, providerBaseUrlInput, secretInput, selectedProvider, validateProvider]);
+  }, [loadProviders, providerBaseUrlInput, refreshProviderCatalog, secretInput, selectedProvider, validateProvider]);
 
   const saveProvider = useCallback(async () => {
     setCreateProviderBusy(true);
@@ -1198,22 +1255,35 @@ function ModelSettingsPanel() {
     setSecretFeedback(null);
 
     try {
+      const result = await desktopApi.clearProviderSecret({
+        providerType: selectedProvider.type
+      });
+
+      let controllerSync = result.controllerSync;
+
+      try {
+        await applyProviderCredentialToController(selectedProvider.type, null);
+        controllerSync = { applied: true };
+      } catch (error) {
+        controllerSync = {
+          applied: false,
+          reason: error instanceof Error ? error.message : "controller request failed"
+        };
+      }
+
       setSecretStorageState({
         loading: false,
-        data: await desktopApi.clearProviderSecret({
-          providerType: selectedProvider.type
-        }),
+        data: result.storage,
         error: null
       });
 
-      const restartResult = await desktopApi.restartController?.();
-
       await loadProviders();
+      await validateProvider(selectedProvider.id);
       setSecretInput("");
       setSecretFeedback(
-        restartResult?.restarted === false
-          ? "Saved secret cleared. Restart the workspace manually if it should stop using any previous environment-based credentials."
-          : "Saved secret cleared and the workspace was restarted."
+        controllerSync.applied
+          ? "Saved secret cleared and removed from the running controller."
+          : `Saved secret cleared, but the running controller may continue using the previous in-memory key until it restarts: ${controllerSync.reason ?? "unknown reason"}.`
       );
     } catch (error) {
       setSecretFeedback(error instanceof Error ? error.message : "Unable to clear the provider secret.");
@@ -1261,6 +1331,87 @@ function ModelSettingsPanel() {
       })
     }));
   }, []);
+
+  const upsertCachedModel = useCallback((providerId: string, updatedModel: ProviderModel) => {
+    setModelsCacheByProviderId((current) => {
+      const currentState = current[providerId];
+      const sourceData = currentState?.data ?? [];
+      const existingIndex = sourceData.findIndex((model) => model.id === updatedModel.id || model.modelName === updatedModel.modelName);
+      const nextData = existingIndex >= 0
+        ? sourceData.map((model, index) => (index === existingIndex ? updatedModel : model))
+        : [...sourceData, updatedModel];
+      const nextState = {
+        loading: false,
+        data: nextData,
+        error: null
+      } satisfies ProviderModelsCacheEntry;
+
+      return {
+        ...current,
+        [providerId]: nextState
+      };
+    });
+    setModelsState((current) => {
+      const sourceData = current.data ?? [];
+      const existingIndex = sourceData.findIndex((model) => model.id === updatedModel.id || model.modelName === updatedModel.modelName);
+      const nextData = existingIndex >= 0
+        ? sourceData.map((model, index) => (index === existingIndex ? updatedModel : model))
+        : [...sourceData, updatedModel];
+
+      return {
+        loading: false,
+        data: nextData,
+        error: null
+      };
+    });
+  }, []);
+
+  const addManualModel = useCallback(async (providerId: string) => {
+    const modelName = manualModelName.trim();
+
+    if (!modelName) {
+      return;
+    }
+
+    setModelSelectionBusyId(`manual:${modelName}`);
+    setManualModelError(null);
+
+    try {
+      const createdModel = await requestControllerJson<ProviderModel>("/api/provider-models", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId,
+          modelName,
+          displayName: modelName,
+          supportsTools: true,
+          supportsReasoning: /^(o1|o3|o4)/i.test(modelName) || /reason/i.test(modelName)
+        })
+      });
+
+      upsertCachedModel(providerId, createdModel);
+      setSelectedModelIdsByProviderId((current) => {
+        const currentIds = current[providerId] ?? [];
+
+        return {
+          ...current,
+          [providerId]: currentIds.includes(createdModel.id) ? currentIds : [...currentIds, createdModel.id]
+        };
+      });
+      await loadProviders();
+      await validateProvider(providerId);
+      setManualModelName("");
+      setModelSearch("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to add model.";
+      setManualModelError(
+        /404|not found|Route not found|Unknown providerId/i.test(message)
+          ? `${message} If this controller was already running, restart/reconnect it so the new manual model API is available.`
+          : message
+      );
+    } finally {
+      setModelSelectionBusyId(null);
+    }
+  }, [loadProviders, manualModelName, upsertCachedModel, validateProvider]);
 
   const addSelectedModel = useCallback(async (providerId: string, modelId: string) => {
     setModelSelectionBusyId(modelId);
@@ -1461,7 +1612,10 @@ function ModelSettingsPanel() {
                   <input
                     type="text"
                     value={createProviderDraft.displayName}
-                    onChange={(event) => setCreateProviderDraft((draft) => ({ ...draft, displayName: event.currentTarget.value }))}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCreateProviderDraft((draft) => ({ ...draft, displayName: value }));
+                    }}
                     className={settingsSecretInputClassName}
                     placeholder={createProviderDraft.type === "openai" ? "OpenAI" : "OpenRouter"}
                     disabled={createProviderBusy}
@@ -1473,7 +1627,10 @@ function ModelSettingsPanel() {
                   <input
                     type="url"
                     value={createProviderDraft.baseUrl}
-                    onChange={(event) => setCreateProviderDraft((draft) => ({ ...draft, baseUrl: event.currentTarget.value }))}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCreateProviderDraft((draft) => ({ ...draft, baseUrl: value }));
+                    }}
                     placeholder={createProviderDraft.type === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1"}
                     className={settingsSecretInputClassName}
                     disabled={createProviderBusy}
@@ -1485,7 +1642,10 @@ function ModelSettingsPanel() {
                   <input
                     type="number"
                     value={createProviderDraft.timeoutMs}
-                    onChange={(event) => setCreateProviderDraft((draft) => ({ ...draft, timeoutMs: event.currentTarget.value }))}
+                    onChange={(event) => {
+                      const { value } = event.currentTarget;
+                      setCreateProviderDraft((draft) => ({ ...draft, timeoutMs: value }));
+                    }}
                     placeholder="30000"
                     className={settingsSecretInputClassName}
                     disabled={createProviderBusy}
@@ -1668,8 +1828,35 @@ function ModelSettingsPanel() {
                   {modelsState.error ? <p className="m-0 text-xs text-error mono">{modelsState.error}</p> : null}
 
                   {!modelsState.loading && !modelsState.error && !modelCatalog.length ? (
-                    <p className="m-0 text-xs text-text-muted">Load the catalog when you want to add models.</p>
+                    <p className="m-0 text-xs text-text-muted">Add a model manually, or load the provider catalog if this provider supports model listing.</p>
                   ) : null}
+
+                  <div className="flex flex-col gap-2 rounded-xl border border-border-subtle bg-surface-1 p-3">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-medium text-text-secondary">Manual model ID</span>
+                      <input
+                        type="text"
+                        value={manualModelName}
+                        onChange={(event) => setManualModelName(event.currentTarget.value)}
+                        placeholder={selectedProvider.type === "openai" ? "gpt-4.1-mini" : "openai/gpt-4.1-mini"}
+                        className="h-8 w-full rounded-md border border-border-subtle bg-surface-0 px-2.5 py-1 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                        disabled={modelSelectionBusyId != null}
+                      />
+                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="m-0 text-[11px] text-text-muted">Use this when catalog loading is unavailable or you already know the model ID.</p>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-7 px-3 text-xs"
+                        disabled={!manualModelName.trim() || modelSelectionBusyId != null}
+                        onClick={() => selectedProviderId && void addManualModel(selectedProviderId)}
+                      >
+                        {modelSelectionBusyId?.startsWith("manual:") ? "Adding…" : "Add model"}
+                      </Button>
+                    </div>
+                    {manualModelError ? <p className="m-0 text-[11px] text-error mono">{manualModelError}</p> : null}
+                  </div>
 
                   {modelCatalog.length > 0 ? (
                     <div className="relative">

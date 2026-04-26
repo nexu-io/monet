@@ -32,6 +32,14 @@ export interface ProviderSecretStorageSnapshot {
   readonly reason: "available" | "desktop_api_unavailable" | "linux_keyring_unavailable" | "encryption_unavailable";
 }
 
+export interface ProviderSecretMutationResult {
+  readonly controllerSync: {
+    readonly applied: boolean;
+    readonly reason?: string;
+  };
+  readonly storage: ProviderSecretStorageSnapshot;
+}
+
 export interface DesktopAppPathsSnapshot {
   readonly userDataPath: string;
 }
@@ -43,7 +51,7 @@ export interface OpenPathResult {
 
 export type MonetDesktopApi = {
   readonly platform?: NodeJS.Platform;
-  readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretStorageSnapshot>;
+  readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretMutationResult>;
   readonly checkForUpdates?: () => Promise<UpdateStatePayload>;
   readonly getAppPaths?: () => Promise<DesktopAppPathsSnapshot>;
   readonly getControllerState?: () => ControllerStatePayload;
@@ -63,7 +71,7 @@ export type MonetDesktopApi = {
   readonly saveProviderSecret?: (payload: {
     providerType: ProviderType;
     secret: string;
-  }) => Promise<ProviderSecretStorageSnapshot>;
+  }) => Promise<ProviderSecretMutationResult>;
 };
 
 declare global {

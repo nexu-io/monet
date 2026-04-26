@@ -3,6 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { ControllerApp } from "../app";
 import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
 import { createLogger } from "../logger";
+import type { ProviderCredentialRegistry, ProviderCredentialType } from "../provider-credentials";
 import type { ProviderRuntime } from "../provider-runtime";
 import {
   ErrorResponseSchema,
@@ -10,6 +11,8 @@ import {
   ListProvidersResponseSchema,
   ProviderSchema,
   CreateProviderRequestSchema,
+  CreateProviderModelRequestSchema,
+  CreateProviderModelWithProviderRequestSchema,
   UpdateProviderRequestSchema,
   ProviderModelSchema,
   UpdateProviderModelRequestSchema,
@@ -27,6 +30,21 @@ const providerIdParamSchema = z.object({
 
 const providerModelIdParamSchema = z.object({
   modelId: z.string().trim().min(1).openapi({ example: "mod_123" })
+});
+
+const providerTypeParamSchema = z.object({
+  providerType: z.enum(["openai", "openrouter"]).openapi({ example: "openai" })
+});
+
+const ProviderCredentialStatusSchema = z.object({
+  providerType: z.enum(["openai", "openrouter"]),
+  hasCredential: z.boolean(),
+  source: z.enum(["env", "runtime", "none"]),
+  version: z.number().int().nonnegative()
+});
+
+const UpdateProviderCredentialRequestSchema = z.object({
+  apiKey: z.string().trim().min(1).max(20_000)
 });
 
 const listProvidersRoute = createRoute({
@@ -229,6 +247,93 @@ const listProviderModelsRoute = createRoute({
   }
 });
 
+const createProviderModelRoute = createRoute({
+  method: "post",
+  path: "/api/providers/{providerId}/models",
+  tags: ["Providers"],
+  summary: "Create provider model",
+  description: "Manually adds or enables a provider model without fetching the provider catalog.",
+  request: {
+    params: providerIdParamSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: CreateProviderModelRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    201: {
+      description: "Provider model created successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderModelSchema
+        }
+      }
+    },
+    404: {
+      description: "The requested provider was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The provider model could not be created.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const createProviderModelByBodyRoute = createRoute({
+  method: "post",
+  path: "/api/provider-models",
+  tags: ["Providers"],
+  summary: "Create provider model",
+  description: "Manually adds or enables a provider model without fetching the provider catalog.",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: CreateProviderModelWithProviderRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    201: {
+      description: "Provider model created successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderModelSchema
+        }
+      }
+    },
+    404: {
+      description: "The requested provider was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The provider model could not be created.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
 const fetchProviderCatalogRoute = createRoute({
   method: "post",
   path: "/api/providers/{providerId}/catalog",
@@ -347,6 +452,84 @@ const updateProviderModelRoute = createRoute({
   }
 });
 
+const getProviderCredentialRoute = createRoute({
+  method: "get",
+  path: "/api/provider-credentials/{providerType}",
+  tags: ["Providers"],
+  summary: "Get provider credential status",
+  description: "Returns whether a provider credential is available without exposing the credential value.",
+  request: {
+    params: providerTypeParamSchema
+  },
+  responses: {
+    200: {
+      description: "Provider credential status fetched successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderCredentialStatusSchema
+        }
+      }
+    }
+  }
+});
+
+const updateProviderCredentialRoute = createRoute({
+  method: "put",
+  path: "/api/provider-credentials/{providerType}",
+  tags: ["Providers"],
+  summary: "Update runtime provider credential",
+  description: "Updates the running controller's in-memory credential for a provider without returning the credential value.",
+  request: {
+    params: providerTypeParamSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: UpdateProviderCredentialRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Provider credential updated successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderCredentialStatusSchema
+        }
+      }
+    },
+    400: {
+      description: "Invalid request.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const clearProviderCredentialRoute = createRoute({
+  method: "delete",
+  path: "/api/provider-credentials/{providerType}",
+  tags: ["Providers"],
+  summary: "Clear runtime provider credential",
+  description: "Clears the running controller's in-memory credential for a provider. Environment credentials, if present, remain effective.",
+  request: {
+    params: providerTypeParamSchema
+  },
+  responses: {
+    200: {
+      description: "Provider credential cleared successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderCredentialStatusSchema
+        }
+      }
+    }
+  }
+});
+
 function createProviderErrorResponse(error: unknown) {
   if (error instanceof ChatStorageResolutionError && error.statusCode === 404) {
     return {
@@ -363,9 +546,31 @@ function createProviderErrorResponse(error: unknown) {
   };
 }
 
+function createManualProviderModel(
+  options: { getChatStorage: () => ChatStorage; providerRuntime: ProviderRuntime },
+  input: {
+    providerId: string;
+    modelName: string;
+    displayName?: string;
+    supportsTools?: boolean;
+    supportsReasoning?: boolean;
+  }
+) {
+  const model = options.getChatStorage().createProviderModel({
+    providerId: input.providerId,
+    modelName: input.modelName,
+    ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+    ...(input.supportsTools !== undefined ? { supportsTools: input.supportsTools } : {}),
+    ...(input.supportsReasoning !== undefined ? { supportsReasoning: input.supportsReasoning } : {})
+  });
+  options.providerRuntime.invalidateProviderCache(input.providerId);
+
+  return model;
+}
+
 export function registerProviderRoutes(
   app: ControllerApp,
-  options: { getChatStorage: () => ChatStorage; providerRuntime: ProviderRuntime }
+  options: { getChatStorage: () => ChatStorage; providerCredentials: ProviderCredentialRegistry; providerRuntime: ProviderRuntime }
 ) {
   app.openapi(listProvidersRoute, (context) => {
     return context.json(
@@ -439,6 +644,45 @@ export function registerProviderRoutes(
     }
   });
 
+  app.openapi(createProviderModelRoute, async (context) => {
+    try {
+      const providerId = context.req.valid("param").providerId;
+      const input = context.req.valid("json");
+      const model = createManualProviderModel(options, {
+        providerId,
+        modelName: input.modelName,
+        ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+        ...(input.supportsTools !== undefined ? { supportsTools: input.supportsTools } : {}),
+        ...(input.supportsReasoning !== undefined ? { supportsReasoning: input.supportsReasoning } : {})
+      });
+
+      return context.json(model, 201);
+    } catch (error) {
+      const response = createProviderErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(createProviderModelByBodyRoute, async (context) => {
+    try {
+      const input = context.req.valid("json");
+      const model = createManualProviderModel(options, {
+        providerId: input.providerId,
+        modelName: input.modelName,
+        ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+        ...(input.supportsTools !== undefined ? { supportsTools: input.supportsTools } : {}),
+        ...(input.supportsReasoning !== undefined ? { supportsReasoning: input.supportsReasoning } : {})
+      });
+
+      return context.json(model, 201);
+    } catch (error) {
+      const response = createProviderErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
   app.openapi(fetchProviderCatalogRoute, async (context) => {
     try {
       const providerId = context.req.valid("param").providerId;
@@ -460,7 +704,7 @@ export function registerProviderRoutes(
 
   app.openapi(validateProviderRoute, async (context) => {
     try {
-      return context.json(await options.providerRuntime.validateProvider(context.req.valid("param").providerId), 200);
+      return context.json(await options.providerRuntime.validateProvider(context.req.valid("param").providerId, { force: true }), 200);
     } catch (error) {
       const response = createProviderErrorResponse(error);
 
@@ -482,5 +726,31 @@ export function registerProviderRoutes(
 
       return context.json(response.body, response.status);
     }
+  });
+
+  app.openapi(getProviderCredentialRoute, (context) => {
+    return context.json(options.providerCredentials.getStatus(context.req.valid("param").providerType as ProviderCredentialType), 200);
+  });
+
+  app.openapi(updateProviderCredentialRoute, (context) => {
+    try {
+      const providerType = context.req.valid("param").providerType as ProviderCredentialType;
+      const status = options.providerCredentials.setRuntimeApiKey(providerType, context.req.valid("json").apiKey);
+      options.providerRuntime.invalidateProviderCache();
+
+      return context.json(status, 200);
+    } catch (error) {
+      return context.json(
+        createErrorResponse("invalid_provider_credential", error instanceof Error ? error.message : "Provider credential is invalid."),
+        400
+      );
+    }
+  });
+
+  app.openapi(clearProviderCredentialRoute, (context) => {
+    const status = options.providerCredentials.clearRuntimeApiKey(context.req.valid("param").providerType as ProviderCredentialType);
+    options.providerRuntime.invalidateProviderCache();
+
+    return context.json(status, 200);
   });
 }

@@ -37,6 +37,14 @@ interface ControllerReadyMessage {
   readonly port: number;
 }
 
+interface ProviderSecretMutationResult {
+  readonly controllerSync: {
+    readonly applied: boolean;
+    readonly reason?: string;
+  };
+  readonly storage: ProviderSecretStorageSnapshot;
+}
+
 type DesktopShortcutAction = "new-session" | "open-settings";
 
 interface WindowStateSnapshot {
@@ -275,23 +283,30 @@ ipcMain.handle("monet:open-path", async (_event, payload: { path: string }) => {
 
 ipcMain.handle(
   "monet:save-provider-secret",
-  (_event, payload: { providerType: ProviderType; secret: string }) => {
+  async (_event, payload: { providerType: ProviderType; secret: string }) => {
     getProviderSecretStore().saveSecret(payload.providerType, payload.secret);
 
-    return getProviderSecretStore().getSnapshot() satisfies ProviderSecretStorageSnapshot;
+    return {
+      storage: getProviderSecretStore().getSnapshot(),
+      controllerSync: await applyProviderCredentialToController(payload.providerType, payload.secret)
+    } satisfies ProviderSecretMutationResult;
   }
 );
 
-ipcMain.handle("monet:clear-provider-secret", (_event, payload: { providerType: ProviderType }) => {
+ipcMain.handle("monet:clear-provider-secret", async (_event, payload: { providerType: ProviderType }) => {
   getProviderSecretStore().clearSecret(payload.providerType);
 
-  return getProviderSecretStore().getSnapshot() satisfies ProviderSecretStorageSnapshot;
+  return {
+    storage: getProviderSecretStore().getSnapshot(),
+    controllerSync: await applyProviderCredentialToController(payload.providerType, null)
+  } satisfies ProviderSecretMutationResult;
 });
 
 async function bootstrap() {
   logger.info("desktop.bootstrap_started");
   await registerDesktopRendererProtocol();
   controllerRuntime = await resolveControllerRuntime();
+  await syncSavedProviderSecretsToController(controllerRuntime);
   mainWindow = await createMainWindow(controllerRuntime);
   broadcastUpdateState(desktopUpdater.getState());
   desktopUpdater.start();
@@ -1075,5 +1090,108 @@ function buildProviderSecretEnv(env: NodeJS.ProcessEnv) {
     });
 
     return {};
+  }
+}
+
+async function syncSavedProviderSecretsToController(runtime: ControllerRuntime) {
+  let secrets: Partial<Record<ProviderType, string>>;
+
+  try {
+    secrets = getProviderSecretStore().loadSecretsForControllerEnv();
+  } catch (error) {
+    logger.warn("desktop.provider_secret_sync_load_failed", {
+      reason: error instanceof Error ? error.message : "unknown_error"
+    });
+    return;
+  }
+
+  await Promise.all(
+    (["openai", "openrouter"] as const)
+      .filter((providerType) => Boolean(secrets[providerType]))
+      .map(async (providerType) => {
+        const result = await applyProviderCredentialToController(providerType, secrets[providerType] ?? null, runtime);
+
+        if (!result.applied) {
+          logger.warn("desktop.provider_secret_sync_failed", {
+            providerType,
+            reason: result.reason
+          });
+        }
+      })
+  );
+}
+
+async function applyProviderCredentialToController(
+  providerType: ProviderType,
+  secret: string | null,
+  runtime = controllerRuntime
+): Promise<ProviderSecretMutationResult["controllerSync"]> {
+  if (!runtime) {
+    return {
+      applied: false,
+      reason: "controller-unavailable"
+    };
+  }
+
+  if (!isSafeControllerCredentialSyncTarget(runtime.apiBase)) {
+    return {
+      applied: false,
+      reason: "controller-url-not-loopback"
+    };
+  }
+
+  const normalizedSecret = secret?.trim() ?? null;
+  const headers: Record<string, string> = {};
+
+  if (runtime.bearerToken) {
+    headers.Authorization = `Bearer ${runtime.bearerToken}`;
+  }
+
+  if (normalizedSecret) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  try {
+    const requestInit: RequestInit = {
+      method: normalizedSecret ? "PUT" : "DELETE",
+      headers,
+      ...(normalizedSecret ? { body: JSON.stringify({ apiKey: normalizedSecret }) } : {})
+    };
+
+    const response = await fetch(new URL(`/api/provider-credentials/${providerType}`, runtime.apiBase).toString(), requestInit);
+
+    if (!response.ok) {
+      return {
+        applied: false,
+        reason: `controller returned ${response.status}`
+      };
+    }
+
+    return {
+      applied: true
+    };
+  } catch (error) {
+    return {
+      applied: false,
+      reason: error instanceof Error ? error.message : "controller request failed"
+    };
+  }
+}
+
+function isSafeControllerCredentialSyncTarget(apiBase: string) {
+  try {
+    const url = new URL(apiBase);
+
+    if (url.protocol === "https:") {
+      return true;
+    }
+
+    if (url.protocol !== "http:") {
+      return false;
+    }
+
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]";
+  } catch {
+    return false;
   }
 }
