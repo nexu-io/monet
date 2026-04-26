@@ -45,6 +45,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@monet/controller':
+        specifier: workspace:*
+        version: link:../controller
       electron-updater:
         specifier: ^6.6.2
         version: 6.8.3
