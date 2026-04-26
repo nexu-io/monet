@@ -50,6 +50,10 @@ export function isExpiredWallClockBudget(wallClockDeadlineAt: number, startedAt:
   return Number.isFinite(wallClockDeadlineAt) && wallClockDeadlineAt <= startedAt;
 }
 
+export function isToolCallBudgetExhausted(observedToolCallCount: number, maxToolCallsPerRun: number) {
+  return observedToolCallCount >= maxToolCallsPerRun;
+}
+
 function isApprovalRequestedToolPart(part: unknown): part is {
   readonly toolCallId: string;
   readonly approval: { readonly id: string };
@@ -162,7 +166,7 @@ export async function createChatStreamResponse(options: {
     abortRun("token_budget_exceeded");
   }
 
-  if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
+  if (isToolCallBudgetExhausted(observedToolCallCount, options.runtime.maxToolCallsPerRun)) {
     abortRun("tool_call_budget_exceeded");
   }
 
@@ -291,7 +295,7 @@ export async function createChatStreamResponse(options: {
         return;
       }
 
-      if (observedToolCallCount > options.runtime.maxToolCallsPerRun) {
+      if (isToolCallBudgetExhausted(observedToolCallCount, options.runtime.maxToolCallsPerRun)) {
         abortRun("tool_call_budget_exceeded");
       }
     },
