@@ -414,12 +414,15 @@ async function resolveAuthorizedPath(inputPath: string, allowedDirectories: read
     throw new Error("Path is required.");
   }
 
-  const resolvedPath = resolve(normalizedInputPath);
   const authorizedDirectories = await getAuthorizedDirectoriesRealPaths(allowedDirectories);
 
   if (authorizedDirectories.length === 0) {
     throw new Error("No authorized directories are currently available.");
   }
+
+  const resolvedPath = isAbsolute(normalizedInputPath)
+    ? resolve(normalizedInputPath)
+    : resolve(authorizedDirectories[0]!, normalizedInputPath);
 
   const existingPath = await getExistingRealPath(resolvedPath);
   const candidatePath =

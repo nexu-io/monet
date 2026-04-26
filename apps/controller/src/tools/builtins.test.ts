@@ -172,6 +172,63 @@ test("read_file and write_file operate inside authorized directories", async () 
     assert.equal(writeResult.path, join(realWorkspaceDir, "nested", "output.txt"));
     assert.equal(writeResult.bytesWritten, Buffer.byteLength("generated content", "utf8"));
     assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "output.txt"), "utf8"), "generated content");
+
+    const readRelativeResult = (await readFileTool.execute(
+      { path: "input.txt" },
+      createExecutionContext()
+    )) as { path: string; content: string };
+
+    assert.equal(readRelativeResult.content, "hello from disk");
+    assert.equal(readRelativeResult.path, join(realWorkspaceDir, "input.txt"));
+
+    const writeRelativeResult = (await writeFileTool.execute(
+      {
+        path: "nested/relative-output.txt",
+        content: "relative generated content"
+      },
+      createExecutionContext()
+    )) as { path: string; bytesWritten: number };
+
+    assert.equal(writeRelativeResult.path, join(realWorkspaceDir, "nested", "relative-output.txt"));
+    assert.equal(writeRelativeResult.bytesWritten, Buffer.byteLength("relative generated content", "utf8"));
+    assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "relative-output.txt"), "utf8"), "relative generated content");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("read_file and write_file reject relative path traversal escapes", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+    const outsidePath = join(fixture.workspaceDir, "..", "outside-attempt.txt");
+    writeFileSync(join(fixture.fixtureDir, "outside-attempt.txt"), "should not read", "utf8");
+
+    await assert.rejects(
+      readFileTool.execute(
+        {
+          path: "../outside-attempt.txt"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: "../outside-attempt.txt",
+          content: "blocked"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+
+    assert.equal(readFileSync(outsidePath, "utf8"), "should not read");
   } finally {
     fixture.cleanup();
   }

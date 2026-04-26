@@ -114,6 +114,17 @@ function isTextPart(part: ChatMessagePart): part is TextPart {
   return part.type === "text" && typeof part.text === "string";
 }
 
+function getLastTextPartIndex(parts: readonly ChatMessagePart[]) {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part && isTextPart(part)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function isReasoningPart(part: ChatMessagePart): part is ReasoningPart {
   return part.type === "reasoning" && typeof part.text === "string";
 }
@@ -344,7 +355,7 @@ function renderPart(
   index: number,
   options: {
     readonly status: "submitted" | "streaming" | "ready" | "error";
-    readonly isStreamingMessage: boolean;
+    readonly isStreamingPart: boolean;
     readonly isArchived: boolean;
     readonly pendingToolApprovalIds: ReadonlySet<string>;
     readonly onToolApproval?: (input: {
@@ -359,9 +370,10 @@ function renderPart(
     return (
       <Streamdown
         key={`${part.type}-${index}`}
-        animated={{ animation: "blurIn", duration: 180, easing: "ease-out", sep: "word" }}
-        caret="block"
-        isAnimating={options.isStreamingMessage}
+        animated={{ animation: "blurIn", duration: 180, easing: "ease-out", sep: "word", stagger: 0 }}
+        caret={options.isStreamingPart ? "block" : undefined}
+        isAnimating={options.isStreamingPart}
+        mode={options.isStreamingPart ? "streaming" : "static"}
         plugins={{ code, mermaid, math, cjk }}
         controls={{ mermaid: { fullscreen: true, download: true, copy: true, panZoom: true } }}
         className={markdownClassName}
@@ -762,10 +774,11 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
     <section ref={rootRef} className="relative flex flex-col gap-4" aria-label="Conversation transcript">
       {messages.map((message, messageIndex) => {
         const isStreamingAssistant = status === "streaming" && message.role === "assistant" && messageIndex === messages.length - 1;
+        const streamingTextPartIndex = isStreamingAssistant ? getLastTextPartIndex(message.parts) : -1;
         const renderedParts = message.parts.map((part, index) =>
           renderPart(message, part, index, {
             status,
-            isStreamingMessage: isStreamingAssistant,
+            isStreamingPart: isStreamingAssistant && index === streamingTextPartIndex,
             isArchived,
             pendingToolApprovalIds,
             onToolApproval: handleToolApproval

@@ -53,6 +53,11 @@
 @import "@nexu-design/ui-web/styles.css";
 @import "tailwindcss";
 
+/* Streamdown renders Tailwind utilities from its package at runtime. Include
+ * those package sources so Tailwind emits syntax-highlight token styles. */
+@source "../../node_modules/streamdown/dist/**/*.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
+
 /*
  * Tailwind v4 contract:
  * - @nexu-design/tokens remains the source of truth. Tailwind utilities expose
@@ -247,6 +252,10 @@ textarea {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
+  border: 0;
+}
+
+[data-streamdown="code-block-actions"] {
   border: 0;
 }
 

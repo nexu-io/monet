@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
-import { Button } from "@nexu-design/ui-web";
+import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@nexu-design/ui-web";
 
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 
@@ -91,8 +91,7 @@ export function Composer({
     return target ? `${target.providerId}::${target.modelId}` : "";
   }
 
-  function handleModelChange(event: ChangeEvent<HTMLSelectElement>) {
-    const value = event.currentTarget.value;
+  function handleModelChange(value: string) {
 
     if (!value) {
       onChangeTarget?.(null);
@@ -132,22 +131,23 @@ export function Composer({
               <label className="sr-only" htmlFor="chat-composer-model">
                 Model
               </label>
-              <select
-                id="chat-composer-model"
-                value={getTargetValue(activeTarget)}
-                onChange={handleModelChange}
-                disabled={isDisabled}
-                className="min-h-8 max-w-64 rounded-md border border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary outline-none transition-colors hover:border-border-strong focus:border-accent focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-60"
-                title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
-              >
-                {readyProviders.map((target) => (
-                  <option key={getTargetValue(target)} value={getTargetValue(target)}>
-                    {target.providerDisplayName} · {target.modelName ?? target.modelId}
-                  </option>
-                ))}
-              </select>
+              <Select value={getTargetValue(activeTarget)} onValueChange={handleModelChange} disabled={isDisabled}>
+                <SelectTrigger
+                  id="chat-composer-model"
+                  className="h-8 max-w-64 rounded-md border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary shadow-xs hover:border-border-hover focus:border-border-hover focus:ring-0 focus:shadow-focus"
+                  title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
+                >
+                  <SelectValue placeholder="Chat model" />
+                </SelectTrigger>
+                <SelectContent className="border-border-subtle shadow-dropdown">
+                  {readyProviders.map((target) => (
+                    <SelectItem key={getTargetValue(target)} value={getTargetValue(target)}>
+                      {target.modelName} ({target.providerDisplayName})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {isTargetOverridden ? <span className="text-xs text-accent">custom</span> : null}
-              <span aria-hidden="true">·</span>
             </>
           ) : null}
           {statusHint ? (
