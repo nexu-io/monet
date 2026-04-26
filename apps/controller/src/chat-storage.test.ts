@@ -422,3 +422,50 @@ test("prepareChatRequest rejects invalid fallback provider/model before persisti
     fixture.cleanup();
   }
 });
+
+test("deleteProvider rejects providers with persisted runs", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_user_1",
+          role: "user",
+          parts: [{ type: "text", text: "Create a run to protect provider deletion." }]
+        } as any
+      ]
+    });
+
+    assert.throws(
+      () => storage.deleteProvider(prepared.providerId),
+      (error): error is ChatStorageResolutionError => {
+        assert.ok(error instanceof ChatStorageResolutionError);
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.errorCode, "invalid_state");
+        assert.equal(error.message, "Provider cannot be deleted because it has associated runs.");
+        return true;
+      }
+    );
+
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      const runCount = connection
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM runs
+           WHERE provider_id = ?
+              OR model_id IN (SELECT id FROM provider_models WHERE provider_id = ?)`
+        )
+        .get(prepared.providerId, prepared.providerId) as { count: number };
+
+      assert.equal(runCount.count, 1);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});

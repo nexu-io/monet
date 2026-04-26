@@ -155,6 +155,14 @@ const deleteProviderRoute = createRoute({
         }
       }
     },
+    409: {
+      description: "The provider cannot be deleted due to associated runs.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
     500: {
       description: "The provider could not be deleted.",
       content: {
@@ -398,6 +406,10 @@ export function registerProviderRoutes(
       options.providerRuntime.invalidateProviderCache(providerId);
       return new Response(null, { status: 204 });
     } catch (error) {
+      if (error instanceof ChatStorageResolutionError && error.statusCode === 409) {
+        return context.json(createErrorResponse(error.errorCode, error.message), 409);
+      }
+
       const response = createProviderErrorResponse(error);
       return context.json(response.body, response.status);
     }

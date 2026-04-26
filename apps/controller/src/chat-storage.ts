@@ -566,6 +566,24 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     },
 
     deleteProvider(providerId) {
+      const providerHasRuns = connection
+        .prepare(
+          `SELECT 1 AS exists_flag
+           FROM runs
+           WHERE provider_id = ?
+              OR model_id IN (SELECT id FROM provider_models WHERE provider_id = ?)
+           LIMIT 1`
+        )
+        .get(providerId, providerId) as { exists_flag: number } | undefined;
+
+      if (providerHasRuns) {
+        throw new ChatStorageResolutionError({
+          message: "Provider cannot be deleted because it has associated runs.",
+          statusCode: 409,
+          errorCode: "invalid_state"
+        });
+      }
+
       try {
         connection.exec("BEGIN");
         connection.prepare(`DELETE FROM provider_models WHERE provider_id = ?`).run(providerId);

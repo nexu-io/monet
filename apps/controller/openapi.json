@@ -1138,6 +1138,16 @@
               }
             }
           },
+          "409": {
+            "description": "The provider cannot be deleted due to associated runs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "The provider could not be deleted.",
             "content": {
