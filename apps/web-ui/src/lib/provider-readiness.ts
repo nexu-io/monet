@@ -1,11 +1,5 @@
-import type { Provider, ProviderModel, ValidateProviderResponse } from "./api/generated/types.gen";
+import type { Provider, ProviderModel } from "./api/generated/types.gen";
 import { getMonetClientConfig } from "./monet-client";
-
-export const PROVIDER_READINESS_EVENT = "monet:provider-readiness-updated";
-
-interface ErrorResponse {
-  readonly message?: string;
-}
 
 export interface ProviderReadinessTarget {
   readonly providerId: string;
@@ -14,28 +8,19 @@ export interface ProviderReadinessTarget {
   readonly modelName: string | null;
 }
 
-export interface ProviderReadinessSnapshot {
-  readonly providers: Provider[];
-  readonly readyProviders: ProviderReadinessTarget[];
-  readonly hasConfiguredProviders: boolean;
-  readonly hasReadyProvider: boolean;
-  readonly firstReadyProvider: ProviderReadinessTarget | null;
+interface ErrorResponse {
+  readonly message?: string;
 }
 
-async function requestControllerJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestControllerJson<T>(path: string): Promise<T> {
   const config = getMonetClientConfig();
-  const headers = new Headers(init?.headers);
+  const headers = new Headers();
 
-  if (config.bearerToken && !headers.has("Authorization")) {
+  if (config.bearerToken) {
     headers.set("Authorization", `Bearer ${config.bearerToken}`);
   }
 
-  if (init?.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-
   const response = await fetch(`${config.apiBase}${path}`, {
-    ...init,
     cache: "no-store",
     credentials: "omit",
     headers
@@ -60,40 +45,23 @@ async function requestControllerJson<T>(path: string, init?: RequestInit): Promi
   return (await response.json()) as T;
 }
 
-export async function fetchProviderReadiness(): Promise<ProviderReadinessSnapshot> {
-  const { providers } = await requestControllerJson<{ providers: Provider[] }>("/api/providers");
-  const validations = await Promise.all(
-    providers.map((provider) => requestControllerJson<ValidateProviderResponse>(`/api/providers/${provider.id}/validate`, { method: "POST" }))
-  );
+export async function fetchProviderTargets(): Promise<ProviderReadinessTarget[]> {
+  const [{ providers }, { models }] = await Promise.all([
+    requestControllerJson<{ providers: Provider[] }>("/api/providers"),
+    requestControllerJson<{ models: ProviderModel[] }>("/api/models")
+  ]);
+  const providersById = new Map(providers.filter((provider) => provider.enabled).map((provider) => [provider.id, provider]));
 
-  const readyProvidersByValidation = await Promise.all(validations.map(async (validation) => {
-    if (!validation.valid || !validation.defaultModelId) {
-      return [];
-    }
+  return models
+    .filter((model) => model.enabled && providersById.has(model.providerId))
+    .map((model) => {
+      const provider = providersById.get(model.providerId);
 
-    const { models } = await requestControllerJson<{ models: ProviderModel[] }>(`/api/providers/${validation.provider.id}/models`);
-    const enabledModels = models.filter((model) => model.enabled);
-    const defaultModel = enabledModels.find((model) => model.id === validation.defaultModelId) ?? null;
-    const orderedModels = defaultModel
-      ? [defaultModel, ...enabledModels.filter((model) => model.id !== defaultModel.id)]
-      : enabledModels;
-
-    return orderedModels.map((model) => ({
-        providerId: validation.provider.id,
+      return {
+        providerId: model.providerId,
         modelId: model.id,
-        providerDisplayName: validation.provider.displayName,
+        providerDisplayName: provider?.displayName ?? model.providerId,
         modelName: model.modelName
-      }));
-  }));
-  const readyProviders = readyProvidersByValidation.flat();
-
-  const firstReadyProvider = readyProviders[0] ?? null;
-
-  return {
-    providers,
-    readyProviders,
-    hasConfiguredProviders: providers.length > 0,
-    hasReadyProvider: firstReadyProvider !== null,
-    firstReadyProvider
-  };
+      };
+    });
 }

@@ -34,9 +34,19 @@ export class ProviderRuntimeError extends Error {
 }
 
 export interface ProviderRuntime {
-  syncProviderCatalog(providerId?: string): Promise<void>;
-  validateProvider(providerId: string): Promise<ProviderValidationResult>;
+  syncProviderCatalog(providerId?: string, options?: { force?: boolean }): Promise<void>;
+  validateProvider(providerId: string, options?: { force?: boolean }): Promise<ProviderValidationResult>;
+  invalidateProviderCache(providerId?: string): void;
   createChatModel(providerId: string, modelId: string): Promise<Parameters<typeof streamText>[0]["model"]>;
+}
+
+const PROVIDER_CATALOG_CACHE_TTL_MS = 5 * 60_000;
+const PROVIDER_VALIDATION_CACHE_TTL_MS = 60_000;
+
+interface ProviderCacheEntry<T> {
+  readonly providerUpdatedAt: string;
+  readonly value: T;
+  readonly cachedAt: number;
 }
 
 export function createProviderRuntime(options: {
@@ -44,59 +54,126 @@ export function createProviderRuntime(options: {
   openai: OpenAIProviderConfig;
   openrouter: OpenRouterProviderConfig;
 }): ProviderRuntime {
-  return {
-    async syncProviderCatalog(providerId) {
+  const catalogSyncCache = new Map<string, ProviderCacheEntry<true>>();
+  const catalogSyncRequests = new Map<string, Promise<void>>();
+  const validationCache = new Map<string, ProviderCacheEntry<ProviderValidationResult>>();
+  const validationRequests = new Map<string, Promise<ProviderValidationResult>>();
+
+  function invalidateProviderCache(providerId?: string) {
+    if (providerId) {
+      catalogSyncCache.delete(providerId);
+      validationCache.delete(providerId);
+      return;
+    }
+
+    catalogSyncCache.clear();
+    validationCache.clear();
+  }
+
+  const runtime: ProviderRuntime = {
+    invalidateProviderCache,
+
+    async syncProviderCatalog(providerId, syncOptions) {
       const storage = options.getChatStorage();
       const providers = providerId ? [storage.getProvider(providerId)] : storage.listProviders();
 
       for (const provider of providers) {
         if (provider.type === "openai" || provider.type === "openrouter") {
-          await syncOpenAICompatibleProviderCatalog({
+          const cachedSync = catalogSyncCache.get(provider.id);
+          const now = Date.now();
+
+          if (
+            !syncOptions?.force &&
+            cachedSync &&
+            cachedSync.providerUpdatedAt === provider.updatedAt &&
+            now - cachedSync.cachedAt < PROVIDER_CATALOG_CACHE_TTL_MS
+          ) {
+            continue;
+          }
+
+          const existingRequest = catalogSyncRequests.get(provider.id);
+
+          if (existingRequest) {
+            await existingRequest;
+            continue;
+          }
+
+          const request = syncOpenAICompatibleProviderCatalog({
             provider,
             storage,
             config: getProviderConfig(provider.type, options)
-          });
+          })
+            .then(() => {
+              catalogSyncCache.set(provider.id, {
+                providerUpdatedAt: options.getChatStorage().getProvider(provider.id).updatedAt,
+                value: true,
+                cachedAt: Date.now()
+              });
+              validationCache.delete(provider.id);
+            })
+            .finally(() => {
+              catalogSyncRequests.delete(provider.id);
+            });
+
+          catalogSyncRequests.set(provider.id, request);
+          await request;
         }
       }
     },
 
-    async validateProvider(providerId) {
+    async validateProvider(providerId, validationOptions) {
       const storage = options.getChatStorage();
       const provider = storage.getProvider(providerId);
+      const cachedValidation = validationCache.get(providerId);
+      const now = Date.now();
 
-      if (provider.type === "openai" || provider.type === "openrouter") {
-        const providerConfig = getProviderConfig(provider.type, options);
-
-        if (!providerConfig.apiKey) {
-          return buildInvalidProviderValidation(
-            provider,
-            "missing_credentials",
-            `${provider.displayName} API key is not configured.`
-          );
-        }
-
-        try {
-          await syncOpenAICompatibleProviderCatalog({
-            provider,
-            storage,
-            config: providerConfig
-          });
-        } catch (error) {
-          providerLogger.warn("providers.validate_failed", {
-            providerId,
-            providerType: provider.type,
-            reason: error instanceof Error ? error.message : "unknown_error"
-          });
-
-          return buildInvalidProviderValidation(
-            provider,
-            "provider_api_error",
-            error instanceof Error ? error.message : "Failed to fetch provider models."
-          );
-        }
+      if (
+        !validationOptions?.force &&
+        cachedValidation &&
+        cachedValidation.providerUpdatedAt === provider.updatedAt &&
+        now - cachedValidation.cachedAt < PROVIDER_VALIDATION_CACHE_TTL_MS
+      ) {
+        return cachedValidation.value;
       }
 
-      return storage.validateProvider(providerId);
+      const existingRequest = validationRequests.get(providerId);
+
+      if (existingRequest) {
+        return existingRequest;
+      }
+
+      const request = (async () => {
+
+        if (provider.type === "openai" || provider.type === "openrouter") {
+          const providerConfig = getProviderConfig(provider.type, options);
+
+          if (!providerConfig.apiKey) {
+            return buildInvalidProviderValidation(
+              provider,
+              "missing_credentials",
+              `${provider.displayName} API key is not configured.`
+            );
+          }
+
+        }
+
+        return storage.validateProvider(providerId);
+      })()
+        .then((result) => {
+          validationCache.set(providerId, {
+            providerUpdatedAt: options.getChatStorage().getProvider(providerId).updatedAt,
+            value: result,
+            cachedAt: Date.now()
+          });
+
+          return result;
+        })
+        .finally(() => {
+          validationRequests.delete(providerId);
+        });
+
+      validationRequests.set(providerId, request);
+      return request;
     },
 
     async createChatModel(providerId, modelId) {
@@ -168,6 +245,8 @@ export function createProviderRuntime(options: {
       }
     }
   };
+
+  return runtime;
 }
 
 async function syncOpenAICompatibleProviderCatalog(options: {

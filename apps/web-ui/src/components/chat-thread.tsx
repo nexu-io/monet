@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { Badge, Button, Card } from "@nexu-design/ui-web";
+import { FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
@@ -52,6 +53,8 @@ const toolPreClassName = "m-0 overflow-auto whitespace-pre-wrap rounded-md bg-su
 const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
 const toolSummaryClassName = "flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden max-[960px]:flex-col max-[960px]:items-start";
 const markdownClassName = "leading-[1.6] text-text-primary [&_*:first-child]:mt-0 [&_*:last-child]:mb-0 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_li>ol]:my-1 [&_li>ul]:my-1";
+const internalToolLineClassName = "flex min-h-8 items-center gap-2 text-sm leading-[1.5] text-text-muted";
+const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted),var(--color-text-heading),var(--color-text-muted))] bg-[length:200%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_1.4s_ease-in-out_infinite]";
 
 function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
   switch (phase) {
@@ -159,6 +162,85 @@ function getToolName(part: ToolPart) {
   }
 
   return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : "tool";
+}
+
+function getStringField(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const fieldValue = (value as Record<string, unknown>)[key];
+
+  return typeof fieldValue === "string" && fieldValue.trim().length > 0 ? fieldValue : null;
+}
+
+function getInternalToolIcon(toolName: string): LucideIcon {
+  switch (toolName) {
+    case "fetch_url":
+      return Globe;
+    case "read_file":
+      return FileText;
+    case "write_file":
+      return FilePenLine;
+    default:
+      return Wrench;
+  }
+}
+
+function isInternalToolName(toolName: string) {
+  return toolName === "fetch_url" || toolName === "read_file" || toolName === "write_file";
+}
+
+function isExecutingToolState(state: ToolPart["state"]) {
+  return state === "input-streaming" || state === "input-available" || state === "running";
+}
+
+function getInternalToolMessage(toolName: string, part: ToolPart) {
+  const url = getStringField(part.input, "url");
+  const path = getStringField(part.input, "path");
+  const target = toolName === "fetch_url" ? url : path;
+  const destination = target ? ` ${target}` : "";
+
+  if (part.state === "output-error" || part.state === "error") {
+    switch (toolName) {
+      case "fetch_url":
+        return target ? `Couldn't fetch from ${target}.` : "Couldn't fetch URL.";
+      case "read_file":
+        return target ? `Couldn't read ${target}.` : "Couldn't read file.";
+      case "write_file":
+        return target ? `Couldn't write ${target}.` : "Couldn't write file.";
+      default:
+        return "Tool failed.";
+    }
+  }
+
+  if (part.state === "output-available") {
+    switch (toolName) {
+      case "fetch_url":
+        return target ? `Fetched from ${target}.` : "Fetched URL.";
+      case "read_file":
+        return target ? `Read ${target}.` : "Read file.";
+      case "write_file":
+        return target ? `Wrote ${target}.` : "Wrote file.";
+      default:
+        return "Tool completed.";
+    }
+  }
+
+  if (part.state === "approval-requested") {
+    return target ? `Ready to write ${target}.` : "Ready to write file.";
+  }
+
+  switch (toolName) {
+    case "fetch_url":
+      return target ? `Fetching from ${target}.` : "Fetching URL.";
+    case "read_file":
+      return target ? `Reading ${target}.` : "Reading file.";
+    case "write_file":
+      return target ? `Writing ${target}.` : "Writing file.";
+    default:
+      return `${formatToolState(part.state)}.`;
+  }
 }
 
 function isLikelyJsonString(value: string) {
@@ -346,6 +428,56 @@ function renderPart(
     const isPendingApproval = typeof part.toolCallId === "string" && options.pendingToolApprovalIds.has(part.toolCallId);
     const isWriteFileCall = toolName === "write_file" && isWriteFileInput(part.input);
     const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
+
+    if (isInternalToolName(toolName)) {
+      const Icon = getInternalToolIcon(toolName);
+      const isExecuting = isExecutingToolState(part.state);
+      const message = getInternalToolMessage(toolName, part);
+
+      return (
+        <div key={`${part.type}-${index}`} className={internalToolLineClassName} data-tool-phase={toolStateMeta.phase}>
+          <Icon aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
+          <span className={`${isExecuting ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={message}>{message}</span>
+          {part.errorText ? <span className="min-w-0 truncate text-error" title={part.errorText}>{part.errorText}</span> : null}
+          {part.state === "approval-requested" && canApprove ? (
+            <span className="ml-1 inline-flex shrink-0 gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                onClick={() => {
+                  void options.onToolApproval?.({
+                    runId,
+                    toolCallId: part.toolCallId!,
+                    confirmationToken: part.approval!.id,
+                    decision: "approved"
+                  });
+                }}
+              >
+                {isPendingApproval ? "Submitting..." : "Approve"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                onClick={() => {
+                  void options.onToolApproval?.({
+                    runId,
+                    toolCallId: part.toolCallId!,
+                    confirmationToken: part.approval!.id,
+                    decision: "rejected"
+                  });
+                }}
+              >
+                Reject
+              </Button>
+            </span>
+          ) : null}
+        </div>
+      );
+    }
 
     return (
       <details key={`${part.type}-${index}`} className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>

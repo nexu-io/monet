@@ -185,6 +185,47 @@ test("persisted tool outputs are truncated for oversized or file-like payloads",
   }
 });
 
+test("stored typed tool parts remain renderable when toolName is omitted", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_user_fetch",
+          role: "user",
+          parts: [{ type: "text", text: "Summarize a URL." }]
+        } as any,
+        {
+          id: "msg_assistant_fetch",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-fetch_url",
+              state: "output-available",
+              input: { url: "https://paulgraham.com/google.html" },
+              output: {
+                content: "Fetched content"
+              }
+            }
+          ]
+        } as any
+      ]
+    });
+    const detail = storage.getSessionDetail(prepared.sessionId);
+    const assistantMessage = detail.messages.find((message) => message.id === "msg_assistant_fetch");
+    const persistedUiMessage = assistantMessage?.uiMessage as { parts?: unknown[] } | undefined;
+    const toolPart = persistedUiMessage?.parts?.[0] as { type?: string; output?: { toolName?: string; truncated?: boolean } } | undefined;
+
+    assert.equal(toolPart?.type, "tool-fetch_url");
+    assert.equal(toolPart?.output?.toolName, "fetch_url");
+    assert.equal(toolPart?.output?.truncated, true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("message upserts preserve the original run linkage for existing idempotency keys", () => {
   const fixture = createStorageFixture();
 

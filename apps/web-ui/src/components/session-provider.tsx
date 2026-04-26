@@ -14,15 +14,8 @@ import {
   type SessionDetailRecord,
   type SessionRecord
 } from "../lib/session-api";
-import { fetchProviderReadiness, PROVIDER_READINESS_EVENT, type ProviderReadinessSnapshot } from "../lib/provider-readiness";
 
 const SESSION_QUERY_PARAM = "session";
-
-interface ProviderReadinessState {
-  readonly loading: boolean;
-  readonly data: ProviderReadinessSnapshot | null;
-  readonly error: string | null;
-}
 
 interface SessionContextValue {
   readonly sessions: SessionRecord[];
@@ -32,13 +25,11 @@ interface SessionContextValue {
   readonly sessionsError: string | null;
   readonly isSessionsLoading: boolean;
   readonly isCurrentSessionLoading: boolean;
-  readonly providerReadiness: ProviderReadinessState;
   readonly createSession: (options?: { pathname?: string; providerId?: string; modelId?: string }) => Promise<SessionRecord>;
   readonly openSession: (sessionId: string, pathname?: string) => void;
   readonly buildSessionHref: (pathname: string, sessionId: string | null) => string;
   readonly refreshSessions: () => Promise<void>;
   readonly refreshCurrentSession: () => Promise<void>;
-  readonly refreshProviderReadiness: () => Promise<void>;
   readonly renameSession: (sessionId: string, title: string) => Promise<SessionRecord>;
   readonly archiveSession: (sessionId: string) => Promise<SessionRecord>;
 }
@@ -74,12 +65,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isSessionsLoading, setIsSessionsLoading] = useState(true);
   const [isCurrentSessionLoading, setIsCurrentSessionLoading] = useState(false);
-  const [providerReadiness, setProviderReadiness] = useState<ProviderReadinessState>({
-    loading: true,
-    data: null,
-    error: null
-  });
-  const hasForcedProviderSetupRef = useRef(false);
   const latestSessionDetailRequestIdRef = useRef(0);
   const currentSessionIdRef = useRef<string | null>(currentSessionId);
 
@@ -157,40 +142,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function refreshProviderReadiness() {
-    setProviderReadiness((current) => ({
-      loading: true,
-      data: current.data,
-      error: null
-    }));
-
-    try {
-      setProviderReadiness({
-        loading: false,
-        data: await fetchProviderReadiness(),
-        error: null
-      });
-    } catch (error) {
-      setProviderReadiness({
-        loading: false,
-        data: null,
-        error: error instanceof Error ? error.message : "Failed to load provider readiness."
-      });
-    }
-  }
-
   async function createSession(options?: { pathname?: string; providerId?: string; modelId?: string }) {
-    const readyProvider = providerReadiness.data?.firstReadyProvider;
     const session = await createSessionRequest(
       options?.providerId && options.modelId
         ? {
             providerId: options.providerId,
             modelId: options.modelId
-          }
-        : readyProvider
-        ? {
-            providerId: readyProvider.providerId,
-            modelId: readyProvider.modelId
           }
         : undefined
     );
@@ -242,48 +199,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshSessions();
-    void refreshProviderReadiness();
-  }, []);
-
-  useEffect(() => {
-    function handleProviderReadinessUpdate() {
-      void refreshProviderReadiness();
-    }
-
-    window.addEventListener(PROVIDER_READINESS_EVENT, handleProviderReadinessUpdate);
-
-    return () => {
-      window.removeEventListener(PROVIDER_READINESS_EVENT, handleProviderReadinessUpdate);
-    };
   }, []);
 
   useEffect(() => {
     void refreshCurrentSession();
   }, [currentSessionId]);
-
-  useEffect(() => {
-    if (pathname !== "/") {
-      return;
-    }
-
-    if (isSessionsLoading || providerReadiness.loading) {
-      return;
-    }
-
-    const shouldForceProviderSetup = !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
-
-    if (providerReadiness.data?.hasReadyProvider) {
-      hasForcedProviderSetupRef.current = false;
-    }
-
-    if (shouldForceProviderSetup && !hasForcedProviderSetupRef.current) {
-      hasForcedProviderSetupRef.current = true;
-      startTransition(() => {
-        navigate("/settings/models", { replace: true });
-      });
-      return;
-    }
-  }, [isSessionsLoading, navigate, pathname, providerReadiness.data, providerReadiness.error, providerReadiness.loading]);
 
   const currentSession = currentSessionDetail ?? sessions.find((session) => session.id === currentSessionId) ?? null;
   const value = useMemo<SessionContextValue>(
@@ -295,17 +215,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sessionsError,
       isSessionsLoading,
       isCurrentSessionLoading,
-      providerReadiness,
       createSession,
       openSession,
       buildSessionHref,
       refreshSessions,
       refreshCurrentSession,
-      refreshProviderReadiness,
       renameSession,
       archiveSession
     }),
-    [currentSession, currentSessionDetail, currentSessionId, isCurrentSessionLoading, isSessionsLoading, providerReadiness, sessions, sessionsError]
+    [currentSession, currentSessionDetail, currentSessionId, isCurrentSessionLoading, isSessionsLoading, sessions, sessionsError]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

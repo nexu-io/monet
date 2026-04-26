@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 
@@ -13,7 +12,7 @@ import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provid
 import { sanitizeInternalRuntimeMessage } from "../components/workspace-copy";
 import { useControllerState } from "../lib/controller-state";
 import { getMonetClientConfig } from "../lib/monet-client";
-import type { ProviderReadinessTarget } from "../lib/provider-readiness";
+import { fetchProviderTargets, type ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
 
 const primarySessionActionButtonClassName =
@@ -145,11 +144,18 @@ function SessionChatSurface({
   const isBusy = status === "submitted" || status === "streaming";
   const hasUserMessages = messages.some((message) => message.role === "user");
   const isArchived = session.archivedAt !== null;
-  const isProviderUnavailable = !resolvedProviderId || !resolvedModelId;
-  const isComposerDisabled = isArchived || isProviderUnavailable;
+  const isComposerDisabled = isArchived;
   const composerDisabledReason = isArchived
     ? "This session is archived. Create a new session or switch to an active one to continue chatting."
-    : "Complete provider setup in Model Settings before starting a chat.";
+    : undefined;
+
+  useEffect(() => {
+    setInput("");
+    setApprovalErrorText(undefined);
+    setOverrideProviderTarget(null);
+    pendingContinuationRef.current = null;
+    clearError();
+  }, [clearError, session.id]);
 
   useEffect(() => {
     if (!overrideProviderTarget) {
@@ -430,18 +436,38 @@ export default function HomePage() {
   const {
     createSession,
     currentSessionDetail,
-    providerReadiness,
     refreshCurrentSession,
     refreshSessions,
     renameSession,
     sessionsError
   } = useSessions();
+  const [providerTargets, setProviderTargets] = useState<ProviderReadinessTarget[]>([]);
 
-  const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const controllerStateLabel = controllerState?.state;
-  const readyProviders = providerReadiness.data?.readyProviders ?? [];
-  const activeProviderTarget =
-    providerReadiness.data?.firstReadyProvider ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const targets = await fetchProviderTargets();
+
+        if (!cancelled) {
+          setProviderTargets(targets);
+        }
+      } catch {
+        if (!cancelled) {
+          setProviderTargets([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const defaultProviderTarget = providerTargets[0] ?? null;
 
   async function handleRenameSession(sessionId: string, title: string) {
     try {
@@ -452,7 +478,6 @@ export default function HomePage() {
   }
 
   async function handleEmptyChatSend(prompt: string, providerTarget: ProviderReadinessTarget | null) {
-    if (providerSetupRequired) return;
     // Stash the pending prompt so the new chat surface picks it up on mount.
     // We use sessionStorage (not localStorage) so it never leaks across tabs.
     try {
@@ -472,20 +497,18 @@ export default function HomePage() {
     const controllerBooting =
       controllerStateLabel === "starting" || controllerStateLabel === "restarting";
     const composerDisabled =
-      providerSetupRequired || controllerOffline || controllerBooting;
+      controllerOffline || controllerBooting;
     const composerDisabledReason = controllerOffline
       ? sanitizeInternalRuntimeMessage(controllerState?.message) ?? "Restart your local workspace to continue."
       : controllerBooting
         ? "Waiting for your local workspace…"
-        : providerSetupRequired
-          ? "Finish model setup to start chatting."
-          : sessionsError ?? undefined;
+        : sessionsError ?? undefined;
 
     return (
       <>
         <EmptyChatConversation
-          readyProviders={readyProviders}
-          activeProviderTarget={activeProviderTarget}
+          readyProviders={providerTargets}
+          activeProviderTarget={defaultProviderTarget}
           isComposerDisabled={composerDisabled}
           {...(composerDisabledReason ? { composerDisabledReason } : {})}
           onCreateSession={handleEmptyChatSend}
@@ -504,27 +527,26 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        {providerSetupRequired ? (
-          <div className="fixed right-6 bottom-6 z-10">
-            <Link to="/settings/models" className={primarySessionActionButtonClassName}>
-              Open model settings
-            </Link>
-          </div>
-        ) : null}
       </>
     );
   }
 
+  const fallbackProviderTarget = currentSessionDetail.defaultProviderId && currentSessionDetail.defaultModelId
+    ? providerTargets.find(
+        (target) => target.providerId === currentSessionDetail.defaultProviderId && target.modelId === currentSessionDetail.defaultModelId
+      ) ?? {
+        providerId: currentSessionDetail.defaultProviderId,
+        modelId: currentSessionDetail.defaultModelId,
+        providerDisplayName: "Default provider",
+        modelName: null
+      }
+    : null;
+
   return (
     <SessionChatSurface
-      key={currentSessionDetail.id}
       session={currentSessionDetail}
-      readyProviders={providerReadiness.data?.readyProviders ?? []}
-      fallbackProviderTarget={
-        providerReadiness.data?.readyProviders.find(
-          (provider) => provider.providerId === currentSessionDetail.defaultProviderId && provider.modelId === currentSessionDetail.defaultModelId
-        ) ?? providerReadiness.data?.firstReadyProvider ?? null
-      }
+      readyProviders={providerTargets}
+      fallbackProviderTarget={fallbackProviderTarget}
       onRenameSession={handleRenameSession}
       onRefreshCurrentSession={refreshCurrentSession}
       onRefreshSessions={refreshSessions}

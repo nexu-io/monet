@@ -48,12 +48,9 @@ export function AppShell({
     currentSessionId,
     isSessionsLoading,
     openSession,
-    providerReadiness,
     sessions
   } = useSessions();
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 20);
-  const isProviderReadinessLoading = providerReadiness.loading;
-  const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const { isDesktop } = useControllerState();
   const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>();
   const isSettingsOpen = pathname.startsWith("/settings");
@@ -64,11 +61,6 @@ export function AppShell({
   }, []);
 
   async function handleCreateSession() {
-    if (providerSetupRequired) {
-      navigate("/settings/models");
-      return;
-    }
-
     await createSession({ pathname: "/" });
   }
 
@@ -158,13 +150,8 @@ export function AppShell({
             size="md"
             className="w-full justify-start"
             onClick={() => void handleCreateSession()}
-            disabled={isProviderReadinessLoading}
           >
-            {isProviderReadinessLoading
-              ? "Checking setup…"
-              : providerSetupRequired
-                ? "Finish model setup"
-                : "+ New chat"}
+            + New chat
           </Button>
 
         </SidebarHeader>
@@ -183,7 +170,7 @@ export function AppShell({
               ) : null}
               {!isSessionsLoading && recentSessions.length === 0 ? (
                 <p className="px-2.5 py-2 text-sm text-text-tertiary">
-                  {providerSetupRequired ? "Finish provider setup to create the first chat." : "No active chats yet."}
+                  No active chats yet.
                 </p>
               ) : null}
               {recentSessions.map((session) => {

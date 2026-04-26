@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   Button,
@@ -18,7 +18,6 @@ import {
   type DesktopAppPathsSnapshot,
   type ProviderSecretStorageSnapshot
 } from "../lib/monet-client";
-import { PROVIDER_READINESS_EVENT } from "../lib/provider-readiness";
 import { useTheme, type AppTheme } from "./theme-provider";
 
 export const settingsPanels = [
@@ -196,14 +195,6 @@ function formatTimestamp(value: string) {
 
 function getDesktopApi() {
   return typeof window === "undefined" ? undefined : window.monetDesktop;
-}
-
-function notifyProviderReadinessUpdated() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.dispatchEvent(new Event(PROVIDER_READINESS_EVENT));
 }
 
 function getSecretStatus(snapshot: ProviderSecretStorageSnapshot | null, providerType: Provider["type"]) {
@@ -770,6 +761,7 @@ function ModelSettingsPanel() {
   const [modelSearch, setModelSearch] = useState("");
   const [selectedModelIdsByProviderId, setSelectedModelIdsByProviderId] = useState<Record<string, string[]>>({});
   const [modelSelectionBusyId, setModelSelectionBusyId] = useState<string | null>(null);
+  const [isCatalogRefreshLoading, setIsCatalogRefreshLoading] = useState(false);
   const [validationByProviderId, setValidationByProviderId] = useState<Record<string, ProviderValidationState>>({});
   const [secretStorageState, setSecretStorageState] = useState<ProviderSecretStorageState>(initialSecretStorageState);
   const [secretInput, setSecretInput] = useState("");
@@ -786,6 +778,10 @@ function ModelSettingsPanel() {
   });
   const [createProviderBusy, setCreateProviderBusy] = useState(false);
   const [createProviderError, setCreateProviderError] = useState<string | null>(null);
+  const backgroundCatalogRefreshProviderIdsRef = useRef(new Set<string>());
+  const selectedProviderIdRef = useRef<string | null>(selectedProviderId);
+
+  selectedProviderIdRef.current = selectedProviderId;
 
   const providers = providersState.data ?? [];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? null;
@@ -820,16 +816,6 @@ function ModelSettingsPanel() {
       provider.type.toLowerCase().includes(normalized)
     );
   }, [providers, providerSearch]);
-
-  const allValidationsSettled = useMemo(
-    () => providers.length > 0 && providers.every((provider) => validationByProviderId[provider.id] && !validationByProviderId[provider.id]?.loading),
-    [providers, validationByProviderId]
-  );
-
-  const hasReadyProvider = useMemo(
-    () => providers.some((provider) => validationByProviderId[provider.id]?.data?.valid),
-    [providers, validationByProviderId]
-  );
 
   const showCreateForm = isCreatingProvider || providers.length === 0;
   const providerBaseUrlChanged = (providerBaseUrlInput.trim() || null) !== (selectedProvider?.baseUrl ?? null);
@@ -890,7 +876,6 @@ function ModelSettingsPanel() {
           error: null
         }
       }));
-      notifyProviderReadinessUpdated();
     } catch (error) {
       setValidationByProviderId((current) => ({
         ...current,
@@ -900,7 +885,6 @@ function ModelSettingsPanel() {
           error: error instanceof Error ? error.message : "Unable to validate provider."
         }
       }));
-      notifyProviderReadinessUpdated();
     }
   }, []);
 
@@ -931,36 +915,18 @@ function ModelSettingsPanel() {
 
       if (nextProviders.length === 0) {
         setValidationByProviderId({});
-        notifyProviderReadinessUpdated();
         return;
       }
-
-      const loadingStates = Object.fromEntries(
-        nextProviders.map((provider) => [
-          provider.id,
-          {
-            loading: true,
-            data: null,
-            error: null
-          } satisfies ProviderValidationState
-        ])
-      );
-
-      setValidationByProviderId(loadingStates);
-
-      await Promise.all(nextProviders.map(async (provider) => validateProvider(provider.id)));
-      notifyProviderReadinessUpdated();
     } catch (error) {
       setProvidersState({
         loading: false,
         data: null,
         error: error instanceof Error ? error.message : "Unable to load providers."
       });
-      notifyProviderReadinessUpdated();
     }
-  }, [isCreatingProvider, validateProvider]);
+  }, [isCreatingProvider]);
 
-  const loadProviderModels = useCallback(async (options?: { refresh?: boolean }) => {
+  const loadProviderModels = useCallback(async () => {
     const providerId = selectedProviderId;
 
     if (!providerId) {
@@ -970,7 +936,7 @@ function ModelSettingsPanel() {
 
     const cachedState = modelsCacheByProviderId[providerId];
 
-    if (!options?.refresh && cachedState) {
+    if (cachedState) {
       setModelsState(cachedState);
       setSelectedModelIdsByProviderId((current) => ({
         ...current,
@@ -981,20 +947,22 @@ function ModelSettingsPanel() {
 
     setModelsState({
       loading: true,
-      data: cachedState?.data ?? null,
+      data: null,
       error: null
     });
     setModelsCacheByProviderId((current) => ({
       ...current,
       [providerId]: {
         loading: true,
-        data: cachedState?.data ?? null,
+        data: null,
         error: null
       }
     }));
 
     try {
-      const result = await requestControllerJson<{ models: ProviderModel[] }>(`/api/providers/${providerId}/models`);
+      const result = await requestControllerJson<{ models: ProviderModel[] }>(
+        `/api/providers/${providerId}/models`
+      );
       const nextState = {
         loading: false,
         data: result.models,
@@ -1013,7 +981,7 @@ function ModelSettingsPanel() {
     } catch (error) {
       const nextState = {
         loading: false,
-        data: cachedState?.data ?? null,
+        data: null,
         error: error instanceof Error ? error.message : "Unable to load provider models."
       } satisfies ProviderModelsCacheEntry;
 
@@ -1024,6 +992,43 @@ function ModelSettingsPanel() {
       setModelsState(nextState);
     }
   }, [modelsCacheByProviderId, selectedProviderId]);
+
+  const refreshProviderCatalog = useCallback(async (providerId: string, options?: { visible?: boolean }) => {
+    if (options?.visible) {
+      setIsCatalogRefreshLoading(true);
+    }
+
+    try {
+      const result = await requestControllerJson<{ models: ProviderModel[] }>(`/api/providers/${providerId}/catalog`, {
+        method: "POST"
+      });
+      const nextState = {
+        loading: false,
+        data: result.models,
+        error: null
+      } satisfies ProviderModelsCacheEntry;
+
+      setModelsCacheByProviderId((current) => ({
+        ...current,
+        [providerId]: nextState
+      }));
+      setSelectedModelIdsByProviderId((current) => ({
+        ...current,
+        [providerId]: getPersistedSelectedModelIds(result.models)
+      }));
+
+      if (selectedProviderIdRef.current === providerId) {
+        setModelsState(nextState);
+      }
+    } catch {
+      // Background catalog refresh is best-effort and should never block or
+      // surface errors in normal settings navigation.
+    } finally {
+      if (options?.visible) {
+        setIsCatalogRefreshLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     void loadProviders();
@@ -1045,8 +1050,17 @@ function ModelSettingsPanel() {
       return;
     }
 
-    void loadProviderModels();
-  }, [loadProviderModels, selectedProviderId]);
+    void (async () => {
+      await loadProviderModels();
+
+      if (backgroundCatalogRefreshProviderIdsRef.current.has(selectedProviderId)) {
+        return;
+      }
+
+      backgroundCatalogRefreshProviderIdsRef.current.add(selectedProviderId);
+      void refreshProviderCatalog(selectedProviderId);
+    })();
+  }, [loadProviderModels, refreshProviderCatalog, selectedProviderId]);
 
   const saveSelectedProviderSettings = useCallback(async () => {
     if (!selectedProvider) {
@@ -1095,7 +1109,6 @@ function ModelSettingsPanel() {
       }
 
       await loadProviders();
-      await validateProvider(selectedProvider.id);
       setSecretInput("");
       setSecretFeedback(
         shouldUpdateProvider && shouldSaveSecret
@@ -1133,6 +1146,7 @@ function ModelSettingsPanel() {
       });
 
       await loadProviders();
+      await validateProvider(result.id);
       setIsCreatingProvider(false);
       setSelectedProviderId(result.id);
       setCreateProviderDraft({
@@ -1191,7 +1205,6 @@ function ModelSettingsPanel() {
       const restartResult = await desktopApi.restartController?.();
 
       await loadProviders();
-      await validateProvider(selectedProvider.id);
       setSecretInput("");
       setSecretFeedback(
         restartResult?.restarted === false
@@ -1266,11 +1279,10 @@ function ModelSettingsPanel() {
         };
       });
       setModelSearch("");
-      await validateProvider(providerId);
     } finally {
       setModelSelectionBusyId(null);
     }
-  }, [modelCatalog, selectedModelIds.length, updateCachedModel, validateProvider]);
+  }, [modelCatalog, selectedModelIds.length, updateCachedModel]);
 
   const removeSelectedModel = useCallback(async (providerId: string, modelId: string) => {
     setModelSelectionBusyId(modelId);
@@ -1286,11 +1298,10 @@ function ModelSettingsPanel() {
         ...current,
         [providerId]: (current[providerId] ?? []).filter((id) => id !== modelId)
       }));
-      await validateProvider(providerId);
     } finally {
       setModelSelectionBusyId(null);
     }
-  }, [updateCachedModel, validateProvider]);
+  }, [updateCachedModel]);
 
   if (providersState.loading) {
     return (
@@ -1340,18 +1351,6 @@ function ModelSettingsPanel() {
 
   return (
     <div className={settingsModelsStackClassName}>
-      {!hasReadyProvider && allValidationsSettled && providers.length > 0 ? (
-        <Card className={`${surfaceCardClassName} flex flex-col gap-2 border-dashed`}>
-          <CardHeader>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Setup guidance</span>
-              <CardTitle className="m-0 text-xl font-semibold text-text-heading">No provider is ready yet</CardTitle>
-              <CardDescription className="m-0 leading-[1.5] text-text-muted">Add a provider and save a secret to enable chat.</CardDescription>
-            </div>
-          </CardHeader>
-        </Card>
-      ) : null}
-
       <Card className={settingsModelSplitPanelClassName}>
         <div className="flex min-h-[600px] max-h-[calc(100vh-220px)] flex-col md:flex-row">
           <section className={settingsModelPaneListClassName}>
@@ -1649,19 +1648,23 @@ function ModelSettingsPanel() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => void loadProviderModels({ refresh: true })}
+                      onClick={() => selectedProviderId && void refreshProviderCatalog(selectedProviderId, { visible: true })}
                       className="text-[11px] text-text-secondary hover:text-text-primary"
-                      disabled={modelsState.loading}
+                      disabled={isCatalogRefreshLoading}
                     >
-                      {modelsState.loading ? "Refreshing…" : "Refresh catalog"}
+                      {isCatalogRefreshLoading ? "Refreshing…" : modelCatalog.length > 0 ? "Refresh catalog" : "Load catalog"}
                     </button>
                   </div>
 
-                  {modelsState.loading ? <p className="m-0 text-xs text-text-muted">Loading cached catalog…</p> : null}
+                  {modelsState.loading ? (
+                    <p className="m-0 text-xs text-text-muted">
+                      {isCatalogRefreshLoading ? "Loading provider catalog…" : "Loading configured models…"}
+                    </p>
+                  ) : null}
                   {modelsState.error ? <p className="m-0 text-xs text-error mono">{modelsState.error}</p> : null}
 
                   {!modelsState.loading && !modelsState.error && !modelCatalog.length ? (
-                    <p className="m-0 text-xs text-text-muted">No models in cache.</p>
+                    <p className="m-0 text-xs text-text-muted">Load the catalog when you want to add models.</p>
                   ) : null}
 
                   {modelCatalog.length > 0 ? (

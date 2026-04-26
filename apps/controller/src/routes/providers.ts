@@ -221,6 +221,43 @@ const listProviderModelsRoute = createRoute({
   }
 });
 
+const fetchProviderCatalogRoute = createRoute({
+  method: "post",
+  path: "/api/providers/{providerId}/catalog",
+  tags: ["Providers"],
+  summary: "Fetch provider catalog",
+  description: "Fetches the external provider model catalog, persists it, and returns the updated persisted models.",
+  request: {
+    params: providerIdParamSchema
+  },
+  responses: {
+    200: {
+      description: "Provider catalog fetched successfully.",
+      content: {
+        "application/json": {
+          schema: ListModelsResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "The requested provider was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The provider catalog could not be fetched.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
 const validateProviderRoute = createRoute({
   method: "post",
   path: "/api/providers/{providerId}/validate",
@@ -335,6 +372,7 @@ export function registerProviderRoutes(
     try {
       const input = context.req.valid("json");
       const provider = options.getChatStorage().createProvider(input);
+      options.providerRuntime.invalidateProviderCache();
       return context.json(provider, 201);
     } catch (error) {
       const response = createProviderErrorResponse(error);
@@ -345,6 +383,7 @@ export function registerProviderRoutes(
   app.openapi(updateProviderRoute, async (context) => {
     try {
       const provider = options.getChatStorage().updateProvider(context.req.valid("param").providerId, context.req.valid("json"));
+      options.providerRuntime.invalidateProviderCache(provider.id);
       return context.json(provider, 200);
     } catch (error) {
       const response = createProviderErrorResponse(error);
@@ -354,7 +393,9 @@ export function registerProviderRoutes(
 
   app.openapi(deleteProviderRoute, async (context) => {
     try {
-      options.getChatStorage().deleteProvider(context.req.valid("param").providerId);
+      const providerId = context.req.valid("param").providerId;
+      options.getChatStorage().deleteProvider(providerId);
+      options.providerRuntime.invalidateProviderCache(providerId);
       return new Response(null, { status: 204 });
     } catch (error) {
       const response = createProviderErrorResponse(error);
@@ -363,15 +404,6 @@ export function registerProviderRoutes(
   });
 
   app.openapi(listModelsRoute, async (context) => {
-    try {
-      await options.providerRuntime.syncProviderCatalog();
-    } catch (error) {
-      providersLogger.warn("providers.sync_catalog_failed", {
-        scope: "all-models",
-        reason: error instanceof Error ? error.message : "unknown_error"
-      });
-    }
-
     return context.json(
       {
         models: options.getChatStorage().listModels()
@@ -382,11 +414,28 @@ export function registerProviderRoutes(
 
   app.openapi(listProviderModelsRoute, async (context) => {
     try {
-      await options.providerRuntime.syncProviderCatalog(context.req.valid("param").providerId);
-
       return context.json(
         {
           models: options.getChatStorage().listModels(context.req.valid("param").providerId)
+        },
+        200
+      );
+    } catch (error) {
+      const response = createProviderErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(fetchProviderCatalogRoute, async (context) => {
+    try {
+      const providerId = context.req.valid("param").providerId;
+
+      await options.providerRuntime.syncProviderCatalog(providerId, { force: true });
+
+      return context.json(
+        {
+          models: options.getChatStorage().listModels(providerId)
         },
         200
       );
@@ -409,13 +458,13 @@ export function registerProviderRoutes(
 
   app.openapi(updateProviderModelRoute, async (context) => {
     try {
-      return context.json(
-        options.getChatStorage().updateProviderModel({
-          modelId: context.req.valid("param").modelId,
-          enabled: context.req.valid("json").enabled
-        }),
-        200
-      );
+      const model = options.getChatStorage().updateProviderModel({
+        modelId: context.req.valid("param").modelId,
+        enabled: context.req.valid("json").enabled
+      });
+      options.providerRuntime.invalidateProviderCache(model.providerId);
+
+      return context.json(model, 200);
     } catch (error) {
       const response = createProviderErrorResponse(error);
 

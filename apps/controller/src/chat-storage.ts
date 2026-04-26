@@ -1974,6 +1974,10 @@ function normalizeStoredUiMessagePart(part: unknown, schemaVersion: string) {
     });
   }
 
+  if (part.type === "unknown" && isObjectRecord(part.raw) && isKnownUiMessagePart(part.raw)) {
+    return part.raw;
+  }
+
   if (!isKnownUiMessagePart(part)) {
     return createUnknownUiMessagePart({
       raw: part,
@@ -1994,7 +1998,7 @@ function isKnownUiMessagePart(part: Record<string, unknown>) {
   }
 
   if (type.startsWith("tool-")) {
-    return typeof part.toolName === "string" && typeof part.state === "string";
+    return typeof part.state === "string";
   }
 
   if (!KNOWN_UI_MESSAGE_PART_TYPES.has(type)) {
@@ -2164,20 +2168,21 @@ function sanitizePersistedMessagePart(part: unknown) {
   }
 
   const type = typeof part.type === "string" ? part.type : "";
+  const toolName = getStoredToolPartName(part);
 
-  if ((type === "dynamic-tool" || type.startsWith("tool-")) && typeof part.toolName === "string" && "output" in part) {
+  if ((type === "dynamic-tool" || type.startsWith("tool-")) && toolName != null && "output" in part) {
     const output = (part as { output?: unknown }).output;
     const serialized = serializeToolCallPayload(output);
     const outputSizeBytes = Buffer.byteLength(serialized, "utf8");
     const shouldTruncate =
-      ALWAYS_TRUNCATED_PERSISTED_TOOL_NAMES.has(part.toolName) || outputSizeBytes > MAX_PERSISTED_TOOL_OUTPUT_BYTES;
+      ALWAYS_TRUNCATED_PERSISTED_TOOL_NAMES.has(toolName) || outputSizeBytes > MAX_PERSISTED_TOOL_OUTPUT_BYTES;
 
     if (shouldTruncate) {
       return {
         ...part,
         output: {
           truncated: true,
-          toolName: part.toolName,
+          toolName,
           outputSizeBytes,
           preview: truncateSerializedValue(serialized, 1_200)
         }
@@ -2186,6 +2191,14 @@ function sanitizePersistedMessagePart(part: unknown) {
   }
 
   return part;
+}
+
+function getStoredToolPartName(part: Record<string, unknown>) {
+  if (typeof part.toolName === "string" && part.toolName.trim().length > 0) {
+    return part.toolName;
+  }
+
+  return typeof part.type === "string" && part.type.startsWith("tool-") ? part.type.slice("tool-".length) : null;
 }
 
 function truncateSerializedValue(serialized: string, maxLength: number) {
