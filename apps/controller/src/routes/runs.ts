@@ -145,11 +145,6 @@ export function registerRunRoutes(
         return context.json(createErrorResponse("invalid_state", "Run has exhausted its max-step budget."), 409);
       }
 
-      options.getChatStorage().persistRunMessages({
-        sessionId: run.sessionId,
-        runId,
-        messages
-      });
       const resumeSucceeded = options.getChatStorage().resumeRun(runId);
 
       if (!resumeSucceeded) {
@@ -157,6 +152,12 @@ export function registerRunRoutes(
       }
 
       resumed = true;
+
+      options.getChatStorage().persistRunMessages({
+        sessionId: run.sessionId,
+        runId,
+        messages
+      });
 
       return await createChatStreamResponse({
         request: {

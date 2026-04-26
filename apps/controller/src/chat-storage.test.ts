@@ -490,3 +490,147 @@ test("deleteProvider rejects unknown providers", () => {
     fixture.cleanup();
   }
 });
+
+test("replaceProviderCatalog removes stale unreferenced models and resets stale defaults", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const now = new Date().toISOString();
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      connection
+        .prepare(
+          `INSERT INTO provider_models (
+             id,
+             provider_id,
+             model_name,
+             display_name,
+             supports_tools,
+             supports_reasoning,
+             enabled,
+             capabilities_json,
+             created_at,
+             updated_at
+           ) VALUES (?, ?, ?, ?, 1, 1, 1, NULL, ?, ?)`
+        )
+        .run("mod_stale_openai", "pro_test_openai", "stale-gpt", "stale-gpt", now, now);
+
+      connection
+        .prepare(`UPDATE providers SET default_model_name = ? WHERE id = ?`)
+        .run("stale-gpt", "pro_test_openai");
+
+      storage.replaceProviderCatalog({
+        providerId: "pro_test_openai",
+        models: [
+          {
+            modelName: "gpt-4.1-mini",
+            displayName: "gpt-4.1-mini",
+            supportsTools: true,
+            supportsReasoning: true,
+            capabilitiesJson: null
+          }
+        ]
+      });
+
+      const staleModelCount = connection
+        .prepare(`SELECT COUNT(*) AS count FROM provider_models WHERE provider_id = ? AND model_name = ?`)
+        .get("pro_test_openai", "stale-gpt") as { count: number };
+
+      assert.equal(staleModelCount.count, 0);
+
+      const provider = connection
+        .prepare(`SELECT default_model_name FROM providers WHERE id = ?`)
+        .get("pro_test_openai") as { default_model_name: string | null };
+
+      assert.equal(provider.default_model_name, "gpt-4.1-mini");
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("replaceProviderCatalog disables stale referenced models instead of deleting them", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const now = new Date().toISOString();
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      connection
+        .prepare(
+          `INSERT INTO provider_models (
+             id,
+             provider_id,
+             model_name,
+             display_name,
+             supports_tools,
+             supports_reasoning,
+             enabled,
+             capabilities_json,
+             created_at,
+             updated_at
+           ) VALUES (?, ?, ?, ?, 1, 1, 1, NULL, ?, ?)`
+        )
+        .run("mod_stale_openai_ref", "pro_test_openai", "stale-gpt-ref", "stale-gpt-ref", now, now);
+
+      const prepared = storage.prepareChatRequest({
+        messages: [
+          {
+            id: "msg_user_1",
+            role: "user",
+            parts: [{ type: "text", text: "Hello" }]
+          } as any
+        ]
+      });
+
+      connection
+        .prepare(
+          `INSERT INTO runs (
+             id,
+             session_id,
+             status,
+             provider_id,
+             model_id,
+             current_step,
+             max_steps,
+             max_tokens_per_run,
+             wall_clock_deadline_at,
+             finish_reason,
+             started_at,
+             ended_at
+           ) VALUES (?, ?, 'running', ?, ?, 0, 1, NULL, NULL, NULL, ?, NULL)`
+        )
+        .run("run_stale_model_ref", prepared.sessionId, "pro_test_openai", "mod_stale_openai_ref", now);
+
+      storage.replaceProviderCatalog({
+        providerId: "pro_test_openai",
+        models: [
+          {
+            modelName: "gpt-4.1-mini",
+            displayName: "gpt-4.1-mini",
+            supportsTools: true,
+            supportsReasoning: true,
+            capabilitiesJson: null
+          }
+        ]
+      });
+
+      const staleModel = connection
+        .prepare(`SELECT enabled FROM provider_models WHERE id = ?`)
+        .get("mod_stale_openai_ref") as { enabled: number } | undefined;
+
+      assert.ok(staleModel !== undefined);
+      assert.equal(staleModel.enabled, 0);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});

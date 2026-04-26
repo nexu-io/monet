@@ -837,7 +837,9 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       };
     },
 
-    replaceProviderCatalog({ providerId, defaultModelName, models }) {
+    replaceProviderCatalog(input) {
+      const { providerId, defaultModelName, models } = input;
+      const hasExplicitDefaultModelName = Object.prototype.hasOwnProperty.call(input, "defaultModelName");
       const provider = getProviderById(connection, providerId);
 
       if (!provider) {
@@ -849,6 +851,29 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       }
 
       const now = new Date().toISOString();
+      const incomingModelNames = new Set(models.map((model) => model.modelName));
+      const existingModels = connection
+        .prepare(
+          `SELECT id, model_name, enabled
+           FROM provider_models
+           WHERE provider_id = ?`
+        )
+        .all(providerId) as Array<{ id: string; model_name: string; enabled: number }>;
+      const staleModels = existingModels.filter((model) => !incomingModelNames.has(model.model_name));
+
+      const firstIncomingModelName = models[0]?.modelName ?? null;
+      let nextDefaultModelName: string | null;
+
+      if (hasExplicitDefaultModelName && defaultModelName === null) {
+        nextDefaultModelName = null;
+      } else if (defaultModelName && incomingModelNames.has(defaultModelName)) {
+        nextDefaultModelName = defaultModelName;
+      } else if (provider.default_model_name && incomingModelNames.has(provider.default_model_name)) {
+        nextDefaultModelName = provider.default_model_name;
+      } else {
+        nextDefaultModelName = firstIncomingModelName;
+      }
+
       const upsertModelStatement = connection.prepare(
         `INSERT INTO provider_models (
           id,
@@ -879,7 +904,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
              SET default_model_name = ?, updated_at = ?
              WHERE id = ?`
           )
-          .run(defaultModelName ?? provider.default_model_name, now, providerId);
+          .run(nextDefaultModelName, now, providerId);
 
         for (const model of models) {
           const existingModel = getProviderModelByProviderAndName(connection, providerId, model.modelName);
@@ -896,6 +921,35 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
             existingModel?.created_at ?? now,
             now
           );
+        }
+
+        if (staleModels.length > 0) {
+          const hasRunReferenceStatement = connection.prepare(
+            `SELECT 1 AS exists_flag
+             FROM runs
+             WHERE model_id = ?
+             LIMIT 1`
+          );
+          const disableProviderModelStatement = connection.prepare(
+            `UPDATE provider_models
+             SET enabled = 0, updated_at = ?
+             WHERE id = ?`
+          );
+          const deleteProviderModelStatement = connection.prepare(`DELETE FROM provider_models WHERE id = ?`);
+
+          for (const model of staleModels) {
+            const hasRunReference = hasRunReferenceStatement.get(model.id) as { exists_flag: number } | undefined;
+
+            if (hasRunReference) {
+              if (model.enabled === 1) {
+                disableProviderModelStatement.run(now, model.id);
+              }
+
+              continue;
+            }
+
+            deleteProviderModelStatement.run(model.id);
+          }
         }
 
         connection.exec("COMMIT");

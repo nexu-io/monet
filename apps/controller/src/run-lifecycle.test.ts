@@ -417,6 +417,6 @@ test("continue endpoint rejects when a pending run cannot be resumed", async () 
     error: "invalid_state",
     message: "Run is not awaiting continuation."
   });
-  assert.equal(persistCalled, true);
+  assert.equal(persistCalled, false);
   assert.equal(resumeCalled, true);
 });
