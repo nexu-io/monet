@@ -11,6 +11,7 @@ import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime"
 import { getRequestId } from "../request-context";
 import type { RunRegistry } from "../run-registry";
 import type { ToolRegistry } from "../tools/registry";
+import { sanitizeUiMessages } from "../ui-message-sanitize";
 
 interface ChatRequestBody {
   readonly messages?: unknown;
@@ -113,7 +114,7 @@ export function registerChatRoutes(
 
     try {
       messages = await validateUIMessages({
-        messages: body.messages ?? []
+        messages: sanitizeUiMessages((body.messages ?? []) as UIMessage[])
       });
     } catch {
       chatLogger.warn("chat.invalid_messages", {

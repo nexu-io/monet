@@ -38,6 +38,31 @@ test("accepts valid localhost requests with a bearer token", async () => {
   assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:42832");
 });
 
+test("applies CORS headers to downstream response objects", async () => {
+  const app = new Hono();
+
+  app.use(
+    "/api/*",
+    createLocalAuthMiddleware({
+      allowedOrigins: ["http://127.0.0.1:42832"],
+      bearerToken: "test-token",
+      port: 42831
+    })
+  );
+  app.get("/api/stream", () => new Response("ok", { headers: { "content-type": "text/event-stream" } }));
+
+  const response = await app.request("http://127.0.0.1:42831/api/stream", {
+    headers: {
+      Authorization: "Bearer test-token",
+      Host: "127.0.0.1:42831",
+      Origin: "http://127.0.0.1:42832"
+    }
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("access-control-allow-origin"), "http://127.0.0.1:42832");
+});
+
 test("accepts default HTTP port loopback host headers without an explicit port", async () => {
   const app = new Hono();
 

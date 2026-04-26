@@ -44,6 +44,7 @@ type AsyncState<T> = {
 
 type ProviderValidationState = AsyncState<ValidateProviderResponse>;
 type ProviderSecretStorageState = AsyncState<ProviderSecretStorageSnapshot>;
+type ProviderModelsCacheEntry = AsyncState<ProviderModel[]>;
 type CreateProviderDraft = {
   readonly type: Provider["type"];
   readonly displayName: string;
@@ -221,6 +222,87 @@ function getThemeSwatchClassName(theme: AppTheme) {
   } satisfies Record<AppTheme, string>;
 
   return `${settingsThemeSwatchBaseClassName} ${previewClassName[theme]}`;
+}
+
+const settingsModelSplitPanelClassName =
+  "overflow-hidden rounded-2xl border border-border-subtle bg-surface-0 shadow-xs";
+const settingsModelPaneListClassName =
+  "flex w-full shrink-0 flex-col border-b border-border-subtle bg-surface-2 md:w-[216px] md:border-b-0 md:border-r";
+const settingsModelPaneDetailClassName =
+  "min-w-0 flex-1 overflow-y-auto bg-surface-0 px-6 py-5 max-sm:px-4";
+
+function getProviderInitial(provider: Provider) {
+  const customLabel = provider.displayName.trim();
+
+  if (customLabel.length > 0) {
+    return customLabel.trim().charAt(0).toUpperCase();
+  }
+
+  return provider.type === "openai" ? "O" : "R";
+}
+
+function getProviderDescription(provider: Provider) {
+  if (provider.type === "openai") {
+    return "OpenAI-compatible API with chat, tools, and structured JSON responses.";
+  }
+
+  return "OpenRouter-compatible gateway for multiple model backends.";
+}
+
+function getProviderDocsUrl(provider: Provider) {
+  return provider.type === "openai"
+    ? "https://platform.openai.com/api-keys"
+    : "https://openrouter.ai/keys";
+}
+
+function formatProviderReadinessLabel(validation: ProviderValidationState | null | undefined) {
+  if (!validation) {
+    return { status: "info" as const, label: "Not checked" };
+  }
+
+  if (validation.loading) {
+    return { status: "info" as const, label: "Checking" };
+  }
+
+  if (validation.error) {
+    return { status: "error" as const, label: "Needs setup" };
+  }
+
+  if (!validation.data) {
+    return { status: "info" as const, label: "Not checked" };
+  }
+
+  if (validation.data.valid) {
+    return { status: "success" as const, label: "Ready" };
+  }
+
+  return {
+    status: validationReasonMeta[validation.data.reason].dotStatus,
+    label: validationReasonMeta[validation.data.reason].label
+  };
+}
+
+function statusDotGlyphClass(status: ReturnType<typeof formatProviderReadinessLabel>["status"]) {
+  switch (status) {
+    case "success":
+      return "text-success";
+    case "error":
+      return "text-error";
+    case "warning":
+      return "text-warning";
+    default:
+      return "text-text-muted";
+  }
+}
+
+function getPersistedSelectedModelIds(models: readonly ProviderModel[]) {
+  const enabledModels = models.filter((model) => model.enabled);
+
+  if (enabledModels.length > 1 && enabledModels.length === models.length) {
+    return [];
+  }
+
+  return enabledModels.map((model) => model.id);
 }
 
 function requestHeaders() {
@@ -682,12 +764,18 @@ function GeneralSettingsPanel() {
 function ModelSettingsPanel() {
   const [providersState, setProvidersState] = useState<AsyncState<Provider[]>>(initialProvidersState);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [providerSearch, setProviderSearch] = useState("");
   const [modelsState, setModelsState] = useState<AsyncState<ProviderModel[]>>(initialModelsState);
+  const [modelsCacheByProviderId, setModelsCacheByProviderId] = useState<Record<string, ProviderModelsCacheEntry>>({});
+  const [modelSearch, setModelSearch] = useState("");
+  const [selectedModelIdsByProviderId, setSelectedModelIdsByProviderId] = useState<Record<string, string[]>>({});
+  const [modelSelectionBusyId, setModelSelectionBusyId] = useState<string | null>(null);
   const [validationByProviderId, setValidationByProviderId] = useState<Record<string, ProviderValidationState>>({});
   const [secretStorageState, setSecretStorageState] = useState<ProviderSecretStorageState>(initialSecretStorageState);
   const [secretInput, setSecretInput] = useState("");
   const [secretBusyAction, setSecretBusyAction] = useState<"save" | "clear" | null>(null);
   const [secretFeedback, setSecretFeedback] = useState<string | null>(null);
+  const [providerBaseUrlInput, setProviderBaseUrlInput] = useState("");
 
   const [isCreatingProvider, setIsCreatingProvider] = useState(false);
   const [createProviderDraft, setCreateProviderDraft] = useState<CreateProviderDraft>({
@@ -701,6 +789,37 @@ function ModelSettingsPanel() {
 
   const providers = providersState.data ?? [];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? null;
+  const selectedValidation = selectedProviderId ? validationByProviderId[selectedProviderId] : null;
+  const selectedValidationMeta = selectedValidation?.data ? validationReasonMeta[selectedValidation.data.reason] : null;
+  const selectedProviderSecretStatus = getSecretStatus(secretStorageState.data, selectedProvider?.type ?? "openai");
+  const modelCatalog = modelsState.data ?? [];
+  const selectedModelIds = selectedProviderId ? (selectedModelIdsByProviderId[selectedProviderId] ?? []) : [];
+  const selectedModels = selectedModelIds
+    .map((modelId) => modelCatalog.find((model) => model.id === modelId))
+    .filter((model): model is ProviderModel => Boolean(model));
+  const normalizedModelSearch = modelSearch.trim().toLowerCase();
+  const modelSearchResults = normalizedModelSearch
+    ? modelCatalog
+        .filter((model) => !selectedModelIds.includes(model.id))
+        .filter((model) =>
+          model.displayName.toLowerCase().includes(normalizedModelSearch) ||
+          model.modelName.toLowerCase().includes(normalizedModelSearch)
+        )
+        .slice(0, 8)
+    : [];
+
+  const filteredProviders = useMemo(() => {
+    const normalized = providerSearch.trim().toLowerCase();
+
+    if (!normalized) {
+      return providers;
+    }
+
+    return providers.filter((provider) =>
+      provider.displayName.toLowerCase().includes(normalized) ||
+      provider.type.toLowerCase().includes(normalized)
+    );
+  }, [providers, providerSearch]);
 
   const allValidationsSettled = useMemo(
     () => providers.length > 0 && providers.every((provider) => validationByProviderId[provider.id] && !validationByProviderId[provider.id]?.loading),
@@ -711,6 +830,9 @@ function ModelSettingsPanel() {
     () => providers.some((provider) => validationByProviderId[provider.id]?.data?.valid),
     [providers, validationByProviderId]
   );
+
+  const showCreateForm = isCreatingProvider || providers.length === 0;
+  const providerBaseUrlChanged = (providerBaseUrlInput.trim() || null) !== (selectedProvider?.baseUrl ?? null);
 
   const loadSecretStorage = useCallback(async () => {
     const desktopApi = getDesktopApi();
@@ -800,7 +922,7 @@ function ModelSettingsPanel() {
       });
 
       setSelectedProviderId((current) => {
-        if (current && nextProviders.some((provider) => provider.id === current)) {
+        if (current && nextProviders.some((provider) => provider.id === current) && !isCreatingProvider) {
           return current;
         }
 
@@ -836,7 +958,72 @@ function ModelSettingsPanel() {
       });
       notifyProviderReadinessUpdated();
     }
-  }, [validateProvider]);
+  }, [isCreatingProvider, validateProvider]);
+
+  const loadProviderModels = useCallback(async (options?: { refresh?: boolean }) => {
+    const providerId = selectedProviderId;
+
+    if (!providerId) {
+      setModelsState(initialModelsState);
+      return;
+    }
+
+    const cachedState = modelsCacheByProviderId[providerId];
+
+    if (!options?.refresh && cachedState) {
+      setModelsState(cachedState);
+      setSelectedModelIdsByProviderId((current) => ({
+        ...current,
+        [providerId]: getPersistedSelectedModelIds(cachedState.data ?? [])
+      }));
+      return;
+    }
+
+    setModelsState({
+      loading: true,
+      data: cachedState?.data ?? null,
+      error: null
+    });
+    setModelsCacheByProviderId((current) => ({
+      ...current,
+      [providerId]: {
+        loading: true,
+        data: cachedState?.data ?? null,
+        error: null
+      }
+    }));
+
+    try {
+      const result = await requestControllerJson<{ models: ProviderModel[] }>(`/api/providers/${providerId}/models`);
+      const nextState = {
+        loading: false,
+        data: result.models,
+        error: null
+      } satisfies ProviderModelsCacheEntry;
+
+      setModelsCacheByProviderId((current) => ({
+        ...current,
+        [providerId]: nextState
+      }));
+      setSelectedModelIdsByProviderId((current) => ({
+        ...current,
+        [providerId]: getPersistedSelectedModelIds(result.models)
+      }));
+      setModelsState(nextState);
+    } catch (error) {
+      const nextState = {
+        loading: false,
+        data: cachedState?.data ?? null,
+        error: error instanceof Error ? error.message : "Unable to load provider models."
+      } satisfies ProviderModelsCacheEntry;
+
+      setModelsCacheByProviderId((current) => ({
+        ...current,
+        [providerId]: nextState
+      }));
+      setModelsState(nextState);
+    }
+  }, [modelsCacheByProviderId, selectedProviderId]);
 
   useEffect(() => {
     void loadProviders();
@@ -847,64 +1034,36 @@ function ModelSettingsPanel() {
   }, [loadSecretStorage]);
 
   useEffect(() => {
+    setSecretInput("");
+    setProviderBaseUrlInput(selectedProvider?.baseUrl ?? "");
+    setModelSearch("");
+  }, [selectedProvider?.baseUrl, selectedProviderId]);
+
+  useEffect(() => {
     if (!selectedProviderId) {
       setModelsState(initialModelsState);
       return;
     }
 
-    let cancelled = false;
+    void loadProviderModels();
+  }, [loadProviderModels, selectedProviderId]);
 
-    async function loadProviderModels() {
-      setModelsState({
-        loading: true,
-        data: null,
-        error: null
-      });
-
-      try {
-        const result = await requestControllerJson<{ models: ProviderModel[] }>(`/api/providers/${selectedProviderId}/models`);
-
-        if (cancelled) {
-          return;
-        }
-
-        setModelsState({
-          loading: false,
-          data: result.models,
-          error: null
-        });
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setModelsState({
-          loading: false,
-          data: null,
-          error: error instanceof Error ? error.message : "Unable to load provider models."
-        });
-      }
+  const saveSelectedProviderSettings = useCallback(async () => {
+    if (!selectedProvider) {
+      return;
     }
 
-    void loadProviderModels();
+    const nextBaseUrl = providerBaseUrlInput.trim() || null;
+    const shouldUpdateProvider = nextBaseUrl !== selectedProvider.baseUrl;
+    const shouldSaveSecret = secretInput.trim().length > 0;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProviderId]);
-
-  const selectedValidation = selectedProviderId ? validationByProviderId[selectedProviderId] : null;
-  const selectedValidationMeta = selectedValidation?.data ? validationReasonMeta[selectedValidation.data.reason] : null;
-  const selectedProviderSecretStatus = getSecretStatus(secretStorageState.data, selectedProvider?.type ?? "openai");
-
-  const saveProviderSecret = useCallback(async () => {
-    if (!selectedProvider) {
+    if (!shouldUpdateProvider && !shouldSaveSecret) {
       return;
     }
 
     const desktopApi = getDesktopApi();
 
-    if (!desktopApi?.saveProviderSecret) {
+    if (shouldSaveSecret && !desktopApi?.saveProviderSecret) {
       setSecretFeedback(browserSecretStorageSnapshot.message);
       return;
     }
@@ -913,31 +1072,48 @@ function ModelSettingsPanel() {
     setSecretFeedback(null);
 
     try {
-      setSecretStorageState({
-        loading: false,
-        data: await desktopApi.saveProviderSecret({
-          providerType: selectedProvider.type,
-          secret: secretInput
-        }),
-        error: null
-      });
+      if (shouldUpdateProvider) {
+        await requestControllerJson<Provider>(`/api/providers/${selectedProvider.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ baseUrl: nextBaseUrl })
+        });
+      }
 
-      const restartResult = await desktopApi.restartController?.();
+      let restartResult: { restarted?: boolean } | undefined;
+
+      if (shouldSaveSecret && desktopApi?.saveProviderSecret) {
+        setSecretStorageState({
+          loading: false,
+          data: await desktopApi.saveProviderSecret({
+            providerType: selectedProvider.type,
+            secret: secretInput
+          }),
+          error: null
+        });
+
+        restartResult = await desktopApi.restartController?.();
+      }
 
       await loadProviders();
       await validateProvider(selectedProvider.id);
       setSecretInput("");
       setSecretFeedback(
-        restartResult?.restarted === false
-          ? "Secret saved to secure storage. Restart the workspace manually before revalidating provider access."
-          : "Secret saved to secure storage and the workspace was restarted."
+        shouldUpdateProvider && shouldSaveSecret
+          ? restartResult?.restarted === false
+            ? "Provider URL and secret saved. Restart the workspace manually before revalidating provider access."
+            : "Provider URL and secret saved."
+          : shouldUpdateProvider
+            ? "Provider URL saved."
+            : restartResult?.restarted === false
+              ? "Secret saved to secure storage. Restart the workspace manually before revalidating provider access."
+              : "Secret saved to secure storage and the workspace was restarted."
       );
     } catch (error) {
-      setSecretFeedback(error instanceof Error ? error.message : "Unable to save the provider secret.");
+      setSecretFeedback(error instanceof Error ? error.message : "Unable to save provider settings.");
     } finally {
       setSecretBusyAction(null);
     }
-  }, [loadProviders, secretInput, selectedProvider, validateProvider]);
+  }, [loadProviders, providerBaseUrlInput, secretInput, selectedProvider, validateProvider]);
 
   const saveProvider = useCallback(async () => {
     setCreateProviderBusy(true);
@@ -951,8 +1127,8 @@ function ModelSettingsPanel() {
         timeoutMs: createProviderDraft.timeoutMs.trim() ? parseInt(createProviderDraft.timeoutMs, 10) : null
       };
 
-      const result = await requestControllerJson<Provider>("/api/providers", {
-        method: "POST",
+      const result = await requestControllerJson<Provider>('/api/providers', {
+        method: 'POST',
         body: JSON.stringify(body)
       });
 
@@ -1029,21 +1205,108 @@ function ModelSettingsPanel() {
     }
   }, [loadProviders, selectedProvider, validateProvider]);
 
+  const handleAddProvider = useCallback(() => {
+    setIsCreatingProvider(true);
+    setSelectedProviderId(null);
+  }, []);
+
+  const updateCachedModel = useCallback((providerId: string, updatedModel: ProviderModel, options?: { autoEnabledCatalogReset?: boolean }) => {
+    setModelsCacheByProviderId((current) => {
+      const currentState = current[providerId];
+      const sourceData = currentState?.data ?? [];
+      const autoEnabledCatalogReset = options?.autoEnabledCatalogReset && sourceData.length > 1 && sourceData.every((model) => model.enabled);
+      const nextData = sourceData.map((model) => {
+        if (model.id === updatedModel.id) {
+          return updatedModel;
+        }
+
+        return autoEnabledCatalogReset ? { ...model, enabled: false } : model;
+      });
+      const nextState = {
+        loading: false,
+        data: nextData,
+        error: currentState?.error ?? null
+      } satisfies ProviderModelsCacheEntry;
+
+      return {
+        ...current,
+        [providerId]: nextState
+      };
+    });
+    setModelsState((current) => ({
+      ...current,
+      data: (current.data ?? []).map((model) => {
+        if (model.id === updatedModel.id) {
+          return updatedModel;
+        }
+
+        return options?.autoEnabledCatalogReset ? { ...model, enabled: false } : model;
+      })
+    }));
+  }, []);
+
+  const addSelectedModel = useCallback(async (providerId: string, modelId: string) => {
+    setModelSelectionBusyId(modelId);
+
+    try {
+      const updatedModel = await requestControllerJson<ProviderModel>(`/api/provider-models/${modelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: true })
+      });
+
+      const catalogLooksAutoEnabled = modelCatalog.length > 1 && modelCatalog.every((model) => model.enabled) && selectedModelIds.length === 0;
+
+      updateCachedModel(providerId, updatedModel, { autoEnabledCatalogReset: catalogLooksAutoEnabled });
+      setSelectedModelIdsByProviderId((current) => {
+        const currentIds = catalogLooksAutoEnabled ? [] : (current[providerId] ?? []);
+
+        return {
+          ...current,
+          [providerId]: currentIds.includes(modelId) ? currentIds : [...currentIds, modelId]
+        };
+      });
+      setModelSearch("");
+      await validateProvider(providerId);
+    } finally {
+      setModelSelectionBusyId(null);
+    }
+  }, [modelCatalog, selectedModelIds.length, updateCachedModel, validateProvider]);
+
+  const removeSelectedModel = useCallback(async (providerId: string, modelId: string) => {
+    setModelSelectionBusyId(modelId);
+
+    try {
+      const updatedModel = await requestControllerJson<ProviderModel>(`/api/provider-models/${modelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: false })
+      });
+
+      updateCachedModel(providerId, updatedModel);
+      setSelectedModelIdsByProviderId((current) => ({
+        ...current,
+        [providerId]: (current[providerId] ?? []).filter((id) => id !== modelId)
+      }));
+      await validateProvider(providerId);
+    } finally {
+      setModelSelectionBusyId(null);
+    }
+  }, [updateCachedModel, validateProvider]);
+
   if (providersState.loading) {
     return (
       <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
-            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Model routing and defaults</CardTitle>
-            <CardDescription className="m-0 leading-[1.5] text-text-muted">Loading providers, models, and validation status from your workspace.</CardDescription>
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Model providers</span>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Provider setup</CardTitle>
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">Loading providers, model catalogs, and validation status.</CardDescription>
           </div>
         </CardHeader>
 
         <CardContent>
           <div className={settingsEmptyStateClassName}>
             <ValidationBadge state={{ loading: true, data: null, error: null }} />
-            <p className="m-0 leading-[1.5] text-text-muted">Checking provider records and syncing the current model catalog.</p>
+            <p className="m-0 leading-[1.5] text-text-muted">Loading provider configuration…</p>
           </div>
         </CardContent>
       </Card>
@@ -1055,9 +1318,9 @@ function ModelSettingsPanel() {
       <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
         <CardHeader>
           <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Provider configuration</span>
-            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Model routing and defaults</CardTitle>
-            <CardDescription className="m-0 leading-[1.5] text-text-muted">Settings could not load provider metadata from your workspace.</CardDescription>
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Model providers</span>
+            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Provider setup</CardTitle>
+            <CardDescription className="m-0 leading-[1.5] text-text-muted">Settings could not load provider metadata.</CardDescription>
           </div>
         </CardHeader>
 
@@ -1075,392 +1338,412 @@ function ModelSettingsPanel() {
     );
   }
 
-  const showCreateForm = isCreatingProvider || providers.length === 0;
-
   return (
     <div className={settingsModelsStackClassName}>
       {!hasReadyProvider && allValidationsSettled && providers.length > 0 ? (
-        <Card className={`${surfaceCardClassName} flex flex-col gap-3 border-dashed`}>
+        <Card className={`${surfaceCardClassName} flex flex-col gap-2 border-dashed`}>
           <CardHeader>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Setup guidance</span>
-              <CardTitle className="m-0 text-2xl font-semibold text-text-heading">No provider is ready for chat yet</CardTitle>
-              <CardDescription className="m-0 leading-[1.5] text-text-muted">
-                A session needs a validated provider and a resolved default model before it can call <span className="mono">/api/chat</span>.
-              </CardDescription>
+              <CardTitle className="m-0 text-xl font-semibold text-text-heading">No provider is ready yet</CardTitle>
+              <CardDescription className="m-0 leading-[1.5] text-text-muted">Add a provider and save a secret to enable chat.</CardDescription>
             </div>
           </CardHeader>
-
-          <CardContent>
-            <ul className="grid list-none gap-2.5 p-0 m-0">
-              <li>
-                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
-                  Start by fixing the provider cards marked with missing credentials, API errors, or default-model issues.
-                </Card>
-              </li>
-              <li>
-                <Card variant="muted" padding="sm" className={mutedSurfaceCardClassName}>
-                  Re-run validation after local provider setup changes so the model catalog is refreshed.
-                </Card>
-              </li>
-            </ul>
-          </CardContent>
         </Card>
       ) : null}
 
-      <div className={providers.length === 0 ? "mx-auto flex w-full max-w-2xl flex-col gap-6" : settingsProviderGridClassName}>
-        {providers.length > 0 && (
-          <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
-            <CardHeader>
-              <div className={settingsRowClassName}>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Configured providers</span>
-                  <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Providers</CardTitle>
-                </div>
-                <Button type="button" variant="primary" disabled={showCreateForm} onClick={() => { setIsCreatingProvider(true); setSelectedProviderId(null); }}>
-                  Add provider
-                </Button>
+      <Card className={settingsModelSplitPanelClassName}>
+        <div className="flex min-h-[600px] max-h-[calc(100vh-220px)] flex-col md:flex-row">
+          <section className={settingsModelPaneListClassName}>
+            <div className="px-4 pt-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-tertiary">Providers</div>
+            <div className="px-2 pb-2">
+              <div className="relative">
+                <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-text-muted">⌕</span>
+                <input
+                  type="text"
+                  placeholder="Search providers"
+                  value={providerSearch}
+                  onChange={(e) => setProviderSearch(e.currentTarget.value)}
+                  className="h-7 w-full rounded-lg border border-border-subtle bg-surface-0 py-1 pl-7 pr-2 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                />
               </div>
-              <CardDescription className="m-0 leading-[1.5] text-text-muted">Validation status is loaded inline so you can see which provider is ready for new sessions.</CardDescription>
-            </CardHeader>
+            </div>
 
-            <CardContent>
-              <div className={settingsListStackClassName} role="list" aria-label="Configured providers">
-                {providers.map((provider) => {
-                  const validationState = validationByProviderId[provider.id];
-                  const isSelected = provider.id === selectedProviderId && !showCreateForm;
+            <div className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
+              {filteredProviders.length === 0 ? (
+                <p className="px-2 py-2 text-[11px] text-text-muted">No providers found.</p>
+              ) : (
+                filteredProviders.map((provider) => {
+                  const readiness = formatProviderReadinessLabel(validationByProviderId[provider.id]);
+                  const isActive = provider.id === selectedProviderId && !showCreateForm;
 
                   return (
                     <button
                       key={provider.id}
                       type="button"
-                      className={settingsProviderItemClassName}
-                      data-active={isSelected ? "true" : "false"}
-                      onClick={() => { setSelectedProviderId(provider.id); setIsCreatingProvider(false); }}
+                      onClick={() => {
+                        setSelectedProviderId(provider.id);
+                        setIsCreatingProvider(false);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-xl px-3 py-1.5 text-left transition-colors ${
+                        isActive ? "bg-surface-0" : "hover:bg-surface-1"
+                      }`}
                     >
-                    <div className={settingsRowClassName}>
-                      <div className="flex flex-col gap-1">
-                        <strong>{provider.displayName}</strong>
-                        <span className="m-0 leading-[1.5] text-text-muted">{formatProviderType(provider.type)}</span>
-                      </div>
-                      <Badge variant={provider.enabled ? "secondary" : "warning"} size="sm" radius="full">
-                        {provider.enabled ? "Enabled" : "Disabled"}
-                      </Badge>
-                    </div>
-
-                    <ValidationBadge state={validationState} />
-
-                    <div className={settingsMetaClassName}>
-                      <span>Default: {provider.defaultModelName ?? "Not set"}</span>
-                      <span>ID: {provider.id}</span>
-                    </div>
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 font-semibold">
+                        {getProviderInitial(provider)}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-primary">{provider.displayName}</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+                        <StatusDot status={readiness.status} size="xs" className={statusDotGlyphClass(readiness.status)} />
+                        {readiness.label}
+                      </span>
                     </button>
                   );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                })
+              )}
+            </div>
 
-        {showCreateForm ? (
-          <div className={settingsProviderDetailClassName}>
-            <Card className={`${surfaceCardClassName} flex flex-col gap-3 ${providers.length === 0 ? 'border-accent/30 shadow-md' : ''}`}>
-              <CardHeader>
-                <div className="flex flex-col gap-1">
-                  <span className={`text-xs font-semibold uppercase tracking-[0.08em] ${providers.length === 0 ? 'text-accent' : 'text-text-tertiary'}`}>
-                    {providers.length === 0 ? "Getting Started" : "New Provider"}
-                  </span>
-                  <CardTitle className="m-0 text-2xl font-semibold text-text-heading">
-                    {providers.length === 0 ? "Add your first provider" : "Add a provider"}
-                  </CardTitle>
-                  <CardDescription className="m-0 leading-[1.5] text-text-muted">
-                    {providers.length === 0
-                      ? "To start chatting, configure an AI provider like OpenAI or OpenRouter. You'll need an API key from your chosen service."
-                      : "Configure a new provider to use for chat sessions."}
-                  </CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-6">
-                <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
-                  <label className={settingsSecretFieldClassName}>
-                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Provider Type</span>
-                    <select
-                      value={createProviderDraft.type}
-                      onChange={(e) => setCreateProviderDraft({
-                        ...createProviderDraft,
-                        type: e.currentTarget.value as Provider["type"]
-                      })}
-                      className={settingsSecretInputClassName}
-                      disabled={createProviderBusy}
-                    >
-                      <option value="openai">OpenAI</option>
-                      <option value="openrouter">OpenRouter</option>
-                    </select>
-                  </label>
-                  <label className={settingsSecretFieldClassName}>
-                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Display Name</span>
-                    <input
-                      type="text"
-                      value={createProviderDraft.displayName}
-                      placeholder={createProviderDraft.type === "openai" ? "OpenAI" : "OpenRouter"}
-                      onChange={(e) => setCreateProviderDraft({ ...createProviderDraft, displayName: e.currentTarget.value })}
-                      className={settingsSecretInputClassName}
-                      disabled={createProviderBusy}
-                    />
-                  </label>
-                </div>
-                <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
-                  <label className={settingsSecretFieldClassName}>
-                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Base URL <span className="text-text-tertiary font-normal">(Optional)</span></span>
-                    <input
-                      type="url"
-                      value={createProviderDraft.baseUrl}
-                      placeholder={createProviderDraft.type === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1"}
-                      onChange={(e) => setCreateProviderDraft({ ...createProviderDraft, baseUrl: e.currentTarget.value })}
-                      className={settingsSecretInputClassName}
-                      disabled={createProviderBusy}
-                    />
-                  </label>
-                  <label className={settingsSecretFieldClassName}>
-                    <span className="m-0 font-medium leading-[1.5] text-text-primary">Timeout in ms <span className="text-text-tertiary font-normal">(Optional)</span></span>
-                    <input
-                      type="number"
-                      value={createProviderDraft.timeoutMs}
-                      placeholder="30000"
-                      onChange={(e) => setCreateProviderDraft({ ...createProviderDraft, timeoutMs: e.currentTarget.value })}
-                      className={settingsSecretInputClassName}
-                      disabled={createProviderBusy}
-                    />
-                  </label>
+            <div className="shrink-0 border-t border-border-subtle px-2 py-2">
+              <button
+                type="button"
+                onClick={handleAddProvider}
+                className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border-strong px-3 py-1.5 text-left transition-colors hover:bg-surface-1"
+              >
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-dashed border-border-strong bg-surface-0 text-text-secondary">＋</span>
+                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-secondary">Add provider</span>
+              </button>
+            </div>
+          </section>
+
+          <section className={settingsModelPaneDetailClassName}>
+            {showCreateForm ? (
+              <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-text-tertiary">New provider</div>
+                  <div className="text-[22px] font-semibold text-text-heading">Add custom provider</div>
+                  <p className="mt-1 text-sm text-text-muted">Create a provider using an OpenAI-compatible proxy endpoint.</p>
                 </div>
 
-                {createProviderError ? <p className="m-0 leading-[1.5] text-error mono">{createProviderError}</p> : null}
-
-                <div className={settingsChipRowClassName}>
-                  <Button type="button" variant="primary" disabled={createProviderBusy} onClick={() => void saveProvider()}>
-                    {createProviderBusy ? "Saving…" : "Save provider"}
-                  </Button>
-                  {providers.length > 0 && (
-                    <Button type="button" variant="secondary" disabled={createProviderBusy} onClick={() => {
-                      setIsCreatingProvider(false);
-                      setSelectedProviderId(providers[0]?.id ?? null);
-                    }}>
-                      Cancel
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        ) : selectedProvider ? (
-          <div className={settingsProviderDetailClassName}>
-            <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
-              <CardHeader>
-                <div className="flex flex-col gap-1">
-                  <div className={settingsRowClassName}>
-                    <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Selected provider</span>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-text-primary">Compatibility</label>
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className={settingsInlineActionClassName}
-                      onClick={() => void deleteProvider(selectedProvider.id)}
+                      onClick={() => setCreateProviderDraft((draft) => ({ ...draft, type: "openai" }))}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        createProviderDraft.type === "openai" ? "border-accent bg-accent text-text-heading" : "border-border-subtle text-text-secondary"
+                      }`}
+                      disabled={createProviderBusy}
                     >
-                      Delete provider
+                      OpenAI
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCreateProviderDraft((draft) => ({ ...draft, type: "openrouter" }))}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        createProviderDraft.type === "openrouter"
+                          ? "border-accent bg-accent text-text-heading"
+                          : "border-border-subtle text-text-secondary"
+                      }`}
+                      disabled={createProviderBusy}
+                    >
+                      OpenRouter
                     </button>
                   </div>
-                  <div className={settingsRowClassName}>
-                    <CardTitle className="m-0 text-2xl font-semibold text-text-heading">{selectedProvider.displayName}</CardTitle>
-                    <ValidationBadge state={selectedValidation} />
-                  </div>
-                  <CardDescription className="m-0 leading-[1.5] text-text-muted">
-                    Review the persisted provider metadata, current validation result, and enabled model catalog.
-                  </CardDescription>
-                </div>
-              </CardHeader>
-
-              <CardContent className="flex flex-col gap-3">
-                <div className={settingsChipRowClassName}>
-                  <Badge variant="secondary" size="sm" radius="full">{formatProviderType(selectedProvider.type)}</Badge>
-                  <Badge variant={selectedProvider.enabled ? "success" : "warning"} size="sm" radius="full">
-                    {selectedProvider.enabled ? "Enabled" : "Disabled"}
-                  </Badge>
-                  <Badge variant="secondary" size="sm" radius="full">
-                    {selectedProvider.timeoutMs ? `${selectedProvider.timeoutMs} ms timeout` : "Default timeout"}
-                  </Badge>
                 </div>
 
-                <ul className="grid grid-cols-2 list-none gap-2.5 p-0 m-0 max-sm:grid-cols-1">
-                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
-                    <strong>Default model</strong>
-                    <div className="m-0 leading-[1.5] text-text-muted mono">{selectedProvider.defaultModelName ?? "Not configured"}</div>
-                  </li>
-                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
-                    <strong>Base URL</strong>
-                    <div className="m-0 leading-[1.5] text-text-muted mono">{selectedProvider.baseUrl ?? "Provider default"}</div>
-                  </li>
-                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
-                    <strong>Updated</strong>
-                    <div className="m-0 leading-[1.5] text-text-muted">{formatTimestamp(selectedProvider.updatedAt)}</div>
-                  </li>
-                  <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
-                    <strong>Provider ID</strong>
-                    <div className="m-0 leading-[1.5] text-text-muted mono">{selectedProvider.id}</div>
-                  </li>
-                </ul>
+                <label className={settingsSecretFieldClassName}>
+                  <span className="m-0 text-sm font-medium text-text-primary">Display name</span>
+                  <input
+                    type="text"
+                    value={createProviderDraft.displayName}
+                    onChange={(event) => setCreateProviderDraft((draft) => ({ ...draft, displayName: event.currentTarget.value }))}
+                    className={settingsSecretInputClassName}
+                    placeholder={createProviderDraft.type === "openai" ? "OpenAI" : "OpenRouter"}
+                    disabled={createProviderBusy}
+                  />
+                </label>
 
-                <div className={settingsValidationCardClassName}>
-                  <div className={settingsRowClassName}>
-                    <strong>Local credentials</strong>
-                    <div className={settingsChipRowClassName}>
-                      <Badge
-                        variant={secretStorageState.data?.available ? "success" : "warning"}
-                        size="sm"
-                        radius="full"
-                      >
-                        {secretStorageState.loading
-                          ? "Checking secure storage…"
-                          : secretStorageState.data?.available
-                            ? "Secure storage ready"
-                            : "Secure storage unavailable"}
-                      </Badge>
-                      <Badge
-                        variant={selectedProviderSecretStatus?.hasSecret ? "secondary" : "warning"}
-                        size="sm"
-                        radius="full"
-                      >
-                        {selectedProviderSecretStatus?.hasSecret ? "Secret saved" : "No saved secret"}
-                      </Badge>
+                <label className={settingsSecretFieldClassName}>
+                  <span className="m-0 text-sm font-medium text-text-primary">API proxy URL</span>
+                  <input
+                    type="url"
+                    value={createProviderDraft.baseUrl}
+                    onChange={(event) => setCreateProviderDraft((draft) => ({ ...draft, baseUrl: event.currentTarget.value }))}
+                    placeholder={createProviderDraft.type === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1"}
+                    className={settingsSecretInputClassName}
+                    disabled={createProviderBusy}
+                  />
+                </label>
+
+                <label className={settingsSecretFieldClassName}>
+                  <span className="m-0 text-sm font-medium text-text-primary">Timeout (ms)</span>
+                  <input
+                    type="number"
+                    value={createProviderDraft.timeoutMs}
+                    onChange={(event) => setCreateProviderDraft((draft) => ({ ...draft, timeoutMs: event.currentTarget.value }))}
+                    placeholder="30000"
+                    className={settingsSecretInputClassName}
+                    disabled={createProviderBusy}
+                  />
+                </label>
+
+                {createProviderError ? <p className="m-0 text-sm text-error mono">{createProviderError}</p> : null}
+
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="primary" onClick={() => void saveProvider()} disabled={createProviderBusy}>
+                    {createProviderBusy ? "Creating…" : "Create provider"}
+                  </Button>
+
+                  {providers.length > 0 ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={createProviderBusy}
+                      onClick={() => {
+                        setIsCreatingProvider(false);
+                        setSelectedProviderId(providers[0]?.id ?? null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : selectedProvider ? (
+              <div className="flex flex-col gap-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-1 text-sm font-semibold text-text-primary">
+                      {getProviderInitial(selectedProvider)}
+                    </span>
+                    <div className="truncate text-base font-semibold text-text-primary">
+                      {selectedProvider.displayName}
                     </div>
+                    <Badge variant="secondary" size="sm" className="hidden sm:inline-flex">{formatProviderType(selectedProvider.type)}</Badge>
                   </div>
 
-                  <p className="m-0 leading-[1.5] text-text-muted">
-                    {secretStorageState.error ?? secretStorageState.data?.message ?? browserSecretStorageSnapshot.message}
-                  </p>
-                  <p className="m-0 leading-[1.5] text-text-muted">
-                    Saved secrets are loaded on startup. Explicit environment variables still take precedence.
-                  </p>
-
-                  <label className={settingsSecretFieldClassName}>
-                    <span className="m-0 leading-[1.5] text-text-muted">{formatProviderType(selectedProvider.type)} API key</span>
-                    <input
-                      type="password"
-                      value={secretInput}
-                      placeholder={selectedProvider.type === "openai" ? "sk-..." : "or-..."}
-                      className={settingsSecretInputClassName}
-                      autoComplete="off"
-                      spellCheck={false}
-                      disabled={!secretStorageState.data?.available || secretBusyAction != null}
-                      onChange={(event) => setSecretInput(event.currentTarget.value)}
-                    />
-                  </label>
-
-                  <div className={settingsChipRowClassName}>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      disabled={!secretStorageState.data?.available || !secretInput.trim() || secretBusyAction != null}
-                      onClick={() => void saveProviderSecret()}
+                  <div className="flex items-center gap-3 shrink-0">
+                    <a
+                      className="text-xs text-text-secondary hover:text-text-primary"
+                      href={getProviderDocsUrl(selectedProvider)}
+                      target="_blank"
+                      rel="noreferrer"
                     >
-                      {secretBusyAction === "save" ? "Saving…" : "Save secret"}
-                    </Button>
-                    <Button
+                      Get API key
+                    </a>
+                    <button
                       type="button"
-                      variant="secondary"
-                      disabled={!secretStorageState.data?.available || !selectedProviderSecretStatus?.hasSecret || secretBusyAction != null}
-                      onClick={() => void clearProviderSecret()}
+                      onClick={() => void deleteProvider(selectedProvider.id)}
+                      className="text-xs text-text-secondary hover:text-error"
                     >
-                      {secretBusyAction === "clear" ? "Clearing…" : "Clear saved secret"}
-                    </Button>
+                      Delete
+                    </button>
                   </div>
-
-                  {secretStorageState.data?.reason === "linux_keyring_unavailable" ? (
-                    <p className="m-0 leading-[1.5] text-text-muted">
-                      Linux fallback: secret persistence stays disabled until a supported system keyring is available. Validation can still succeed when provider credentials are supplied through environment variables.
-                    </p>
-                  ) : null}
-
-                  {secretFeedback ? <p className="m-0 leading-[1.5] text-text-muted mono">{secretFeedback}</p> : null}
                 </div>
 
-                <div className={settingsValidationCardClassName}>
-                  <div className={settingsRowClassName}>
-                    <strong>Validate status</strong>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => void validateProvider(selectedProvider.id)}
-                      disabled={selectedValidation?.loading}
-                    >
-                      {selectedValidation?.loading ? "Validating…" : "Revalidate provider"}
-                    </Button>
-                  </div>
-
-                  {selectedValidation?.error ? <p className="m-0 leading-[1.5] text-text-muted mono">{selectedValidation.error}</p> : null}
-                  {selectedValidation?.data ? (
-                    <>
-                      <p className="m-0 leading-[1.5] text-text-muted">{selectedValidation.data.message}</p>
-                      <p className="m-0 leading-[1.5] text-text-muted">{selectedValidationMeta?.guidance}</p>
-                      <div className={settingsMetaClassName}>
-                        <span>Enabled models: {selectedValidation.data.availableModelCount}</span>
-                        <span>Resolved default: {selectedValidation.data.defaultModelName ?? "Not resolved"}</span>
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
-              <CardHeader>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Enabled catalog</span>
-                  <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Provider models</CardTitle>
-                  <CardDescription className="m-0 leading-[1.5] text-text-muted">This list is refreshed from the selected provider when the panel loads.</CardDescription>
-                </div>
-              </CardHeader>
-
-              <CardContent className="flex flex-col gap-3">
-                {modelsState.loading ? <p className="m-0 leading-[1.5] text-text-muted">Loading models…</p> : null}
-                {modelsState.error ? <p className="m-0 leading-[1.5] text-text-muted mono">{modelsState.error}</p> : null}
-                {!modelsState.loading && !modelsState.error && (modelsState.data?.length ?? 0) === 0 ? (
-                  <p className="m-0 leading-[1.5] text-text-muted">No enabled models are currently available for this provider.</p>
+                {selectedValidation?.error ? (
+                  <p className="m-0 text-xs text-error mono">{selectedValidation.error}</p>
+                ) : selectedValidation?.data ? (
+                  selectedValidation.data.valid ? (
+                    <div className="flex items-center gap-2 text-xs text-text-muted">
+                      <StatusDot status="success" size="xs" />
+                      <span>Ready</span>
+                      <span>·</span>
+                      <span>{selectedValidation.data.availableModelCount} models</span>
+                      <span>·</span>
+                      <span>default {selectedValidation.data.defaultModelName ?? "none"}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 rounded-md border border-warning/20 bg-warning-subtle px-3 py-2 text-xs text-warning">
+                      <StatusDot status={selectedValidationMeta?.dotStatus ?? "warning"} size="xs" />
+                      <span>{selectedValidationMeta?.label}: {selectedValidationMeta?.guidance}</span>
+                    </div>
+                  )
                 ) : null}
 
-                <div className={settingsListStackClassName} role="list" aria-label="Provider models">
-                  {(modelsState.data ?? []).map((model) => {
-                    const isDefault = model.modelName === selectedProvider.defaultModelName;
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <label className={`${settingsSecretFieldClassName} flex-1`}>
+                      <span className="text-[11px] font-medium text-text-secondary">API proxy URL</span>
+                      <input
+                        type="text"
+                        value={providerBaseUrlInput}
+                        onChange={(event) => setProviderBaseUrlInput(event.currentTarget.value)}
+                        placeholder={selectedProvider.type === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1"}
+                        className={`${settingsSecretInputClassName} h-8 text-xs`}
+                        disabled={secretBusyAction != null}
+                      />
+                    </label>
 
-                    return (
-                      <div key={model.id} className={settingsItemCardClassName} role="listitem">
-                        <div className={settingsRowClassName}>
-                          <div className="flex flex-col gap-1">
-                            <strong>{model.displayName}</strong>
-                            <span className="m-0 leading-[1.5] text-text-muted mono">{model.modelName}</span>
-                          </div>
-                          <div className={settingsChipRowClassName}>
-                            {isDefault ? <Badge variant="accent" size="sm" radius="full">Default</Badge> : null}
-                            <Badge variant={model.enabled ? "success" : "warning"} size="sm" radius="full">
-                              {model.enabled ? "Enabled" : "Disabled"}
-                            </Badge>
-                          </div>
-                        </div>
+                    <label className={`${settingsSecretFieldClassName} flex-1`}>
+                      <span className="text-[11px] font-medium text-text-secondary">API key</span>
+                      <input
+                        type="password"
+                        value={secretInput}
+                        onChange={(event) => setSecretInput(event.currentTarget.value)}
+                        placeholder={selectedProviderSecretStatus?.hasSecret ? "••••••••••••••••" : (selectedProvider.type === "openai" ? "sk-..." : "or-...")}
+                        className={`${settingsSecretInputClassName} h-8 text-xs`}
+                        autoComplete="off"
+                        spellCheck={false}
+                        disabled={!secretStorageState.data?.available || secretBusyAction != null}
+                      />
+                    </label>
+                  </div>
 
-                        <div className={settingsChipRowClassName}>
-                          <Badge variant="secondary" size="sm" radius="full">
-                            {model.supportsTools ? "Tools" : "No tools"}
-                          </Badge>
-                          <Badge variant="secondary" size="sm" radius="full">
-                            {model.supportsReasoning ? "Reasoning" : "No reasoning"}
-                          </Badge>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-[11px]">
+                      {selectedProviderSecretStatus?.hasSecret ? (
+                         <span className="text-success flex items-center gap-1"><StatusDot status="success" size="xs" /> Key saved</span>
+                      ) : (
+                         <span className="text-text-muted">No key saved</span>
+                      )}
+                      
+                      {selectedProviderSecretStatus?.hasSecret ? (
+                        <>
+                          <span className="text-border-subtle">|</span>
+                          <button
+                            type="button"
+                            onClick={() => void clearProviderSecret()}
+                            disabled={!secretStorageState.data?.available || secretBusyAction != null}
+                            className="text-text-secondary hover:text-text-primary disabled:opacity-50"
+                          >
+                            Clear
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void validateProvider(selectedProvider.id)}
+                        disabled={selectedValidation?.loading}
+                        className="text-[11px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                      >
+                        {selectedValidation?.loading ? "Testing…" : "Test connection"}
+                      </button>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="h-7 px-3 text-xs"
+                        disabled={(!providerBaseUrlChanged && (!secretStorageState.data?.available || !secretInput.trim())) || secretBusyAction != null}
+                        onClick={() => void saveSelectedProviderSettings()}
+                      >
+                        {secretBusyAction === "save" ? "Saving…" : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  {secretFeedback ? <p className="m-0 text-[11px] text-text-muted mono">{secretFeedback}</p> : null}
+                  {secretStorageState.error ? <p className="m-0 text-[11px] text-error">{secretStorageState.error}</p> : null}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        ) : null}
-      </div>
+
+                <div className="border-t border-border-subtle" />
+
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-tertiary">
+                      Models
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void loadProviderModels({ refresh: true })}
+                      className="text-[11px] text-text-secondary hover:text-text-primary"
+                      disabled={modelsState.loading}
+                    >
+                      {modelsState.loading ? "Refreshing…" : "Refresh catalog"}
+                    </button>
+                  </div>
+
+                  {modelsState.loading ? <p className="m-0 text-xs text-text-muted">Loading cached catalog…</p> : null}
+                  {modelsState.error ? <p className="m-0 text-xs text-error mono">{modelsState.error}</p> : null}
+
+                  {!modelsState.loading && !modelsState.error && !modelCatalog.length ? (
+                    <p className="m-0 text-xs text-text-muted">No models in cache.</p>
+                  ) : null}
+
+                  {modelCatalog.length > 0 ? (
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-text-muted">⌕</span>
+                      <input
+                        type="text"
+                        value={modelSearch}
+                        onChange={(event) => setModelSearch(event.currentTarget.value)}
+                        placeholder="Search models..."
+                        className="h-8 w-full rounded-md border border-border-subtle bg-surface-0 py-1 pl-7 pr-2 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                      />
+                    </div>
+                  ) : null}
+
+                  {modelSearchResults.length > 0 ? (
+                    <div className="space-y-0.5 rounded-xl border border-border-subtle bg-surface-0 p-1" role="list" aria-label="Model search results">
+                      {modelSearchResults.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => selectedProviderId && void addSelectedModel(selectedProviderId, model.id)}
+                          disabled={modelSelectionBusyId != null}
+                          className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-1 disabled:opacity-60"
+                        >
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 text-xs font-bold text-text-primary">
+                            {model.modelName.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-text-primary">{model.displayName}</span>
+                            <span className="block truncate text-xs text-text-muted">{model.modelName}</span>
+                          </span>
+                          <span className="text-xs font-medium text-text-secondary">{modelSelectionBusyId === model.id ? "Adding…" : "Add"}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : normalizedModelSearch && modelCatalog.length > 0 ? (
+                    <p className="m-0 text-xs text-text-muted">No matching models in cache.</p>
+                  ) : null}
+
+                  <div className="space-y-1" role="list" aria-label="Model list">
+                    {selectedModels.map((model) => {
+                      const isDefault = model.modelName === selectedProvider.defaultModelName;
+
+                      return (
+                        <div key={model.id} className="group/model flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-1" role="listitem">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 text-xs font-bold text-text-primary">
+                            {model.modelName.charAt(0).toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-text-primary">{model.displayName}</div>
+                            <div className="truncate text-xs text-text-muted">{model.modelName}</div>
+                          </div>
+                          <span className="inline-flex flex-shrink-0 gap-2 items-center">
+                            {model.supportsTools ? <Badge variant="secondary" size="sm" className="max-sm:hidden">Tools</Badge> : null}
+                            {model.supportsReasoning ? <Badge variant="secondary" size="sm" className="max-sm:hidden">Reasoning</Badge> : null}
+                            {isDefault ? <Badge variant="accent" size="sm">Default</Badge> : null}
+                            {isDefault ? (
+                              <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm bg-success-subtle text-success">✓</span>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => selectedProviderId && void removeSelectedModel(selectedProviderId, model.id)}
+                              disabled={modelSelectionBusyId != null}
+                              className="ml-1 text-xs text-text-muted hover:text-error disabled:opacity-50"
+                            >
+                              {modelSelectionBusyId === model.id ? "Removing…" : "Remove"}
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {modelCatalog.length > 0 && selectedModels.length === 0 && !normalizedModelSearch ? (
+                    <p className="m-0 text-xs text-text-muted">No models added yet.</p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </Card>
     </div>
   );
 }

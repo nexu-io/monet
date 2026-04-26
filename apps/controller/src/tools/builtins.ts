@@ -5,6 +5,7 @@ import type { IncomingMessage } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import { BlockList, isIP } from "node:net";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { z } from "@hono/zod-openapi";
 
 import type { RegisteredToolDefinition } from "./registry";
 
@@ -65,8 +66,33 @@ interface WriteFileInput {
 
 const fetchUrlMaxRedirects = 3;
 const fetchUrlMaxResponseBytes = 1_000_000;
+const fetchUrlMaxReturnedContentBytes = 64 * 1024;
 const readFileMaxBytes = 1_000_000;
 const blockedIpAddresses = createBlockedIpAddresses();
+
+function truncateUtf8Text(value: string, maxBytes: number) {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) {
+    return {
+      text: value,
+      truncated: false,
+      originalSizeBytes: Buffer.byteLength(value, "utf8")
+    };
+  }
+
+  let end = Math.min(value.length, maxBytes);
+  let text = value.slice(0, end);
+
+  while (Buffer.byteLength(text, "utf8") > maxBytes && end > 0) {
+    end -= 1;
+    text = value.slice(0, end);
+  }
+
+  return {
+    text,
+    truncated: true,
+    originalSizeBytes: Buffer.byteLength(value, "utf8")
+  };
+}
 
 function assertReadFileWithinLimit(sizeBytes: number, maxBytes: number) {
   if (sizeBytes > maxBytes) {
@@ -248,9 +274,14 @@ const defaultFetchUrlRequest: FetchUrlRequestFn = async ({ url, abortSignal, res
       method: "GET",
       signal: abortSignal,
       servername: url.hostname,
-      lookup: ((hostname, _options, callback) => {
+      lookup: ((hostname, lookupOptions, callback) => {
         if (normalizeHostname(hostname) !== normalizeHostname(url.hostname)) {
           callback(new Error("fetch_url attempted to resolve an unexpected hostname."), "", 0);
+          return;
+        }
+
+        if (typeof lookupOptions === "object" && lookupOptions !== null && "all" in lookupOptions && lookupOptions.all === true) {
+          callback(null, [resolvedAddress]);
           return;
         }
 
@@ -419,14 +450,9 @@ export function createBuiltinToolDefinitions(
         description: "Fetches an HTTPS URL and returns the text response body.",
         requiresConfirmation: false
       },
-      inputSchema: {
-        type: "object",
-        properties: {
-          url: { type: "string" }
-        },
-        required: ["url"],
-        additionalProperties: false
-      } as const,
+      inputSchema: z.object({
+        url: z.string()
+      }).strict(),
       async execute(input, context) {
         const normalizedInput = input as FetchUrlInput;
         const parsedUrl = new URL(normalizedInput.url);
@@ -438,12 +464,16 @@ export function createBuiltinToolDefinitions(
           fetchUrlRequest
         );
 
+        const returnedContent = truncateUtf8Text(content, fetchUrlMaxReturnedContentBytes);
+
         return {
           url: resolvedUrl,
           statusCode: response.statusCode,
           statusText: response.statusText,
           contentType: response.headers.get("content-type"),
-          content
+          content: returnedContent.text,
+          contentTruncated: returnedContent.truncated,
+          contentSizeBytes: returnedContent.originalSizeBytes
         };
       }
     },
@@ -453,14 +483,9 @@ export function createBuiltinToolDefinitions(
         description: "Reads a UTF-8 text file from an authorized directory.",
         requiresConfirmation: false
       },
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string" }
-        },
-        required: ["path"],
-        additionalProperties: false
-      } as const,
+      inputSchema: z.object({
+        path: z.string()
+      }).strict(),
       async execute(input) {
         const normalizedInput = input as ReadFileInput;
         const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, getAllowedDirectories(), "read");
@@ -481,15 +506,10 @@ export function createBuiltinToolDefinitions(
         description: "Writes a UTF-8 text file inside an authorized directory.",
         requiresConfirmation: true
       },
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          content: { type: "string" }
-        },
-        required: ["path", "content"],
-        additionalProperties: false
-      } as const,
+      inputSchema: z.object({
+        path: z.string(),
+        content: z.string()
+      }).strict(),
       async execute(input) {
         const normalizedInput = input as WriteFileInput;
         const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, getAllowedDirectories(), "write");

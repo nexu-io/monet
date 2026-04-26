@@ -1,5 +1,7 @@
 import type { UIMessage } from "ai";
 
+import { sanitizeUiMessage } from "./ui-message-sanitize";
+
 const MAX_REPLAY_WINDOW_MESSAGES = 12;
 const MAX_REPLAY_WINDOW_BYTES = 48 * 1024;
 const MAX_REPLAY_TOOL_OUTPUT_BYTES = 4 * 1024;
@@ -65,6 +67,7 @@ export function buildReplayContext(messages: UIMessage[]): ReplayContextResult {
 
       return sanitized;
     })
+    .filter((message): message is UIMessage => message !== null)
   ] as UIMessage[];
 
   return {
@@ -262,9 +265,15 @@ function sanitizeMessageForReplay(options: {
   readonly onReasoningRemoved: () => void;
   readonly onToolOutputTruncated: () => void;
 }) {
+  const message = sanitizeUiMessage(options.message);
+
+  if (!message) {
+    return null;
+  }
+
   const sanitizedParts: unknown[] = [];
 
-  for (const rawPart of options.message.parts ?? []) {
+  for (const rawPart of message.parts ?? []) {
     const part = rawPart as unknown;
 
     if (!isRecord(part)) {
@@ -293,7 +302,7 @@ function sanitizeMessageForReplay(options: {
   }
 
   return {
-    ...options.message,
+    ...message,
     parts: sanitizedParts as UIMessage["parts"]
   } as UIMessage;
 }

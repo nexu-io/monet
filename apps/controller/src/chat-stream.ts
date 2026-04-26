@@ -1,5 +1,5 @@
 import { createId as createCuid2 } from "@paralleldrive/cuid2";
-import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
+import { consumeStream, convertToModelMessages, stepCountIs, streamText, type UIMessage } from "ai";
 
 import {
   countUsageTokens,
@@ -17,6 +17,7 @@ import type { Logger } from "./logger";
 import type { ProviderRuntime } from "./provider-runtime";
 import type { RunRegistry } from "./run-registry";
 import type { ToolRegistry } from "./tools/registry";
+import { sanitizeUiMessage } from "./ui-message-sanitize";
 
 export interface ChatStreamRequest {
   readonly sessionId: string;
@@ -315,37 +316,22 @@ export async function createChatStreamResponse(options: {
     }
   });
 
-  void Promise.resolve(result.consumeStream()).catch((error: unknown) => {
-    try {
-      const finishReason =
-        runFinishReason ??
-        (error instanceof Error && error.name === "AbortError" ? "request_aborted" : null) ??
-        (error instanceof Error ? error.message : "stream_error");
-
-      finalizeRun(resolveTerminalStatus(finishReason), finishReason);
-    } catch (persistError) {
-      runtimeLogger.error("chat.consume_stream_finalize_failed", persistError);
-    }
-
-    runtimeLogger.error("chat.consume_stream_failed", error, {
-      durationMs: Date.now() - startedAt
-    });
-  });
-
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    consumeSseStream: consumeStream,
     generateMessageId: () => `msg_${createCuid2()}`,
     messageMetadata: () => ({ runId: request.runId }),
     onFinish: ({ responseMessage }) => {
       try {
-        const approvalRequests = responseMessage.parts.flatMap((part) => (isApprovalRequestedToolPart(part) ? [part] : []));
+        const sanitizedResponseMessage = sanitizeUiMessage(responseMessage) ?? responseMessage;
+        const approvalRequests = sanitizedResponseMessage.parts.flatMap((part) => (isApprovalRequestedToolPart(part) ? [part] : []));
 
         options.chatStorage.persistAssistantMessage({
           sessionId: request.sessionId,
           runId: request.runId,
           providerId: request.providerId,
           modelId: request.modelId,
-          message: responseMessage
+          message: sanitizedResponseMessage
         });
 
         for (const part of approvalRequests) {
@@ -359,7 +345,7 @@ export async function createChatStreamResponse(options: {
 
         runtimeLogger.info("chat.assistant_message_persisted", {
           messageId: responseMessage.id,
-          partCount: responseMessage.parts.length,
+          partCount: sanitizedResponseMessage.parts.length,
           approvalRequestCount: approvalRequests.length
         });
       } catch (error) {

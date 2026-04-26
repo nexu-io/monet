@@ -53,7 +53,7 @@ export function AppShell({
     providerReadiness,
     sessions
   } = useSessions();
-  const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 6);
+  const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 20);
   const isProviderReadinessLoading = providerReadiness.loading;
   const providerSetupRequired = !providerReadiness.loading && !providerReadiness.error && !providerReadiness.data?.hasReadyProvider;
   const { controllerState, isDesktop } = useControllerState();
@@ -167,7 +167,7 @@ export function AppShell({
       <Sidebar className={`sticky top-0 flex h-screen min-h-0 flex-col gap-5 overflow-hidden border-r border-border-subtle bg-app-sidebar px-4 pb-5 max-app:static max-app:h-auto max-app:overflow-visible max-app:border-r-0 max-app:border-b ${isDesktop ? "pt-3" : "pt-5"}`}>
         {isDesktop ? <div className="mb-2 block min-h-[28px] [-webkit-app-region:drag]" aria-hidden="true" /> : null}
 
-        <SidebarHeader className="flex min-h-0 flex-1 flex-col gap-4">
+        <SidebarHeader className="flex flex-col gap-4">
           <div className="flex items-center gap-2.5 p-1">
             <span className="inline-flex size-8 items-center justify-center rounded-md bg-accent font-heading text-lg font-bold tracking-[-0.02em] text-accent-foreground" aria-hidden="true">M</span>
             <div className="flex flex-col gap-1">
@@ -191,14 +191,17 @@ export function AppShell({
                 : "+ New chat"}
           </Button>
 
-          <section className="flex min-h-0 flex-col gap-2" aria-labelledby="recent-sessions-heading">
+        </SidebarHeader>
+
+        <SidebarContent className="flex min-h-0 flex-1 flex-col">
+          <section className="flex min-h-0 flex-1 flex-col gap-2" aria-labelledby="recent-sessions-heading">
             <div className="flex items-baseline justify-between gap-2 px-2">
               <NavigationMenuLabel className="text-2xs font-semibold tracking-[0.1em] text-text-tertiary uppercase" id="recent-sessions-heading">
                 Recent
               </NavigationMenuLabel>
             </div>
 
-            <div className="flex min-h-0 flex-col gap-0.5 overflow-auto">
+            <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto">
               {isSessionsLoading && recentSessions.length === 0 ? (
                 <p className="px-2.5 py-2 text-sm text-text-tertiary">Loading sessions…</p>
               ) : null}
@@ -226,9 +229,7 @@ export function AppShell({
               })}
             </div>
           </section>
-        </SidebarHeader>
-
-        <SidebarContent />
+        </SidebarContent>
 
         <SidebarFooter className="flex flex-col gap-4">
           {/*

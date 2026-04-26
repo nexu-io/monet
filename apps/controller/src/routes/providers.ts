@@ -10,6 +10,9 @@ import {
   ListProvidersResponseSchema,
   ProviderSchema,
   CreateProviderRequestSchema,
+  UpdateProviderRequestSchema,
+  ProviderModelSchema,
+  UpdateProviderModelRequestSchema,
   ValidateProviderResponseSchema,
   createErrorResponse
 } from "../openapi";
@@ -20,6 +23,10 @@ const providersLogger = createLogger("controller", {
 
 const providerIdParamSchema = z.object({
   providerId: z.string().trim().min(1).openapi({ example: "pro_123" })
+});
+
+const providerModelIdParamSchema = z.object({
+  modelId: z.string().trim().min(1).openapi({ example: "mod_123" })
 });
 
 const listProvidersRoute = createRoute({
@@ -74,6 +81,50 @@ const createProviderRoute = createRoute({
     },
     500: {
       description: "The provider could not be created.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const updateProviderRoute = createRoute({
+  method: "patch",
+  path: "/api/providers/{providerId}",
+  tags: ["Providers"],
+  summary: "Update provider",
+  description: "Updates provider metadata such as API proxy URL and timeout.",
+  request: {
+    params: providerIdParamSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: UpdateProviderRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Provider updated successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderSchema
+        }
+      }
+    },
+    404: {
+      description: "Not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The provider could not be updated.",
       content: {
         "application/json": {
           schema: ErrorResponseSchema
@@ -207,6 +258,50 @@ const validateProviderRoute = createRoute({
   }
 });
 
+const updateProviderModelRoute = createRoute({
+  method: "patch",
+  path: "/api/provider-models/{modelId}",
+  tags: ["Providers"],
+  summary: "Update provider model",
+  description: "Updates persisted provider-model selection state.",
+  request: {
+    params: providerModelIdParamSchema,
+    body: {
+      content: {
+        "application/json": {
+          schema: UpdateProviderModelRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Provider model updated successfully.",
+      content: {
+        "application/json": {
+          schema: ProviderModelSchema
+        }
+      }
+    },
+    404: {
+      description: "Not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The provider model could not be updated.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
 function createProviderErrorResponse(error: unknown) {
   if (error instanceof ChatStorageResolutionError && error.statusCode === 404) {
     return {
@@ -241,6 +336,16 @@ export function registerProviderRoutes(
       const input = context.req.valid("json");
       const provider = options.getChatStorage().createProvider(input);
       return context.json(provider, 201);
+    } catch (error) {
+      const response = createProviderErrorResponse(error);
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(updateProviderRoute, async (context) => {
+    try {
+      const provider = options.getChatStorage().updateProvider(context.req.valid("param").providerId, context.req.valid("json"));
+      return context.json(provider, 200);
     } catch (error) {
       const response = createProviderErrorResponse(error);
       return context.json(response.body, response.status);
@@ -295,6 +400,22 @@ export function registerProviderRoutes(
   app.openapi(validateProviderRoute, async (context) => {
     try {
       return context.json(await options.providerRuntime.validateProvider(context.req.valid("param").providerId), 200);
+    } catch (error) {
+      const response = createProviderErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(updateProviderModelRoute, async (context) => {
+    try {
+      return context.json(
+        options.getChatStorage().updateProviderModel({
+          modelId: context.req.valid("param").modelId,
+          enabled: context.req.valid("json").enabled
+        }),
+        200
+      );
     } catch (error) {
       const response = createProviderErrorResponse(error);
 

@@ -229,6 +229,60 @@ test("message upserts preserve the original run linkage for existing idempotency
   }
 });
 
+test("message upserts reuse existing row ids when UI message ids collide", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const initial = storage.prepareChatRequest({
+      messages: [
+        {
+          id: "msg_shared",
+          role: "user",
+          parts: [{ type: "text", text: "Initial prompt" }]
+        } as any
+      ]
+    });
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      connection.prepare("UPDATE messages SET id = ? WHERE session_id = ? AND idempotency_key = ?").run("msg_legacy_row", initial.sessionId, "msg_shared");
+      connection
+        .prepare(
+          `INSERT INTO messages (id, session_id, run_id, role, ui_message_json, ui_message_schema_version, idempotency_key, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          "msg_shared",
+          initial.sessionId,
+          initial.runId,
+          "user",
+          JSON.stringify({ id: "msg_other", role: "user", parts: [{ type: "text", text: "Other prompt" }] }),
+          "v1",
+          "msg_other",
+          new Date().toISOString()
+        );
+    } finally {
+      connection.close();
+    }
+
+    assert.doesNotThrow(() =>
+      storage.prepareChatRequest({
+        sessionId: initial.sessionId,
+        messages: [
+          {
+            id: "msg_shared",
+            role: "user",
+            parts: [{ type: "text", text: "Initial prompt retried" }]
+          } as any
+        ]
+      })
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("prepareChatRequest rejects archived sessions before creating a new run", () => {
   const fixture = createStorageFixture();
 

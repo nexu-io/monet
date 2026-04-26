@@ -378,6 +378,44 @@ test("fetch_url fetches HTTPS text responses", async () => {
   }
 });
 
+test("fetch_url truncates large returned content before sending it to the model", async () => {
+  const fixture = createTestFixture();
+  const largeContent = "a".repeat(80 * 1024);
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      dnsLookup: async () => [{ address: "93.184.216.34", family: 4 }],
+      async fetchUrlRequest() {
+        return {
+          statusCode: 200,
+          statusText: "OK",
+          headers: new Headers({
+            "content-type": "text/plain; charset=utf-8"
+          }),
+          content: largeContent
+        };
+      }
+    });
+    const fetchUrlTool = runtimeTools.fetch_url!;
+    const result = (await fetchUrlTool.execute(
+      {
+        url: "https://example.com/large"
+      },
+      createExecutionContext()
+    )) as {
+      content: string;
+      contentTruncated: boolean;
+      contentSizeBytes: number;
+    };
+
+    assert.equal(result.contentTruncated, true);
+    assert.equal(result.contentSizeBytes, Buffer.byteLength(largeContent, "utf8"));
+    assert.ok(Buffer.byteLength(result.content, "utf8") <= 64 * 1024);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("fetch_url rejects non-HTTPS URLs", async () => {
   const fixture = createTestFixture();
 

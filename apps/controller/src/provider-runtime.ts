@@ -157,7 +157,7 @@ export function createProviderRuntime(options: {
             fetch: createFetchWithTimeout(provider.timeoutMs ?? options.openrouter.timeoutMs)
           });
 
-          return openrouter.responses(model.modelName);
+          return openrouter.chat(model.modelName);
         }
         default:
           throw new ProviderRuntimeError({

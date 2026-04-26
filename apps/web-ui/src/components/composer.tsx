@@ -3,16 +3,22 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
 import { Button } from "@nexu-design/ui-web";
 
+import type { ProviderReadinessTarget } from "../lib/provider-readiness";
+
 export interface ComposerProps {
   readonly value: string;
   readonly status: "submitted" | "streaming" | "ready" | "error";
   readonly canRegenerate: boolean;
   readonly disabled?: boolean;
   readonly disabledReason?: string;
+  readonly readyProviders?: readonly ProviderReadinessTarget[];
+  readonly activeTarget?: ProviderReadinessTarget | null;
+  readonly isTargetOverridden?: boolean;
   readonly onValueChange: (value: string) => void;
   readonly onSubmit: () => void;
   readonly onRegenerate: () => void;
   readonly onStop: () => void;
+  readonly onChangeTarget?: (target: ProviderReadinessTarget | null) => void;
 }
 
 function getStatusHint(status: ComposerProps["status"], disabledReason?: string) {
@@ -38,10 +44,14 @@ export function Composer({
   canRegenerate,
   disabled = false,
   disabledReason,
+  readyProviders = [],
+  activeTarget = null,
+  isTargetOverridden = false,
   onValueChange,
   onSubmit,
   onRegenerate,
-  onStop
+  onStop,
+  onChangeTarget
 }: ComposerProps) {
   const isBusy = status === "submitted" || status === "streaming";
   const isDisabled = disabled || isBusy;
@@ -68,6 +78,22 @@ export function Composer({
     }
   }
 
+  function getTargetValue(target: ProviderReadinessTarget | null) {
+    return target ? `${target.providerId}::${target.modelId}` : "";
+  }
+
+  function handleModelChange(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.currentTarget.value;
+
+    if (!value) {
+      onChangeTarget?.(null);
+      return;
+    }
+
+    const target = readyProviders.find((candidate) => getTargetValue(candidate) === value) ?? null;
+    onChangeTarget?.(target);
+  }
+
   return (
     <form
       className="flex flex-col gap-2.5 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs transition-[box-shadow,border-color] duration-[var(--duration-normal)] ease-[var(--ease-standard)] focus-within:border-border-strong focus-within:shadow-sm"
@@ -92,6 +118,29 @@ export function Composer({
 
       <div className="flex flex-wrap items-center justify-between gap-3 max-app:flex-col max-app:items-start">
         <div className="flex flex-wrap items-center gap-2 text-sm text-text-tertiary">
+          {readyProviders.length > 0 && onChangeTarget ? (
+            <>
+              <label className="sr-only" htmlFor="chat-composer-model">
+                Model
+              </label>
+              <select
+                id="chat-composer-model"
+                value={getTargetValue(activeTarget)}
+                onChange={handleModelChange}
+                disabled={isDisabled}
+                className="min-h-8 max-w-64 rounded-md border border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary outline-none transition-colors hover:border-border-strong focus:border-accent focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-60"
+                title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
+              >
+                {readyProviders.map((target) => (
+                  <option key={getTargetValue(target)} value={getTargetValue(target)}>
+                    {target.providerDisplayName} · {target.modelName ?? target.modelId}
+                  </option>
+                ))}
+              </select>
+              {isTargetOverridden ? <span className="text-xs text-accent">custom</span> : null}
+              <span aria-hidden="true">·</span>
+            </>
+          ) : null}
           <kbd className="inline-flex items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-secondary">⏎</kbd>
           <span>to send</span>
           <span aria-hidden="true">·</span>

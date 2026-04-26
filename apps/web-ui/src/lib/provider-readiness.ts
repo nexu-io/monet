@@ -1,4 +1,4 @@
-import type { Provider, ValidateProviderResponse } from "./api/generated/types.gen";
+import type { Provider, ProviderModel, ValidateProviderResponse } from "./api/generated/types.gen";
 import { getMonetClientConfig } from "./monet-client";
 
 export const PROVIDER_READINESS_EVENT = "monet:provider-readiness-updated";
@@ -65,20 +65,27 @@ export async function fetchProviderReadiness(): Promise<ProviderReadinessSnapsho
   const validations = await Promise.all(
     providers.map((provider) => requestControllerJson<ValidateProviderResponse>(`/api/providers/${provider.id}/validate`, { method: "POST" }))
   );
-  const readyProviders = validations.flatMap((validation) => {
+
+  const readyProvidersByValidation = await Promise.all(validations.map(async (validation) => {
     if (!validation.valid || !validation.defaultModelId) {
       return [];
     }
 
-    return [
-      {
+    const { models } = await requestControllerJson<{ models: ProviderModel[] }>(`/api/providers/${validation.provider.id}/models`);
+    const enabledModels = models.filter((model) => model.enabled);
+    const defaultModel = enabledModels.find((model) => model.id === validation.defaultModelId) ?? null;
+    const orderedModels = defaultModel
+      ? [defaultModel, ...enabledModels.filter((model) => model.id !== defaultModel.id)]
+      : enabledModels;
+
+    return orderedModels.map((model) => ({
         providerId: validation.provider.id,
-        modelId: validation.defaultModelId,
+        modelId: model.id,
         providerDisplayName: validation.provider.displayName,
-        modelName: validation.defaultModelName
-      }
-    ];
-  });
+        modelName: model.modelName
+      }));
+  }));
+  const readyProviders = readyProvidersByValidation.flat();
 
   const firstReadyProvider = readyProviders[0] ?? null;
 

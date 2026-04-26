@@ -129,6 +129,15 @@ function isStepStartPart(part: ChatMessagePart): part is StepStartPart {
   return part.type === "step-start";
 }
 
+function isInternalStepStartPart(part: ChatMessagePart) {
+  return (
+    isStepStartPart(part) ||
+    (part.type === "unknown" &&
+      part.reason === "unsupported-part" &&
+      part.originalType === "step-start")
+  );
+}
+
 function isFilePart(part: ChatMessagePart): part is FilePart {
   return part.type === "file";
 }
@@ -215,13 +224,8 @@ function renderPart(
     );
   }
 
-  if (isStepStartPart(part)) {
-    return (
-      <div key={`${part.type}-${index}`} className="flex items-center gap-2 text-sm text-text-tertiary">
-        <span className="inline-flex h-px min-w-6 flex-1 bg-border" />
-        <strong>{part.title ?? "Step"}</strong>
-      </div>
-    );
+  if (isInternalStepStartPart(part)) {
+    return null;
   }
 
   if (isFilePart(part)) {

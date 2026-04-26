@@ -60,6 +60,13 @@ export function createLocalAuthMiddleware(options: LocalAuthOptions): Middleware
     }
 
     await next();
+
+    // Streaming route handlers return their own Response object, so headers set
+    // before `next()` can be replaced. Re-apply CORS after downstream handlers
+    // have produced the final response.
+    if (origin) {
+      setCorsResponseHeaders(context, origin);
+    }
   };
 }
 
@@ -102,17 +109,21 @@ function isCorsPreflight(context: Context): boolean {
 
 function setCorsResponseHeaders(context: Context, origin: string) {
   context.header("access-control-allow-origin", origin);
+  context.res.headers.set("access-control-allow-origin", origin);
   context.header("vary", "Origin");
+  context.res.headers.set("vary", "Origin");
 
   const requestedMethod = context.req.header("access-control-request-method");
   const requestedHeaders = context.req.header("access-control-request-headers");
 
   if (requestedMethod) {
     context.header("access-control-allow-methods", requestedMethod);
+    context.res.headers.set("access-control-allow-methods", requestedMethod);
   }
 
   if (requestedHeaders) {
     context.header("access-control-allow-headers", requestedHeaders);
+    context.res.headers.set("access-control-allow-headers", requestedHeaders);
   }
 }
 

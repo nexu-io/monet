@@ -97,6 +97,14 @@ export const CreateProviderRequestSchema = z
   })
   .openapi("CreateProviderRequest");
 
+export const UpdateProviderRequestSchema = z
+  .object({
+    displayName: z.string().min(1).optional().openapi({ example: "My OpenAI Provider" }),
+    baseUrl: z.string().url().nullable().optional().openapi({ example: null }),
+    timeoutMs: z.number().int().positive().nullable().optional().openapi({ example: null })
+  })
+  .openapi("UpdateProviderRequest");
+
 export const ProviderModelSchema = z
   .object({
     id: z.string().openapi({ example: "mod_123" }),
@@ -123,6 +131,12 @@ export const ListModelsResponseSchema = z
     models: z.array(ProviderModelSchema)
   })
   .openapi("ListModelsResponse");
+
+export const UpdateProviderModelRequestSchema = z
+  .object({
+    enabled: z.boolean().openapi({ example: true })
+  })
+  .openapi("UpdateProviderModelRequest");
 
 export const ValidateProviderResponseSchema = z
   .object({

@@ -12,11 +12,26 @@ import { PageFrame } from "../components/page-frame";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { sanitizeInternalRuntimeMessage } from "../components/workspace-copy";
 import { useControllerState } from "../lib/controller-state";
+import { getMonetClientConfig } from "../lib/monet-client";
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
 
 const primarySessionActionButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 font-medium text-accent-foreground no-underline transition-[background-color,border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-[hsl(var(--accent)/0.92)] hover:bg-[hsl(var(--accent)/0.92)] focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
+
+function mergeHeaders(baseHeaders: Record<string, string>, headers: HeadersInit | undefined): Record<string, string> {
+  const merged: Record<string, string> = { ...baseHeaders };
+
+  if (!headers) {
+    return merged;
+  }
+
+  new Headers(headers).forEach((value, key) => {
+    merged[key] = value;
+  });
+
+  return merged;
+}
 
 interface PendingContinuationRequest {
   readonly runId: string;
@@ -60,49 +75,61 @@ function SessionChatSurface({
   const resolvedProviderId = activeProviderTarget?.providerId ?? null;
   const resolvedModelId = activeProviderTarget?.modelId ?? null;
   const initialMessages = useMemo(() => session.messages.map((message) => message.uiMessage), [session.id, session.messages]);
+  const resolvedControllerConfig = controllerConfig ?? getMonetClientConfig();
+  const chatHeaders = useMemo<Record<string, string>>(
+    () => {
+      const headers: Record<string, string> = {};
+
+      if (resolvedControllerConfig.bearerToken) {
+        headers.Authorization = `Bearer ${resolvedControllerConfig.bearerToken}`;
+      }
+
+      return headers;
+    },
+    [resolvedControllerConfig.bearerToken]
+  );
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
-        api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:42831"}/api/chat`,
+        api: `${resolvedControllerConfig.apiBase}/api/chat`,
         credentials: "omit",
-        headers: (): Record<string, string> => {
-          if (!controllerConfig?.bearerToken) {
-            return {};
-          }
-
-          return {
-            Authorization: `Bearer ${controllerConfig.bearerToken}`
-          };
-        },
+        headers: chatHeaders,
         body: {
           sessionId: session.id,
           ...(resolvedProviderId ? { providerId: resolvedProviderId } : {}),
           ...(resolvedModelId ? { modelId: resolvedModelId } : {})
         },
-        prepareSendMessagesRequest: ({ api, body, headers, credentials }) => {
+        prepareSendMessagesRequest: ({ api, id, messages, body, headers, credentials, trigger, messageId }) => {
           const pendingContinuation = pendingContinuationRef.current;
+          const preparedBody = {
+            ...body,
+            id,
+            messages,
+            trigger,
+            messageId
+          };
 
           if (!pendingContinuation) {
             return {
               api,
-              body: body ?? {},
-              headers,
+              body: preparedBody,
+              headers: mergeHeaders(chatHeaders, headers),
               credentials
             };
           }
 
           return {
-            api: `${controllerConfig?.apiBase ?? "http://127.0.0.1:42831"}/api/runs/${pendingContinuation.runId}/continue`,
-            headers,
+            api: `${resolvedControllerConfig.apiBase}/api/runs/${pendingContinuation.runId}/continue`,
+            headers: mergeHeaders(chatHeaders, headers),
             credentials,
             body: {
-              ...body,
+              ...preparedBody,
               ...pendingContinuation
             }
           };
         }
       }),
-    [controllerConfig?.apiBase, controllerConfig?.bearerToken, resolvedModelId, resolvedProviderId, session.id]
+    [chatHeaders, resolvedControllerConfig.apiBase, resolvedModelId, resolvedProviderId, session.id]
   );
   const { messages, sendMessage, regenerate, stop, status, error, clearError, addToolApprovalResponse } = useChat({
     id: session.id,
@@ -300,10 +327,14 @@ function SessionChatSurface({
           canRegenerate={canRegenerate}
           disabled={isComposerDisabled}
           {...(isComposerDisabled ? { disabledReason: composerDisabledReason } : {})}
+          readyProviders={readyProviders}
+          activeTarget={activeProviderTarget}
+          isTargetOverridden={overrideProviderTarget !== null}
           onValueChange={handleInputChange}
           onSubmit={() => void handleSubmit()}
           onRegenerate={() => void handleRegenerate()}
           onStop={handleStop}
+          onChangeTarget={handleChangeProviderTarget}
         />
       )}
     >
@@ -390,10 +421,14 @@ function EmptyChatConversation({
           canRegenerate={false}
           disabled={isComposerDisabled}
           {...(isComposerDisabled && composerDisabledReason ? { disabledReason: composerDisabledReason } : {})}
+          readyProviders={readyProviders}
+          activeTarget={selectedProviderTarget}
+          isTargetOverridden={overrideProviderTarget !== null}
           onValueChange={setInput}
           onSubmit={() => void handleSubmit()}
           onRegenerate={() => undefined}
           onStop={() => undefined}
+          onChangeTarget={handleChangeProviderTarget}
         />
       )}
     >

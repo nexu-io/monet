@@ -45,7 +45,6 @@ export function ConversationHeader({
   messageCount,
   hasError,
   canRegenerate,
-  readyProviders,
   activeTarget,
   isTargetOverridden,
   onChangeTarget,
@@ -53,7 +52,6 @@ export function ConversationHeader({
   onStop
 }: ConversationHeaderProps) {
   const isBusy = status === "submitted" || status === "streaming";
-  const showProviderPicker = readyProviders.length >= 2;
   const statusDescriptor = getStatusDescriptor(status, hasError);
 
   return (
@@ -79,29 +77,6 @@ export function ConversationHeader({
           <StatusDot status={statusDescriptor.tone} size="xs" className="size-2" pulse={isBusy} />
           <span>{statusDescriptor.label}</span>
         </Badge>
-
-        {showProviderPicker ? (
-          <label className="flex min-w-48 flex-col gap-1">
-            <span className="text-2xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Model</span>
-            <select
-              className="min-h-9 rounded-md border border-border-subtle bg-surface-1 px-3 text-text-primary transition-[border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-border-hover focus-visible:border-accent focus-visible:outline-none focus-visible:shadow-focus"
-              value={activeTarget ? `${activeTarget.providerId}::${activeTarget.modelId}` : ""}
-              disabled={isBusy}
-              onChange={(event) => {
-                const nextTarget = readyProviders.find(
-                  (target) => `${target.providerId}::${target.modelId}` === event.currentTarget.value
-                );
-                onChangeTarget(nextTarget ?? null);
-              }}
-            >
-              {readyProviders.map((target) => (
-                <option key={`${target.providerId}::${target.modelId}`} value={`${target.providerId}::${target.modelId}`}>
-                  {target.providerDisplayName} · {target.modelName ?? target.modelId}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
 
         {isTargetOverridden ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onChangeTarget(null)} disabled={isBusy}>
