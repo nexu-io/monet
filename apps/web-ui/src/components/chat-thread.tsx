@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { Badge, Button, Card } from "@nexu-design/ui-web";
+import { cjk } from "@streamdown/cjk";
+import { code } from "@streamdown/code";
+import { math } from "@streamdown/math";
+import { mermaid } from "@streamdown/mermaid";
+import { Streamdown } from "streamdown";
+import "katex/dist/katex.min.css";
+import "streamdown/styles.css";
 
 type ChatMessage = UIMessage;
 const WRITE_FILE_PREVIEW_MAX_LINES = 24;
@@ -16,7 +23,7 @@ type SourceUrlPart = { readonly type: "source-url"; readonly title?: string; rea
 type SourceDocumentPart = { readonly type: "source-document"; readonly title?: string; readonly snippet?: string };
 type ToolPart = {
   readonly type: `tool-${string}` | "dynamic-tool";
-  readonly toolName: string;
+  readonly toolName?: string;
   readonly toolCallId?: string;
   readonly state:
     | "input-streaming"
@@ -43,6 +50,8 @@ const partLabelClassName = "text-xs font-semibold uppercase tracking-[0.08em] te
 const toolSectionClassName = "flex flex-col gap-1.5";
 const toolPreClassName = "m-0 overflow-auto whitespace-pre-wrap rounded-md bg-surface-0 p-2.5 font-mono text-sm text-text-secondary";
 const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
+const toolSummaryClassName = "flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden max-[960px]:flex-col max-[960px]:items-start";
+const markdownClassName = "leading-[1.6] text-text-primary [&_*:first-child]:mt-0 [&_*:last-child]:mb-0 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_li>ol]:my-1 [&_li>ul]:my-1";
 
 function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
   switch (phase) {
@@ -98,14 +107,6 @@ function getToolStateMeta(state: string) {
   }
 }
 
-function formatPartPayload(value: unknown) {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  return JSON.stringify(value, null, 2);
-}
-
 function getRoleLabel(role: ChatMessage["role"]) {
   switch (role) {
     case "assistant":
@@ -153,7 +154,82 @@ function isSourceDocumentPart(part: ChatMessagePart): part is SourceDocumentPart
 function isToolPart(part: ChatMessagePart): part is ToolPart {
   const candidate = part as Partial<ToolPart>;
 
-  return (part.type === "dynamic-tool" || part.type.startsWith("tool-")) && typeof candidate.toolName === "string" && typeof candidate.state === "string";
+  return (
+    (part.type === "dynamic-tool" && typeof candidate.toolName === "string" && typeof candidate.state === "string") ||
+    (part.type.startsWith("tool-") && typeof candidate.state === "string")
+  );
+}
+
+function hasTextContent(message: ChatMessage) {
+  return message.parts.some((part) => isTextPart(part) && part.text.trim().length > 0);
+}
+
+function getToolName(part: ToolPart) {
+  if (typeof part.toolName === "string" && part.toolName.trim().length > 0) {
+    return part.toolName;
+  }
+
+  return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : "tool";
+}
+
+function isLikelyJsonString(value: string) {
+  const trimmed = value.trim();
+
+  return (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
+}
+
+function formatToolInputValue(value: unknown): string {
+  if (value == null) {
+    return "None";
+  }
+
+  if (typeof value === "string") {
+    return isLikelyJsonString(value) ? "Structured input" : value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  }
+
+  if (typeof value === "object") {
+    return "Nested data";
+  }
+
+  return "Provided";
+}
+
+function getToolInputEntries(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return [];
+  }
+
+  return Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => ({
+    key,
+    value: formatToolInputValue(entryValue)
+  }));
+}
+
+function renderToolInputSummary(value: unknown) {
+  const entries = getToolInputEntries(value);
+
+  if (entries.length === 0) {
+    return <p className={mutedPartTextClassName}>{formatToolInputValue(value)}</p>;
+  }
+
+  return (
+    <dl className="m-0 grid gap-2 rounded-md bg-surface-0 p-2.5 text-sm">
+      {entries.map((entry) => (
+        <div key={entry.key} className="grid gap-1 sm:grid-cols-[minmax(8rem,14rem)_1fr]">
+          <dt className="font-semibold text-text-heading [overflow-wrap:anywhere]">{entry.key}</dt>
+          <dd className="m-0 text-text-secondary [overflow-wrap:anywhere]">{entry.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function getMessageRunId(message: ChatMessage) {
@@ -197,6 +273,7 @@ function renderPart(
   index: number,
   options: {
     readonly status: "submitted" | "streaming" | "ready" | "error";
+    readonly isStreamingMessage: boolean;
     readonly isArchived: boolean;
     readonly pendingToolApprovalIds: ReadonlySet<string>;
     readonly onToolApproval?: (input: {
@@ -209,9 +286,17 @@ function renderPart(
 ) {
   if (isTextPart(part)) {
     return (
-      <p key={`${part.type}-${index}`} className="m-0 whitespace-pre-wrap leading-[1.6] text-text-primary">
+      <Streamdown
+        key={`${part.type}-${index}`}
+        animated={{ animation: "blurIn", duration: 180, easing: "ease-out", sep: "word" }}
+        caret="block"
+        isAnimating={options.isStreamingMessage}
+        plugins={{ code, mermaid, math, cjk }}
+        controls={{ mermaid: { fullscreen: true, download: true, copy: true, panZoom: true } }}
+        className={markdownClassName}
+      >
         {part.text}
-      </p>
+      </Streamdown>
     );
   }
 
@@ -261,6 +346,7 @@ function renderPart(
 
   if (isToolPart(part)) {
     const runId = getMessageRunId(message);
+    const toolName = getToolName(part);
     const toolStateMeta = getToolStateMeta(part.state);
     const canApprove =
       part.state === "approval-requested" &&
@@ -269,120 +355,116 @@ function renderPart(
       typeof runId === "string" &&
       typeof options.onToolApproval === "function";
     const isPendingApproval = typeof part.toolCallId === "string" && options.pendingToolApprovalIds.has(part.toolCallId);
-    const isWriteFileCall = part.toolName === "write_file" && isWriteFileInput(part.input);
+    const isWriteFileCall = toolName === "write_file" && isWriteFileInput(part.input);
     const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
 
     return (
-      <div key={`${part.type}-${index}`} className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
-        <div className="flex items-start justify-between gap-3 max-[960px]:flex-col max-[960px]:items-start">
+      <details key={`${part.type}-${index}`} className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
+        <summary className={toolSummaryClassName}>
           <div className="flex flex-col gap-1">
             <span className={partLabelClassName}>Tool call</span>
-            <strong className={partTitleClassName}>{part.toolName}</strong>
+            <strong className={partTitleClassName}>{toolName}</strong>
+            <span className="text-sm text-text-muted">Details collapsed</span>
           </div>
           <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
+        </summary>
+
+        <div className="mt-3 flex flex-col gap-3">
+          {isWriteFileCall ? (
+            <>
+              <div className={toolSectionClassName}>
+                <span className={partLabelClassName}>Target path</span>
+                <div className="mono overflow-auto rounded-md bg-surface-0 p-2.5 text-sm text-text-heading [overflow-wrap:anywhere]">{part.input.path}</div>
+              </div>
+
+              <div className={toolSectionClassName}>
+                <span className={partLabelClassName}>Content preview</span>
+                <pre className={toolPreClassName}>{writeFilePreview?.content}</pre>
+                {writeFilePreview?.wasTruncated ? (
+                  <p className={mutedPartTextClassName}>
+                    Showing the first {Math.min(writeFilePreview.lineCount, WRITE_FILE_PREVIEW_MAX_LINES)} lines and up to {WRITE_FILE_PREVIEW_MAX_CHARS} characters.
+                  </p>
+                ) : (
+                  <p className={mutedPartTextClassName}>{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
+                )}
+              </div>
+            </>
+          ) : null}
+
+          {part.input !== undefined && !isWriteFileCall ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Input summary</span>
+              {renderToolInputSummary(part.input)}
+            </div>
+          ) : null}
+
+          {part.state === "approval-requested" && isWriteFileCall ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Risk</span>
+              <p className={mutedPartTextClassName}>This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
+            </div>
+          ) : null}
+
+          {part.state === "approval-requested" && canApprove ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Confirmation</span>
+              <p className={mutedPartTextClassName}>
+                {isWriteFileCall
+                  ? "This action can create or overwrite a file inside an authorized directory. Review the path and content preview before continuing."
+                  : "Review the tool input, then approve or reject execution."}
+              </p>
+              <div className="mt-3 flex justify-start gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                  onClick={() => {
+                    void options.onToolApproval?.({
+                      runId,
+                      toolCallId: part.toolCallId!,
+                      confirmationToken: part.approval!.id,
+                      decision: "approved"
+                    });
+                  }}
+                >
+                  {isPendingApproval ? "Submitting..." : "Approve"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                  onClick={() => {
+                    void options.onToolApproval?.({
+                      runId,
+                      toolCallId: part.toolCallId!,
+                      confirmationToken: part.approval!.id,
+                      decision: "rejected"
+                    });
+                  }}
+                >
+                  {isPendingApproval ? "Submitting..." : "Reject"}
+                </Button>
+              </div>
+              {isPendingApproval ? <p className={mutedPartTextClassName}>Confirmation submitted. Waiting for the run to continue…</p> : null}
+            </div>
+          ) : null}
+
+          {part.errorText ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Error</span>
+              <pre className={toolPreClassName}>{part.errorText}</pre>
+            </div>
+          ) : null}
         </div>
-
-        {isWriteFileCall ? (
-          <>
-            <div className={toolSectionClassName}>
-              <span className={partLabelClassName}>Target path</span>
-              <div className="mono overflow-auto rounded-md bg-surface-0 p-2.5 text-sm text-text-heading [overflow-wrap:anywhere]">{part.input.path}</div>
-            </div>
-
-            <div className={toolSectionClassName}>
-              <span className={partLabelClassName}>Content preview</span>
-              <pre className={toolPreClassName}>{writeFilePreview?.content}</pre>
-              {writeFilePreview?.wasTruncated ? (
-                <p className={mutedPartTextClassName}>
-                  Showing the first {Math.min(writeFilePreview.lineCount, WRITE_FILE_PREVIEW_MAX_LINES)} lines and up to {WRITE_FILE_PREVIEW_MAX_CHARS} characters.
-                </p>
-              ) : (
-                <p className={mutedPartTextClassName}>{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
-              )}
-            </div>
-          </>
-        ) : null}
-
-        {part.input !== undefined && !isWriteFileCall ? (
-          <div className={toolSectionClassName}>
-            <span className={partLabelClassName}>Input</span>
-            <pre className={toolPreClassName}>{formatPartPayload(part.input)}</pre>
-          </div>
-        ) : null}
-
-        {part.state === "approval-requested" && isWriteFileCall ? (
-          <div className={toolSectionClassName}>
-            <span className={partLabelClassName}>Risk</span>
-            <p className={mutedPartTextClassName}>This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
-          </div>
-        ) : null}
-
-        {part.state === "approval-requested" && canApprove ? (
-          <div className={toolSectionClassName}>
-            <span className={partLabelClassName}>Confirmation</span>
-            <p className={mutedPartTextClassName}>
-              {isWriteFileCall
-                ? "This action can create or overwrite a file inside an authorized directory. Review the path and content preview before continuing."
-                : "Review the tool input, then approve or reject execution."}
-            </p>
-            <div className="mt-3 flex justify-start gap-2">
-              <Button
-                type="button"
-                variant="primary"
-                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
-                onClick={() => {
-                  void options.onToolApproval?.({
-                    runId,
-                    toolCallId: part.toolCallId!,
-                    confirmationToken: part.approval!.id,
-                    decision: "approved"
-                  });
-                }}
-              >
-                {isPendingApproval ? "Submitting..." : "Approve"}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
-                onClick={() => {
-                  void options.onToolApproval?.({
-                    runId,
-                    toolCallId: part.toolCallId!,
-                    confirmationToken: part.approval!.id,
-                    decision: "rejected"
-                  });
-                }}
-              >
-                {isPendingApproval ? "Submitting..." : "Reject"}
-              </Button>
-            </div>
-            {isPendingApproval ? <p className={mutedPartTextClassName}>Confirmation submitted. Waiting for the run to continue…</p> : null}
-          </div>
-        ) : null}
-
-        {part.output !== undefined ? (
-          <div className={toolSectionClassName}>
-            <span className={partLabelClassName}>Output</span>
-            <pre className={toolPreClassName}>{formatPartPayload(part.output)}</pre>
-          </div>
-        ) : null}
-
-        {part.errorText ? (
-          <div className={toolSectionClassName}>
-            <span className={partLabelClassName}>Error</span>
-            <pre className={toolPreClassName}>{part.errorText}</pre>
-          </div>
-        ) : null}
-      </div>
+      </details>
     );
   }
 
   return (
     <div key={`${part.type}-${index}`} className={partCardClassName}>
-      <span className={partLabelClassName}>Unsupported part</span>
+      <span className={partLabelClassName}>Message detail</span>
       <strong className={partTitleClassName}>{part.type}</strong>
-      <pre className={toolPreClassName}>{JSON.stringify(part, null, 2)}</pre>
+      <p className={mutedPartTextClassName}>This message part is not displayed.</p>
     </div>
   );
 }
@@ -451,9 +533,15 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
 
   useEffect(() => {
     const scrollContainer = rootRef.current?.closest(".canvas-body");
+    const isStreamingAssistantMessage = status === "streaming" && messages.at(-1)?.role === "assistant";
 
-    if (!(scrollContainer instanceof HTMLElement) || !shouldStickToBottomRef.current) {
+    if (!(scrollContainer instanceof HTMLElement) || (!shouldStickToBottomRef.current && !isStreamingAssistantMessage)) {
       return;
+    }
+
+    if (isStreamingAssistantMessage) {
+      shouldStickToBottomRef.current = true;
+      setShowScrollToBottom(false);
     }
 
     scrollContainer.scrollTo({
@@ -499,43 +587,50 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
 
   return (
     <section ref={rootRef} className="relative flex flex-col gap-4" aria-label="Conversation transcript">
-      {messages.length === 0 ? (
-        <Card className="rounded-xl border border-border-subtle bg-surface-1 px-4.5 py-4 shadow-xs">
-          <div className="flex flex-col gap-1">
-            <span className={partLabelClassName}>Ready for first prompt</span>
-            <strong className={partTitleClassName}>Send a message to verify the local chat stream.</strong>
-            <p className="m-0 leading-[1.5] text-text-muted">The chat surface is live — your next message will be answered by the configured model.</p>
-          </div>
-        </Card>
-      ) : null}
-
       {messages.map((message, messageIndex) => {
         const isStreamingAssistant = status === "streaming" && message.role === "assistant" && messageIndex === messages.length - 1;
+        const renderedParts = message.parts.map((part, index) =>
+          renderPart(message, part, index, {
+            status,
+            isStreamingMessage: isStreamingAssistant,
+            isArchived,
+            pendingToolApprovalIds,
+            onToolApproval: handleToolApproval
+          })
+        );
+
+        if (message.role === "assistant") {
+          return (
+            <article key={message.id} className="flex w-full flex-col gap-3" data-role={message.role}>
+              {renderedParts}
+            </article>
+          );
+        }
 
         return (
           <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-role={message.role}>
             <div className="flex items-center gap-2 text-xs text-text-tertiary">
-              <Badge variant={message.role === "assistant" ? "secondary" : "accent"} size="sm" radius="full">
+              <Badge variant={message.role === "user" ? "accent" : "secondary"} size="sm" radius="full">
                 {getRoleLabel(message.role)}
               </Badge>
-              {isStreamingAssistant ? <Badge variant="secondary" size="sm" radius="full">Streaming</Badge> : null}
             </div>
 
             <Card className={`w-[min(100%,calc(var(--spacing)*180))] rounded-xl border border-border-subtle px-4.5 py-4 shadow-xs max-[960px]:w-full ${message.role === "user" ? "border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)]" : "bg-surface-1"}`}>
               <div className="flex flex-col gap-3">
-                {message.parts.map((part, index) =>
-                  renderPart(message, part, index, {
-                    status,
-                    isArchived,
-                    pendingToolApprovalIds,
-                    onToolApproval: handleToolApproval
-                  })
-                )}
+                {renderedParts}
               </div>
             </Card>
           </article>
         );
       })}
+
+      {(status === "submitted" || (status === "streaming" && messages.at(-1)?.role === "assistant" && !hasTextContent(messages.at(-1)!))) ? (
+        <div className="w-full py-1 text-sm font-medium" aria-live="polite">
+          <span className="inline-block animate-[thinking-shimmer_1.35s_linear_infinite] bg-[linear-gradient(90deg,var(--color-text-muted),var(--color-text-primary),var(--color-text-muted))] bg-[length:200%_100%] bg-clip-text text-transparent">
+            Thinking...
+          </span>
+        </div>
+      ) : null}
 
       {errorText ? (
         <Card className="rounded-xl border border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.05)] px-4.5 py-4 shadow-xs">

@@ -8,7 +8,6 @@ import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 export interface ComposerProps {
   readonly value: string;
   readonly status: "submitted" | "streaming" | "ready" | "error";
-  readonly canRegenerate: boolean;
   readonly disabled?: boolean;
   readonly disabledReason?: string;
   readonly readyProviders?: readonly ProviderReadinessTarget[];
@@ -16,7 +15,6 @@ export interface ComposerProps {
   readonly isTargetOverridden?: boolean;
   readonly onValueChange: (value: string) => void;
   readonly onSubmit: () => void;
-  readonly onRegenerate: () => void;
   readonly onStop: () => void;
   readonly onChangeTarget?: (target: ProviderReadinessTarget | null) => void;
 }
@@ -32,7 +30,7 @@ function getStatusHint(status: ComposerProps["status"], disabledReason?: string)
     case "streaming":
       return "Streaming reply…";
     case "error":
-      return "Last request failed. Edit the prompt or regenerate to retry.";
+      return "Last request failed. Edit the prompt and send again to retry.";
     default:
       return null;
   }
@@ -41,7 +39,6 @@ function getStatusHint(status: ComposerProps["status"], disabledReason?: string)
 export function Composer({
   value,
   status,
-  canRegenerate,
   disabled = false,
   disabledReason,
   readyProviders = [],
@@ -49,17 +46,23 @@ export function Composer({
   isTargetOverridden = false,
   onValueChange,
   onSubmit,
-  onRegenerate,
   onStop,
   onChangeTarget
 }: ComposerProps) {
   const isBusy = status === "submitted" || status === "streaming";
   const isDisabled = disabled || isBusy;
-  const sendLabel = status === "submitted" ? "Sending…" : status === "streaming" ? "Streaming…" : "Send";
+  const sendLabel = status === "submitted" ? "Sending…" : status === "streaming" ? "Stop" : "Send";
+  const isStreaming = status === "streaming";
   const statusHint = getStatusHint(status, disabledReason);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isStreaming) {
+      onStop();
+      return;
+    }
+
     onSubmit();
   }
 
@@ -74,6 +77,12 @@ export function Composer({
 
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+
+      if (isStreaming) {
+        onStop();
+        return;
+      }
+
       onSubmit();
     }
   }
@@ -141,28 +150,21 @@ export function Composer({
               <span aria-hidden="true">·</span>
             </>
           ) : null}
-          <kbd className="inline-flex items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-secondary">⏎</kbd>
-          <span>to send</span>
-          <span aria-hidden="true">·</span>
-          <kbd className="inline-flex items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-secondary">⇧</kbd>
-          <kbd className="inline-flex items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-text-secondary">⏎</kbd>
-          <span>for newline</span>
           {statusHint ? (
             <>
-              <span aria-hidden="true">·</span>
               <span>{statusHint}</span>
             </>
           ) : null}
         </div>
 
         <div className="flex items-center gap-2 max-app:w-full">
-          <Button type="button" variant="ghost" size="sm" onClick={onRegenerate} disabled={disabled || !canRegenerate}>
-            Regenerate
-          </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={onStop} disabled={disabled || !isBusy}>
-            Stop
-          </Button>
-          <Button type="submit" variant="primary" size="sm" disabled={isDisabled || value.trim().length === 0}>
+          <Button
+            type={isStreaming ? "button" : "submit"}
+            variant={isStreaming ? "secondary" : "primary"}
+            size="sm"
+            onClick={isStreaming ? onStop : undefined}
+            disabled={disabled || status === "submitted" || (!isStreaming && value.trim().length === 0)}
+          >
             {sendLabel}
           </Button>
         </div>

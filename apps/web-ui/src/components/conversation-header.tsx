@@ -12,13 +12,10 @@ export interface ConversationHeaderProps {
   readonly status: "submitted" | "streaming" | "ready" | "error";
   readonly messageCount: number;
   readonly hasError: boolean;
-  readonly canRegenerate: boolean;
   readonly readyProviders: ProviderReadinessTarget[];
   readonly activeTarget: ProviderReadinessTarget | null;
   readonly isTargetOverridden: boolean;
   readonly onChangeTarget: (target: ProviderReadinessTarget | null) => void;
-  readonly onRegenerate: () => void;
-  readonly onStop: () => void;
 }
 
 function getStatusDescriptor(status: ConversationHeaderProps["status"], hasError: boolean) {
@@ -44,12 +41,9 @@ export function ConversationHeader({
   status,
   messageCount,
   hasError,
-  canRegenerate,
   activeTarget,
   isTargetOverridden,
-  onChangeTarget,
-  onRegenerate,
-  onStop
+  onChangeTarget
 }: ConversationHeaderProps) {
   const isBusy = status === "submitted" || status === "streaming";
   const statusDescriptor = getStatusDescriptor(status, hasError);
@@ -83,12 +77,6 @@ export function ConversationHeader({
             Reset route
           </Button>
         ) : null}
-        <Button type="button" variant="ghost" size="sm" onClick={onRegenerate} disabled={!canRegenerate}>
-          Regenerate
-        </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onStop} disabled={!isBusy}>
-          Stop
-        </Button>
       </div>
     </div>
   );

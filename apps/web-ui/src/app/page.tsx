@@ -131,7 +131,7 @@ function SessionChatSurface({
       }),
     [chatHeaders, resolvedControllerConfig.apiBase, resolvedModelId, resolvedProviderId, session.id]
   );
-  const { messages, sendMessage, regenerate, stop, status, error, clearError, addToolApprovalResponse } = useChat({
+  const { messages, sendMessage, stop, status, error, clearError, addToolApprovalResponse } = useChat({
     id: session.id,
     messages: initialMessages,
     transport,
@@ -143,7 +143,6 @@ function SessionChatSurface({
     }
   });
   const isBusy = status === "submitted" || status === "streaming";
-  const canRegenerate = !isBusy && messages.some((message) => message.role === "user");
   const hasUserMessages = messages.some((message) => message.role === "user");
   const isArchived = session.archivedAt !== null;
   const isProviderUnavailable = !resolvedProviderId || !resolvedModelId;
@@ -208,26 +207,14 @@ function SessionChatSurface({
       return;
     }
 
+    setInput("");
+
     if (session.title === DEFAULT_SESSION_TITLE && !hasUserMessages) {
       await onRenameSession(session.id, deriveSessionTitle(text));
     }
 
     pendingContinuationRef.current = null;
     await sendMessage({ text });
-    setInput("");
-  }
-
-  async function handleRegenerate() {
-    if (!canRegenerate || isComposerDisabled) {
-      return;
-    }
-
-    if (error) {
-      clearError();
-    }
-
-    pendingContinuationRef.current = null;
-    await regenerate();
   }
 
   function handleStop() {
@@ -311,20 +298,16 @@ function SessionChatSurface({
           status={status}
           messageCount={messages.length}
           hasError={error != null || approvalErrorText != null}
-          canRegenerate={canRegenerate && !isComposerDisabled}
           readyProviders={readyProviders}
           activeTarget={activeProviderTarget}
           isTargetOverridden={overrideProviderTarget !== null}
           onChangeTarget={handleChangeProviderTarget}
-          onRegenerate={() => void handleRegenerate()}
-          onStop={handleStop}
         />
       )}
       composer={(
         <Composer
           value={input}
           status={status}
-          canRegenerate={canRegenerate}
           disabled={isComposerDisabled}
           {...(isComposerDisabled ? { disabledReason: composerDisabledReason } : {})}
           readyProviders={readyProviders}
@@ -332,7 +315,6 @@ function SessionChatSurface({
           isTargetOverridden={overrideProviderTarget !== null}
           onValueChange={handleInputChange}
           onSubmit={() => void handleSubmit()}
-          onRegenerate={() => void handleRegenerate()}
           onStop={handleStop}
           onChangeTarget={handleChangeProviderTarget}
         />
@@ -389,8 +371,8 @@ function EmptyChatConversation({
       return;
     }
 
-    await onCreateSession(text, selectedProviderTarget);
     setInput("");
+    await onCreateSession(text, selectedProviderTarget);
   }
 
   return (
@@ -405,20 +387,16 @@ function EmptyChatConversation({
           status="ready"
           messageCount={0}
           hasError={false}
-          canRegenerate={false}
           readyProviders={readyProviders}
           activeTarget={selectedProviderTarget}
           isTargetOverridden={overrideProviderTarget !== null}
           onChangeTarget={handleChangeProviderTarget}
-          onRegenerate={() => undefined}
-          onStop={() => undefined}
         />
       )}
       composer={(
         <Composer
           value={input}
           status="ready"
-          canRegenerate={false}
           disabled={isComposerDisabled}
           {...(isComposerDisabled && composerDisabledReason ? { disabledReason: composerDisabledReason } : {})}
           readyProviders={readyProviders}
@@ -426,7 +404,6 @@ function EmptyChatConversation({
           isTargetOverridden={overrideProviderTarget !== null}
           onValueChange={setInput}
           onSubmit={() => void handleSubmit()}
-          onRegenerate={() => undefined}
           onStop={() => undefined}
           onChangeTarget={handleChangeProviderTarget}
         />
