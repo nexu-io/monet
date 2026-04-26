@@ -119,14 +119,14 @@
               "string",
               "null"
             ],
-            "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
+            "example": null
           },
           "defaultModelId": {
             "type": [
               "string",
               "null"
             ],
-            "example": "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
+            "example": null
           }
         },
         "required": [
@@ -269,7 +269,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
+            "example": "pro_123"
           },
           "type": {
             "type": "string",
@@ -281,7 +281,7 @@
           },
           "displayName": {
             "type": "string",
-            "example": "Local Stub Provider"
+            "example": "Provider"
           },
           "baseUrl": {
             "type": [
@@ -296,7 +296,7 @@
               "string",
               "null"
             ],
-            "example": "controller-echo"
+            "example": null
           },
           "enabled": {
             "type": "boolean",
@@ -312,12 +312,12 @@
           "createdAt": {
             "type": "string",
             "format": "date-time",
-            "example": "2026-04-23T10:00:00.000Z"
+            "example": "2024-01-01T00:00:00Z"
           },
           "updatedAt": {
             "type": "string",
             "format": "date-time",
-            "example": "2026-04-23T10:00:00.000Z"
+            "example": "2024-01-01T00:00:00Z"
           }
         },
         "required": [
@@ -346,24 +346,88 @@
           "providers"
         ]
       },
+      "CreateProviderRequest": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "openai",
+              "openrouter"
+            ],
+            "example": "openai"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "example": "My OpenAI Provider"
+          },
+          "baseUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "example": null
+          },
+          "timeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "example": null
+          }
+        },
+        "required": [
+          "type",
+          "displayName"
+        ]
+      },
+      "UpdateProviderRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "example": "My OpenAI Provider"
+          },
+          "baseUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "example": null
+          },
+          "timeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "example": null
+          }
+        }
+      },
       "ProviderModel": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "example": "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
+            "example": "mod_123"
           },
           "providerId": {
             "type": "string",
-            "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
+            "example": "pro_123"
           },
           "modelName": {
             "type": "string",
-            "example": "controller-echo"
+            "example": "model-name"
           },
           "displayName": {
             "type": "string",
-            "example": "Controller Echo"
+            "example": "Model name"
           },
           "supportsTools": {
             "type": "boolean",
@@ -454,19 +518,19 @@
               "string",
               "null"
             ],
-            "example": "mod_c7n5r3t9w2y6k4m8p1s5v7x9"
+            "example": null
           },
           "defaultModelName": {
             "type": [
               "string",
               "null"
             ],
-            "example": "controller-echo"
+            "example": null
           },
           "availableModelCount": {
             "type": "integer",
             "minimum": 0,
-            "example": 1
+            "example": 0
           }
         },
         "required": [
@@ -477,6 +541,18 @@
           "defaultModelId",
           "defaultModelName",
           "availableModelCount"
+        ]
+      },
+      "UpdateProviderModelRequest": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "example": true
+          }
+        },
+        "required": [
+          "enabled"
         ]
       },
       "AuthorizedDirectory": {
@@ -919,6 +995,160 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Create provider",
+        "description": "Creates a new provider record.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProviderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Provider created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Provider"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider could not be created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/{providerId}": {
+      "patch": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Update provider",
+        "description": "Updates provider metadata such as API proxy URL and timeout.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "pro_123"
+            },
+            "required": true,
+            "name": "providerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProviderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Provider"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider could not be updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Delete provider",
+        "description": "Deletes a provider record and its models.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "pro_123"
+            },
+            "required": true,
+            "name": "providerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Provider deleted successfully."
+          },
+          "404": {
+            "description": "Not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/models": {
@@ -954,7 +1184,7 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
+              "example": "pro_123"
             },
             "required": true,
             "name": "providerId",
@@ -995,6 +1225,59 @@
         }
       }
     },
+    "/api/providers/{providerId}/catalog": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Fetch provider catalog",
+        "description": "Fetches the external provider model catalog, persists it, and returns the updated persisted models.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "pro_123"
+            },
+            "required": true,
+            "name": "providerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider catalog fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListModelsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested provider was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider catalog could not be fetched.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/providers/{providerId}/validate": {
       "post": {
         "tags": [
@@ -1007,7 +1290,7 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "example": "pro_b6m4q2r8t5v9x3z7k1n4p6s8"
+              "example": "pro_123"
             },
             "required": true,
             "name": "providerId",
@@ -1037,6 +1320,68 @@
           },
           "500": {
             "description": "The provider validation could not be completed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/provider-models/{modelId}": {
+      "patch": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Update provider model",
+        "description": "Updates persisted provider-model selection state.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "mod_123"
+            },
+            "required": true,
+            "name": "modelId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProviderModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider model updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The provider model could not be updated.",
             "content": {
               "application/json": {
                 "schema": {
