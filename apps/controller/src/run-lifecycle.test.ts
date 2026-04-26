@@ -349,3 +349,74 @@ test("continue endpoint rejects runs that have exhausted their max-step budget",
   assert.equal(persistCalled, false);
   assert.equal(resumeCalled, false);
 });
+
+test("continue endpoint rejects when a pending run cannot be resumed", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  let persistCalled = false;
+  let resumeCalled = false;
+
+  registerRunRoutes(app, {
+    runRegistry: createRunRegistry(),
+    providerRuntime: noopProviderRuntime as never,
+    toolRegistry: noopToolRegistry as never,
+    runtime: {
+      maxStepsPerRun: 2,
+      maxTokensPerRun: 32_768,
+      maxToolCallsPerRun: 1,
+      wallClockBudgetMs: 30_000
+    },
+    getChatStorage: () =>
+      ({
+        confirmToolCall() {},
+        getRunContext() {
+          return {
+            status: "pending",
+            sessionId: "session_123",
+            providerId: "openai",
+            modelId: "gpt-4o-mini",
+            currentStep: 1,
+            consumedTokens: 0,
+            consumedToolCalls: 0,
+            maxSteps: 2,
+            maxTokensPerRun: null,
+            wallClockDeadlineAt: null
+          };
+        },
+        persistRunMessages() {
+          persistCalled = true;
+        },
+        resumeRun() {
+          resumeCalled = true;
+          return false;
+        }
+      }) as unknown as ChatStorage
+  });
+
+  const response = await app.request("http://127.0.0.1:42831/api/runs/run_pending/continue", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      runId: "run_pending",
+      toolCallId: "tool_123",
+      decision: "approved",
+      confirmationToken: "confirm_123",
+      messages: [
+        {
+          id: "msg_user",
+          role: "user",
+          parts: [{ type: "text", text: "continue" }]
+        }
+      ]
+    })
+  });
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: "invalid_state",
+    message: "Run is not awaiting continuation."
+  });
+  assert.equal(persistCalled, true);
+  assert.equal(resumeCalled, true);
+});

@@ -469,3 +469,24 @@ test("deleteProvider rejects providers with persisted runs", () => {
     fixture.cleanup();
   }
 });
+
+test("deleteProvider rejects unknown providers", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+
+    assert.throws(
+      () => storage.deleteProvider("pro_missing"),
+      (error): error is ChatStorageResolutionError => {
+        assert.ok(error instanceof ChatStorageResolutionError);
+        assert.equal(error.statusCode, 404);
+        assert.equal(error.errorCode, "not_found");
+        assert.equal(error.message, "Unknown providerId: pro_missing");
+        return true;
+      }
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});

@@ -332,7 +332,7 @@ export interface ChatStorage {
   };
   failToolCall(options: { toolCallId: string; errorMessage: string }): void;
   markRunAwaitingConfirmation(runId: string): void;
-  resumeRun(runId: string): void;
+  resumeRun(runId: string): boolean;
   updateRunProgress(options: { runId: string; currentStep: number; consumedTokens?: number; consumedToolCalls?: number }): void;
   completeRun(options: { runId: string; finishReason: string | null }): void;
   failRun(options: { runId: string; finishReason: string }): void;
@@ -566,6 +566,16 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     },
 
     deleteProvider(providerId) {
+      const provider = getProviderById(connection, providerId);
+
+      if (!provider) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown providerId: ${providerId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
       const providerHasRuns = connection
         .prepare(
           `SELECT 1 AS exists_flag
@@ -1209,13 +1219,15 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     },
 
     resumeRun(runId) {
-      connection
+      const resumedRun = connection
         .prepare(
           `UPDATE runs
            SET status = 'running', finish_reason = NULL, ended_at = NULL
            WHERE id = ? AND status = 'pending'`
         )
         .run(runId);
+
+      return resumedRun.changes > 0;
     },
 
     updateRunProgress({ runId, currentStep, consumedTokens, consumedToolCalls }) {

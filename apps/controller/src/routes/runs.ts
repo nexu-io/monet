@@ -150,7 +150,12 @@ export function registerRunRoutes(
         runId,
         messages
       });
-      options.getChatStorage().resumeRun(runId);
+      const resumeSucceeded = options.getChatStorage().resumeRun(runId);
+
+      if (!resumeSucceeded) {
+        return context.json(createErrorResponse("invalid_state", "Run is not awaiting continuation."), 409);
+      }
+
       resumed = true;
 
       return await createChatStreamResponse({
