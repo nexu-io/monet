@@ -128,6 +128,8 @@ export function registerRunRoutes(
       return context.json(createErrorResponse("invalid_request", "`messages` must be a valid AI SDK UIMessage[] payload."), 400);
     }
 
+    let resumed = false;
+
     try {
       options.getChatStorage().confirmToolCall(body);
 
@@ -149,6 +151,7 @@ export function registerRunRoutes(
         messages
       });
       options.getChatStorage().resumeRun(runId);
+      resumed = true;
 
       return await createChatStreamResponse({
         request: {
@@ -191,6 +194,13 @@ export function registerRunRoutes(
         runId,
         toolCallId: body.toolCallId
       });
+
+      if (resumed) {
+        options.getChatStorage().failRun({
+          runId,
+          finishReason: error instanceof Error ? error.message : "Failed to continue the run."
+        });
+      }
 
       return context.json(createErrorResponse("internal_error", "Failed to continue the run."), 500);
     }

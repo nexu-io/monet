@@ -158,7 +158,7 @@ export async function createChatStreamResponse(options: {
         }, wallClockBudgetMs)
       : null;
 
-  if (typeof request.maxTokensPerRun === "number" && observedTokenCount > request.maxTokensPerRun) {
+  if (typeof request.maxTokensPerRun === "number" && observedTokenCount >= request.maxTokensPerRun) {
     abortRun("token_budget_exceeded");
   }
 
@@ -286,7 +286,7 @@ export async function createChatStreamResponse(options: {
         totalToolCalls: observedToolCallCount
       });
 
-      if (typeof request.maxTokensPerRun === "number" && observedTokenCount > request.maxTokensPerRun) {
+      if (typeof request.maxTokensPerRun === "number" && observedTokenCount >= request.maxTokensPerRun) {
         abortRun("token_budget_exceeded");
         return;
       }
