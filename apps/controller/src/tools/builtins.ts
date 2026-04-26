@@ -12,6 +12,7 @@ import type { RegisteredToolDefinition } from "./registry";
 export interface BuiltinToolsOptions {
   readonly allowedDirectories: readonly string[];
   readonly getAllowedDirectories?: () => readonly string[];
+  readonly getControllerPort?: () => number | undefined;
   readonly controllerPort?: number;
   readonly dnsLookup?: DnsLookupFn;
   readonly fetchUrlRequest?: FetchUrlRequestFn;
@@ -445,6 +446,7 @@ export function createBuiltinToolDefinitions(
   const fetchUrlRequest = options.fetchUrlRequest ?? defaultFetchUrlRequest;
   const getAllowedDirectories = () =>
     normalizeAllowedDirectories(options.getAllowedDirectories ? options.getAllowedDirectories() : options.allowedDirectories);
+  const getControllerPort = () => options.getControllerPort?.() ?? options.controllerPort;
 
   return [
     {
@@ -462,7 +464,7 @@ export function createBuiltinToolDefinitions(
         const { response, resolvedUrl, content } = await fetchUrlWithGuards(
           parsedUrl,
           context.abortSignal,
-          options.controllerPort,
+          getControllerPort(),
           dnsLookup,
           fetchUrlRequest
         );

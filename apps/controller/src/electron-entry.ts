@@ -18,11 +18,13 @@ const server = startControllerServer({
 let shuttingDown = false;
 
 function notifyReady(address: ControllerServerAddress) {
-  if (typeof process.send !== "function") {
+  const parentPort = (process as unknown as { parentPort?: { postMessage(message: unknown): void } | null }).parentPort;
+
+  if (!parentPort) {
     return;
   }
 
-  process.send({
+  parentPort.postMessage({
     type: "controller-ready",
     host: address.address,
     port: address.port

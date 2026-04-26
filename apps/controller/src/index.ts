@@ -60,6 +60,7 @@ export function startControllerServer(options: StartControllerServerOptions = {}
       port: config.port
     },
     (address) => {
+      runtime.setPort(address.port);
       controllerStartupLogger.info("controller.listening", {
         address: address.address,
         port: address.port,

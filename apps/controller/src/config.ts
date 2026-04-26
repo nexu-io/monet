@@ -140,7 +140,7 @@ function parsePort(value: string | undefined): number {
 
   const port = Number.parseInt(value, 10);
 
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`MONET_CONTROLLER_PORT must be a valid TCP port, received: ${value}`);
   }
 

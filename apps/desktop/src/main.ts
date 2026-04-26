@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -30,6 +29,12 @@ interface ControllerStatePayload {
   readonly bearerToken?: string | null;
   readonly message?: string;
   readonly restartAvailable?: boolean;
+}
+
+interface ControllerReadyMessage {
+  readonly type: "controller-ready";
+  readonly host: string;
+  readonly port: number;
 }
 
 type DesktopShortcutAction = "new-session" | "open-settings";
@@ -680,13 +685,10 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   const controllerEntrypoint = getControllerEntrypointPath();
   await assertFileExists(controllerEntrypoint, "controller desktop entrypoint");
 
-  const port = await reserveEphemeralPort();
   const bearerToken = randomBytes(24).toString("hex");
-  const apiBase = `http://${controllerHost}:${port}`;
 
   logger.info("desktop.controller_start_requested", {
-    apiBase,
-    port
+    host: controllerHost
   });
 
   const child = utilityProcess.fork(controllerEntrypoint, [], {
@@ -694,7 +696,7 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
       ...process.env,
       ...buildProviderSecretEnv(process.env),
       MONET_CONTROLLER_HOST: controllerHost,
-      MONET_CONTROLLER_PORT: String(port),
+      MONET_CONTROLLER_PORT: "0",
       MONET_CONTROLLER_BEARER_TOKEN: bearerToken,
       MONET_USER_DATA_DIR: userDataPath,
       MONET_DATABASE_PATH: sqliteDatabasePath,
@@ -735,7 +737,14 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
     restartAvailable: true
   });
 
+  let port: number;
+  let apiBase: string;
+
   try {
+    const address = await waitForManagedControllerAddress(child);
+    port = address.port;
+    apiBase = `http://${controllerHost}:${port}`;
+
     await waitForControllerReady(apiBase, bearerToken, {
       onReady(attempt, healthUrl) {
         logger.info("desktop.controller_healthcheck_ready", {
@@ -770,6 +779,52 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   };
 }
 
+function waitForManagedControllerAddress(child: Electron.UtilityProcess) {
+  return new Promise<ControllerReadyMessage>((resolve, reject) => {
+    const handleMessage = (message: unknown) => {
+      if (!isControllerReadyMessage(message)) {
+        return;
+      }
+
+      cleanup();
+      resolve(message);
+    };
+    const handleExit = () => {
+      cleanup();
+      reject(new Error("The local controller exited before reporting its bound port."));
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for the local controller to report its bound port."));
+    }, 10_000);
+    const cleanup = () => {
+      clearTimeout(timeout);
+      child.removeListener("message", handleMessage);
+      child.removeListener("exit", handleExit);
+    };
+
+    child.on("message", handleMessage);
+    child.once("exit", handleExit);
+  });
+}
+
+function isControllerReadyMessage(message: unknown): message is ControllerReadyMessage {
+  if (typeof message !== "object" || message === null) {
+    return false;
+  }
+
+  const candidate = message as Partial<ControllerReadyMessage>;
+
+  return (
+    candidate.type === "controller-ready" &&
+    (candidate.host === controllerHost || candidate.host === "localhost") &&
+    Number.isInteger(candidate.port) &&
+    typeof candidate.port === "number" &&
+    candidate.port > 0 &&
+    candidate.port <= 65535
+  );
+}
+
 function buildPreloadArguments(runtime: ControllerRuntime) {
   return [`--monet-api-base=${runtime.apiBase}`, `--monet-controller-managed=${runtime.managed ? "true" : "false"}`];
 }
@@ -785,33 +840,6 @@ function broadcastUpdateState(payload: UpdateStatePayload) {
 function dispatchDesktopShortcut(window: BrowserWindow, action: DesktopShortcutAction) {
   window.webContents.send("monet:shortcut", {
     action
-  });
-}
-
-function reserveEphemeralPort() {
-  return new Promise<number>((resolve, reject) => {
-    const server = createServer();
-
-    server.once("error", reject);
-    server.listen(0, controllerHost, () => {
-      const address = server.address();
-
-      if (!address || typeof address === "string") {
-        server.close(() => {
-          reject(new Error("Failed to reserve an ephemeral controller port."));
-        });
-        return;
-      }
-
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(address.port);
-      });
-    });
   });
 }
 

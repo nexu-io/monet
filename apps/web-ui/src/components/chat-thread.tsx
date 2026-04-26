@@ -150,6 +150,16 @@ function isSourceUrlPart(part: ChatMessagePart): part is SourceUrlPart {
   return part.type === "source-url" && typeof part.url === "string";
 }
 
+function getSafeSourceUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+
+    return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:" ? parsedUrl.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function isSourceDocumentPart(part: ChatMessagePart): part is SourceDocumentPart {
   return part.type === "source-document";
 }
@@ -408,8 +418,20 @@ function renderPart(
   }
 
   if (isSourceUrlPart(part)) {
+    const safeUrl = getSafeSourceUrl(part.url);
+
+    if (!safeUrl) {
+      return (
+        <div key={`${part.type}-${index}`} className={partCardClassName}>
+          <span className={partLabelClassName}>Source URL</span>
+          <strong className={`${partTitleClassName} [overflow-wrap:anywhere]`}>{part.title ?? part.url}</strong>
+          <span>{part.host ?? part.url}</span>
+        </div>
+      );
+    }
+
     return (
-      <a key={`${part.type}-${index}`} className={partCardClassName} href={part.url}>
+      <a key={`${part.type}-${index}`} className={partCardClassName} href={safeUrl}>
         <span className={partLabelClassName}>Source URL</span>
         <strong className={`${partTitleClassName} [overflow-wrap:anywhere]`}>{part.title ?? part.url}</strong>
         <span>{part.host ?? part.url}</span>

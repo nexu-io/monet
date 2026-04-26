@@ -11,12 +11,13 @@ const authLogger = createLogger("controller", {
 export interface LocalAuthOptions {
   readonly allowedOrigins: readonly string[];
   readonly bearerToken: string;
+  readonly getPort?: () => number;
   readonly port: number;
 }
 
 export function createLocalAuthMiddleware(options: LocalAuthOptions): MiddlewareHandler {
   return async function localAuthMiddleware(context: Context, next: Next) {
-    if (!hasAllowedHost(context.req.header("host"), options.port)) {
+    if (!hasAllowedHost(context.req.header("host"), options.getPort?.() ?? options.port)) {
       authLogger.warn("auth.invalid_host", buildAuthLogContext(context));
 
       return context.json(

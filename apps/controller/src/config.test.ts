@@ -11,11 +11,10 @@ function createEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   };
 }
 
-test("rejects zero as a controller port", () => {
-  assert.throws(
-    () => createControllerConfig(createEnv({ MONET_CONTROLLER_PORT: "0" })),
-    /MONET_CONTROLLER_PORT must be a valid TCP port/
-  );
+test("allows zero as a controller port for OS-assigned binding", () => {
+  const config = createControllerConfig(createEnv({ MONET_CONTROLLER_PORT: "0" }));
+
+  assert.equal(config.port, 0);
 });
 
 test("allows both loopback web dev origins by default", () => {

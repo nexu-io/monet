@@ -38,6 +38,7 @@ export type ControllerApp = OpenAPIHono<{ Variables: ControllerAppVariables }>;
 export interface ControllerAppRuntime {
   readonly app: ControllerApp;
   readonly chatStorage: ReturnType<typeof createChatStorage>;
+  readonly setPort: (port: number) => void;
 }
 
 const controllerLogger = createLogger("controller", {
@@ -45,6 +46,7 @@ const controllerLogger = createLogger("controller", {
 });
 
 export function createControllerApp(options: CreateControllerAppOptions): ControllerAppRuntime {
+  let controllerPort = options.port;
   const app = new OpenAPIHono<{ Variables: ControllerAppVariables }>({
     defaultHook(result, context) {
       if (result.success) {
@@ -103,7 +105,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     createBuiltinToolDefinitions({
       allowedDirectories: effectiveAllowedToolDirectories,
       getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
-      controllerPort: options.port
+      getControllerPort: () => controllerPort
     })
   );
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
@@ -145,6 +147,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     createLocalAuthMiddleware({
       allowedOrigins: options.allowedOrigins,
       bearerToken: options.bearerToken,
+      getPort: () => controllerPort,
       port: options.port
     })
   );
@@ -235,6 +238,9 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
 
   return {
     app,
-    chatStorage
+    chatStorage,
+    setPort(port) {
+      controllerPort = port;
+    }
   };
 }
