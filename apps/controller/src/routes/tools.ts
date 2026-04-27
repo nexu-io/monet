@@ -31,10 +31,10 @@ export function registerToolRoutes(
   app: ControllerApp,
   options: { toolRegistry: ToolRegistry; getChatStorage: () => ChatStorage }
 ) {
-  app.openapi(listToolsRoute, (context) => {
+  app.openapi(listToolsRoute, async (context) => {
     return context.json(
       {
-        tools: Array.from(options.toolRegistry.listTools())
+        tools: Array.from(await options.toolRegistry.listTools())
       },
       200
     );

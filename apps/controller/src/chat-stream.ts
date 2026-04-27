@@ -88,7 +88,7 @@ export async function createChatStreamResponse(options: {
     modelId: request.modelId,
     runtimeArea: "tool-runtime"
   });
-  const runtimeTools = options.toolRegistry.createRuntimeTools({
+  const runtimeTools = await options.toolRegistry.createRuntimeTools({
     runId: request.runId,
     chatStorage: options.chatStorage,
     logger: runtimeLogger

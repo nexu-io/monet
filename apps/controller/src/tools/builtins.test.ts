@@ -73,7 +73,7 @@ function createTestFixture() {
   };
 }
 
-function createRuntimeTools(
+async function createRuntimeTools(
   workspaceDir: string,
   storage: ReturnType<typeof createChatStorage>,
   options?: {
@@ -99,11 +99,11 @@ function createRuntimeTools(
     createBuiltinToolDefinitions(builtinOptions)
   );
 
-  return registry.createRuntimeTools({
+  return (await registry.createRuntimeTools({
     runId: prepared.runId,
     chatStorage: storage,
     logger: createLogger("test")
-  }) as Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>;
+  })) as Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>;
 }
 
 function createExecutionContext() {
@@ -115,14 +115,14 @@ function createExecutionContext() {
   };
 }
 
-test("builtin tool registry exposes fetch/read/write tools", () => {
+test("builtin tool registry exposes fetch/read/write tools", async () => {
   const registry = createToolRegistry(
     createBuiltinToolDefinitions({
       allowedDirectories: [process.cwd()]
     })
   );
 
-  assert.deepEqual(registry.listTools(), [
+  assert.deepEqual(await registry.listTools(), [
     {
       name: "fetch_url",
       description: "Fetches an HTTPS URL and returns the text response body.",
@@ -147,7 +147,7 @@ test("read_file and write_file operate inside authorized directories", async () 
   try {
     writeFileSync(join(fixture.workspaceDir, "input.txt"), "hello from disk", "utf8");
 
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const readFileTool = runtimeTools.read_file!;
     const writeFileTool = runtimeTools.write_file!;
     const realWorkspaceDir = realpathSync(fixture.workspaceDir);
@@ -201,7 +201,7 @@ test("read_file and write_file reject relative path traversal escapes", async ()
   const fixture = createTestFixture();
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const readFileTool = runtimeTools.read_file!;
     const writeFileTool = runtimeTools.write_file!;
     const outsidePath = join(fixture.workspaceDir, "..", "outside-attempt.txt");
@@ -238,7 +238,7 @@ test("read_file rejects paths outside authorized directories", async () => {
   const fixture = createTestFixture();
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const readFileTool = runtimeTools.read_file!;
     const outsidePath = join(fixture.fixtureDir, "outside.txt");
 
@@ -279,7 +279,7 @@ test("runtime tools pick up authorized directory updates after creation", async 
         getAllowedDirectories: () => allowedDirectories
       })
     );
-    const runtimeTools = registry.createRuntimeTools({
+    const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
       chatStorage: fixture.storage,
       logger: createLogger("test")
@@ -324,7 +324,7 @@ test("read_file rejects symlink escapes outside authorized directories", async (
     writeFileSync(join(outsideDir, "secret.txt"), "top secret", "utf8");
     symlinkSync(outsideDir, symlinkPath, "dir");
 
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const readFileTool = runtimeTools.read_file!;
 
     await assert.rejects(
@@ -348,7 +348,7 @@ test("read_file rejects oversized files before reading them into memory", async 
     const oversizedPath = join(fixture.workspaceDir, "oversized.txt");
     writeFileSync(oversizedPath, "x".repeat(1_000_001), "utf8");
 
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const readFileTool = runtimeTools.read_file!;
 
     await assert.rejects(
@@ -374,7 +374,7 @@ test("write_file rejects symlink escapes outside authorized directories", async 
     mkdirSync(outsideDir, { recursive: true });
     symlinkSync(outsideDir, symlinkPath, "dir");
 
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const writeFileTool = runtimeTools.write_file!;
 
     await assert.rejects(
@@ -397,7 +397,7 @@ test("fetch_url fetches HTTPS text responses", async () => {
   const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       dnsLookup,
       async fetchUrlRequest({ url, resolvedAddress }) {
         assert.equal(url.toString(), "https://example.com/article");
@@ -440,7 +440,7 @@ test("fetch_url truncates large returned content before sending it to the model"
   const largeContent = "a".repeat(80 * 1024);
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       dnsLookup: async () => [{ address: "93.184.216.34", family: 4 }],
       async fetchUrlRequest() {
         return {
@@ -477,7 +477,7 @@ test("fetch_url rejects non-HTTPS URLs", async () => {
   const fixture = createTestFixture();
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const fetchUrlTool = runtimeTools.fetch_url!;
 
     await assert.rejects(
@@ -498,7 +498,7 @@ test("fetch_url rejects loopback and private network destinations", async () => 
   const fixture = createTestFixture();
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage);
     const fetchUrlTool = runtimeTools.fetch_url!;
 
     await assert.rejects(
@@ -529,7 +529,7 @@ test("fetch_url rejects resolved private destinations before fetching", async ()
   const fixture = createTestFixture();
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       dnsLookup: async () => [{ address: "127.0.0.1", family: 4 }],
       async fetchUrlRequest() {
         throw new Error("request should not be called");
@@ -556,7 +556,7 @@ test("fetch_url binds requests to the vetted DNS result", async () => {
   let lookupCount = 0;
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       dnsLookup: async () => {
         lookupCount += 1;
 
@@ -597,7 +597,7 @@ test("fetch_url rejects access to the local controller port", async () => {
   const fixture = createTestFixture();
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       controllerPort: 42831
     });
     const fetchUrlTool = runtimeTools.fetch_url!;
@@ -622,7 +622,7 @@ test("fetch_url follows bounded redirects", async () => {
 
   try {
     const seenUrls: string[] = [];
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       dnsLookup,
       async fetchUrlRequest({ url }) {
         const requestUrl = url.toString();
@@ -670,7 +670,7 @@ test("fetch_url rejects redirect chains beyond the limit", async () => {
   const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
 
   try {
-    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const runtimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       dnsLookup,
       async fetchUrlRequest({ url }) {
         const step = Number.parseInt(url.pathname.replace("/", ""), 10);
@@ -706,7 +706,7 @@ test("fetch_url rejects oversized responses", async () => {
   const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
 
   try {
-    const oversizedRuntimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+    const oversizedRuntimeTools = await createRuntimeTools(fixture.workspaceDir, fixture.storage, {
       dnsLookup,
       async fetchUrlRequest() {
         return {

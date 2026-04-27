@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { createChatStorage } from "../chat-storage";
 import { createLogger } from "../logger";
-import { createToolRegistry } from "./registry";
+import { createStaticToolSource, createToolRegistry } from "./registry";
 
 interface ToolCallRow {
   readonly run_id: string;
@@ -123,7 +123,7 @@ test("tool registry persists completed executions", async () => {
       }
     ]);
 
-    assert.deepEqual(registry.listTools(), [
+    assert.deepEqual(await registry.listTools(), [
       {
         name: "echo_tool",
         description: "Echoes the provided value.",
@@ -131,7 +131,7 @@ test("tool registry persists completed executions", async () => {
       }
     ]);
 
-    const runtimeTools = registry.createRuntimeTools({
+    const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
       chatStorage: fixture.storage,
       logger: createLogger("test")
@@ -197,7 +197,7 @@ test("tool registry persists failed executions", async () => {
       }
     ]);
 
-    const runtimeTools = registry.createRuntimeTools({
+    const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
       chatStorage: fixture.storage,
       logger: createLogger("test")
@@ -226,6 +226,127 @@ test("tool registry persists failed executions", async () => {
     assert.equal(row?.status, "failed");
     assert.equal(row?.error_message, "kaboom");
     assert.equal(Boolean(row?.ended_at), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool registry composes static and dynamic tool sources at runtime", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "dynamic" }] }]
+    });
+    let dynamicEnabled = false;
+    const registry = createToolRegistry([], {
+      sources: [
+        createStaticToolSource("test_static", [
+          {
+            metadata: {
+              name: "static_tool",
+              description: "Static tool.",
+              requiresConfirmation: false
+            },
+            inputSchema: { type: "object", additionalProperties: false } as never,
+            execute() {
+              return { source: "static" };
+            }
+          }
+        ]),
+        {
+          id: "test_dynamic",
+          listTools() {
+            return dynamicEnabled
+              ? [
+                  {
+                    name: "dynamic_tool",
+                    description: "Dynamic tool.",
+                    requiresConfirmation: true
+                  }
+                ]
+              : [];
+          },
+          resolveTools() {
+            return dynamicEnabled
+              ? [
+                  {
+                    metadata: {
+                      name: "dynamic_tool",
+                      description: "Dynamic tool.",
+                      requiresConfirmation: true
+                    },
+                    inputSchema: { type: "object", additionalProperties: false } as never,
+                    execute() {
+                      return { source: "dynamic" };
+                    }
+                  }
+                ]
+              : [];
+          }
+        }
+      ]
+    });
+
+    assert.deepEqual(
+      (await registry.listTools()).map((metadata) => metadata.name),
+      ["static_tool"]
+    );
+
+    dynamicEnabled = true;
+
+    assert.deepEqual(
+      (await registry.listTools()).map((metadata) => metadata.name),
+      ["static_tool", "dynamic_tool"]
+    );
+
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      chatStorage: fixture.storage,
+      logger: createLogger("test")
+    });
+
+    assert.equal(typeof (runtimeTools.static_tool as { execute?: unknown }).execute, "function");
+    assert.equal(typeof (runtimeTools.dynamic_tool as { execute?: unknown }).execute, "function");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool registry fails closed when tool sources collide", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "collision" }] }]
+    });
+    const collidingDefinition = {
+      metadata: {
+        name: "same_tool",
+        description: "Colliding tool.",
+        requiresConfirmation: false
+      },
+      inputSchema: { type: "object", additionalProperties: false } as never,
+      execute() {
+        return { ok: true };
+      }
+    };
+    const registry = createToolRegistry([], {
+      sources: [
+        createStaticToolSource("first", [collidingDefinition]),
+        createStaticToolSource("second", [collidingDefinition])
+      ]
+    });
+
+    await assert.rejects(registry.listTools(), /Tool name collision: same_tool/);
+    await assert.rejects(
+      registry.createRuntimeTools({
+        runId: prepared.runId,
+        chatStorage: fixture.storage,
+        logger: createLogger("test")
+      }),
+      /Tool name collision: same_tool/
+    );
   } finally {
     fixture.cleanup();
   }

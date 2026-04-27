@@ -17,7 +17,7 @@ import { registerSettingsRoutes } from "./routes/settings";
 import { registerSessionRoutes } from "./routes/sessions";
 import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
-import { createBuiltinToolDefinitions } from "./tools/builtins";
+import { createBuiltinToolSource } from "./tools/builtins";
 import { createToolRegistry } from "./tools/registry";
 import type {
   AgentRuntimeConfig,
@@ -123,14 +123,16 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
 
   chatStorage.replaceAuthorizedDirectories(effectiveAllowedToolDirectories);
   const runRegistry = createRunRegistry();
-  const toolRegistry = createToolRegistry(
-    createBuiltinToolDefinitions({
-      allowedDirectories: effectiveAllowedToolDirectories,
-      getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
-      getControllerPort: () => controllerPort
-    }),
-    { features: options.features }
-  );
+  const toolRegistry = createToolRegistry([], {
+    features: options.features,
+    sources: [
+      createBuiltinToolSource({
+        allowedDirectories: effectiveAllowedToolDirectories,
+        getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
+        getControllerPort: () => controllerPort
+      })
+    ]
+  });
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
 
   function getChatStorage() {

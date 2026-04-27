@@ -5,6 +5,7 @@ import type { FeatureConfig } from "../config";
 import type { Logger } from "../logger";
 
 type ToolFactoryOptions = Parameters<typeof tool>[0];
+type MaybePromise<T> = T | Promise<T>;
 
 export interface RegisteredToolExecuteContext {
   readonly toolCallId: string;
@@ -25,6 +26,8 @@ export interface ToolExecutionContext {
   readonly logger: Logger;
 }
 
+export type ToolSourceContext = ToolExecutionContext;
+
 export interface ToolExecutionHelpers {
   readonly persistedToolCallId: string;
 }
@@ -35,42 +38,50 @@ export interface RegisteredToolDefinition<TInput = unknown, TOutput = unknown> {
   readonly execute: (input: TInput, context: RegisteredToolExecuteContext & ToolExecutionHelpers) => TOutput | Promise<TOutput>;
 }
 
+export interface ToolSource {
+  readonly id: string;
+  listTools(): MaybePromise<readonly ToolMetadata[]>;
+  resolveTools(context: ToolSourceContext): MaybePromise<ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>>;
+}
+
 export interface ToolRegistry {
   register<TInput, TOutput>(definition: RegisteredToolDefinition<TInput, TOutput>): void;
-  listTools(): readonly ToolMetadata[];
-  createRuntimeTools(context: ToolExecutionContext): Record<string, unknown>;
+  registerSource(source: ToolSource): void;
+  listTools(): Promise<readonly ToolMetadata[]>;
+  createRuntimeTools(context: ToolExecutionContext): Promise<Record<string, unknown>>;
 }
 
 export interface CreateToolRegistryOptions {
   readonly connectorDefinitions?: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>;
   readonly features?: FeatureConfig;
+  readonly sources?: readonly ToolSource[];
 }
 
-export function createToolRegistry(
-  initialDefinitions: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> = [],
-  options: CreateToolRegistryOptions = {}
-): ToolRegistry {
+export interface StaticToolSource extends ToolSource {
+  register<TInput, TOutput>(definition: RegisteredToolDefinition<TInput, TOutput>): void;
+}
+
+export function createStaticToolSource(
+  id: string,
+  initialDefinitions: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> = []
+): StaticToolSource {
   const definitions = new Map<string, RegisteredToolDefinition<unknown, unknown>>();
-
-  for (const definition of initialDefinitions) {
-    registerDefinition(definition);
-  }
-
-  if (options.features?.connectors && options.connectorDefinitions) {
-    for (const definition of options.connectorDefinitions) {
-      registerDefinition(definition);
-    }
-  }
 
   function registerDefinition(definition: RegisteredToolDefinition<unknown, unknown>) {
     if (definitions.has(definition.metadata.name)) {
-      throw new Error(`Tool already registered: ${definition.metadata.name}`);
+      throw new Error(`Tool already registered in source ${id}: ${definition.metadata.name}`);
     }
 
     definitions.set(definition.metadata.name, definition);
   }
 
+  for (const definition of initialDefinitions) {
+    registerDefinition(definition);
+  }
+
   return {
+    id,
+
     register(definition) {
       registerDefinition(definition as RegisteredToolDefinition<unknown, unknown>);
     },
@@ -79,9 +90,89 @@ export function createToolRegistry(
       return Array.from(definitions.values(), (definition) => definition.metadata);
     },
 
-    createRuntimeTools(context) {
+    resolveTools() {
+      return Array.from(definitions.values());
+    }
+  };
+}
+
+export function createToolRegistry(
+  initialDefinitions: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> = [],
+  options: CreateToolRegistryOptions = {}
+): ToolRegistry {
+  const staticSource = createStaticToolSource("static", initialDefinitions);
+  const sources = new Map<string, ToolSource>();
+
+  registerSource(staticSource);
+
+  if (options.features?.connectors && options.connectorDefinitions) {
+    for (const definition of options.connectorDefinitions) {
+      staticSource.register(definition);
+    }
+  }
+
+  for (const source of options.sources ?? []) {
+    registerSource(source);
+  }
+
+  function registerSource(source: ToolSource) {
+    if (sources.has(source.id)) {
+      throw new Error(`Tool source already registered: ${source.id}`);
+    }
+
+    sources.set(source.id, source);
+  }
+
+  async function resolveDefinitions(context: ToolSourceContext) {
+    const definitions = new Map<string, RegisteredToolDefinition<unknown, unknown>>();
+
+    for (const source of sources.values()) {
+      const sourceDefinitions = await source.resolveTools(context);
+
+      for (const definition of sourceDefinitions) {
+        if (definitions.has(definition.metadata.name)) {
+          throw new Error(`Tool name collision: ${definition.metadata.name}`);
+        }
+
+        definitions.set(definition.metadata.name, definition);
+      }
+    }
+
+    return Array.from(definitions.values());
+  }
+
+  return {
+    register(definition) {
+      staticSource.register(definition as RegisteredToolDefinition<unknown, unknown>);
+    },
+
+    registerSource(source) {
+      registerSource(source);
+    },
+
+    async listTools() {
+      const tools = new Map<string, ToolMetadata>();
+
+      for (const source of sources.values()) {
+        const sourceTools = await source.listTools();
+
+        for (const metadata of sourceTools) {
+          if (tools.has(metadata.name)) {
+            throw new Error(`Tool name collision: ${metadata.name}`);
+          }
+
+          tools.set(metadata.name, metadata);
+        }
+      }
+
+      return Array.from(tools.values());
+    },
+
+    async createRuntimeTools(context) {
+      const definitions = await resolveDefinitions(context);
+
       return Object.fromEntries(
-        Array.from(definitions.values(), (definition) => {
+        definitions.map((definition) => {
           const runtimeTool = tool({
             description: definition.metadata.description,
             inputSchema: definition.inputSchema as ToolFactoryOptions["inputSchema"],
