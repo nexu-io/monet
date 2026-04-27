@@ -20,6 +20,7 @@ import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createBuiltinToolSource } from "./tools/builtins";
 import { createConnectorToolSource } from "./tools/connectors";
+import { createLiveArtifactToolSource } from "./tools/live-artifacts";
 import { createSessionWorkspaceService } from "./session-workspace-service";
 import { createToolRegistry, type ToolRegistry } from "./tools/registry";
 import type {
@@ -150,6 +151,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
         getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
         getControllerPort: () => controllerPort
       }),
+      createLiveArtifactToolSource(),
       createConnectorToolSource({ provider: connectorProvider })
     ]
   });
