@@ -63,12 +63,33 @@ export function createSessionWorkspaceService(
 
     async ensureWorkspace(sessionId) {
       const workspacePath = getWorkspacePath(sessionId);
+
+      const sessionDirectory = resolve(baseDirectory, sessionId);
+      assertPathInsideBase(sessionDirectory, baseDirectory);
+      await mkdir(sessionDirectory, { recursive: true, mode: workspaceDirectoryMode });
+
+      const sessionDirectoryStats = await lstat(sessionDirectory);
+      if (!sessionDirectoryStats.isDirectory() || sessionDirectoryStats.isSymbolicLink()) {
+        throw new Error(`Refusing to use session workspace directory that is not a plain directory: ${sessionDirectory}`);
+      }
+
+      const canonicalSessionDirectory = await realpath(sessionDirectory);
+      const canonicalBaseDirectory = await realpath(baseDirectory);
+      assertPathInsideBase(canonicalSessionDirectory, canonicalBaseDirectory);
+      assertCanonicalSessionDirectoryMatchesSession(canonicalSessionDirectory, canonicalBaseDirectory, sessionId);
+
       await mkdir(workspacePath, { recursive: true, mode: workspaceDirectoryMode });
-      await applyRestrictiveDirectoryPermissions(workspacePath);
+
+      const workspaceStats = await lstat(workspacePath);
+      if (!workspaceStats.isDirectory() || workspaceStats.isSymbolicLink()) {
+        throw new Error(`Refusing to use session workspace path that is not a plain directory: ${workspacePath}`);
+      }
 
       const canonicalWorkspacePath = await realpath(workspacePath);
-      const canonicalBaseDirectory = await realpath(baseDirectory);
       assertPathInsideBase(canonicalWorkspacePath, canonicalBaseDirectory);
+      assertCanonicalWorkspacePathMatchesSession(canonicalWorkspacePath, canonicalBaseDirectory, sessionId);
+
+      await applyRestrictiveDirectoryPermissions(workspacePath);
 
       return workspacePath;
     },
@@ -228,9 +249,9 @@ async function getVerifiedWorkspaceDeletionTarget(
   const workspacePath = getWorkspacePath(sessionId);
   assertPathInsideBase(workspacePath, baseDirectory);
 
-  let canonicalWorkspacePath: string;
+  let workspaceStats: Awaited<ReturnType<typeof lstat>>;
   try {
-    canonicalWorkspacePath = await realpath(workspacePath);
+    workspaceStats = await lstat(workspacePath);
   } catch (error) {
     if (isNotFoundError(error)) {
       return null;
@@ -239,10 +260,45 @@ async function getVerifiedWorkspaceDeletionTarget(
     throw error;
   }
 
+  if (!workspaceStats.isDirectory() || workspaceStats.isSymbolicLink()) {
+    return null;
+  }
+
+  const canonicalWorkspacePath = await realpath(workspacePath);
+
   const canonicalBaseDirectory = await realpath(baseDirectory);
   assertPathInsideBase(canonicalWorkspacePath, canonicalBaseDirectory);
+  assertCanonicalWorkspacePathMatchesSession(canonicalWorkspacePath, canonicalBaseDirectory, sessionId);
 
   return canonicalWorkspacePath;
+}
+
+function assertCanonicalSessionDirectoryMatchesSession(
+  canonicalSessionDirectory: string,
+  canonicalBaseDirectory: string,
+  sessionId: string
+): void {
+  const expectedCanonicalSessionDirectory = resolve(canonicalBaseDirectory, sessionId);
+
+  if (canonicalSessionDirectory !== expectedCanonicalSessionDirectory) {
+    throw new Error(
+      `Refusing to use session workspace directory that resolves to a different session: ${canonicalSessionDirectory}`
+    );
+  }
+}
+
+function assertCanonicalWorkspacePathMatchesSession(
+  canonicalWorkspacePath: string,
+  canonicalBaseDirectory: string,
+  sessionId: string
+): void {
+  const expectedCanonicalWorkspacePath = resolve(canonicalBaseDirectory, sessionId, "workspace");
+
+  if (canonicalWorkspacePath !== expectedCanonicalWorkspacePath) {
+    throw new Error(
+      `Refusing to use session workspace path that resolves to a different session workspace: ${canonicalWorkspacePath}`
+    );
+  }
 }
 
 async function applyRestrictiveDirectoryPermissions(workspacePath: string): Promise<void> {

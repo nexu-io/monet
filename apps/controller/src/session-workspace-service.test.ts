@@ -67,8 +67,66 @@ test("ensureWorkspace refuses symlinked session directories escaping the base", 
   await writeFile(join(outsideDirectory, "workspace", "keep.txt"), "keep");
   await symlink(outsideDirectory, join(baseDirectory, "ses_escape1"), "dir");
 
-  await assert.rejects(service.ensureWorkspace("ses_escape1"), /Refusing to use session workspace path outside configured base/);
+  await assert.rejects(
+    service.ensureWorkspace("ses_escape1"),
+    /Refusing to use session workspace directory that is not a plain directory/
+  );
   await access(join(outsideDirectory, "workspace", "keep.txt"));
+});
+
+test("ensureWorkspace refuses symlinked workspace aliases to other sessions", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const targetWorkspacePath = await service.ensureWorkspace("ses_target1");
+  await writeFile(join(targetWorkspacePath, "keep.txt"), "keep");
+  await mkdir(join(baseDirectory, "ses_alias1"), { recursive: true });
+  await symlink(targetWorkspacePath, join(baseDirectory, "ses_alias1", "workspace"), "dir");
+
+  await assert.rejects(
+    service.ensureWorkspace("ses_alias1"),
+    /Refusing to use session workspace path that is not a plain directory/
+  );
+  await access(join(targetWorkspacePath, "keep.txt"));
+});
+
+test("ensureWorkspace refuses symlinked session directory aliases to other sessions", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const targetWorkspacePath = await service.ensureWorkspace("ses_target2");
+  await writeFile(join(targetWorkspacePath, "keep.txt"), "keep");
+  await symlink(join(baseDirectory, "ses_target2"), join(baseDirectory, "ses_alias2"), "dir");
+
+  await assert.rejects(
+    service.ensureWorkspace("ses_alias2"),
+    /Refusing to use session workspace directory that is not a plain directory/
+  );
+  await access(join(targetWorkspacePath, "keep.txt"));
+});
+
+test("ensureWorkspace does not create workspaces through symlinked session directory aliases", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const targetSessionDirectory = join(baseDirectory, "ses_target5");
+  await mkdir(targetSessionDirectory, { recursive: true });
+  await symlink(targetSessionDirectory, join(baseDirectory, "ses_alias5"), "dir");
+
+  await assert.rejects(
+    service.ensureWorkspace("ses_alias5"),
+    /Refusing to use session workspace directory that is not a plain directory/
+  );
+  await assert.rejects(access(join(targetSessionDirectory, "workspace")), /ENOENT/);
 });
 
 test("reports metadata for absent and existing workspaces", async (t) => {
@@ -135,6 +193,42 @@ test("deleteWorkspace refuses to recursively remove paths that escape the config
     /Refusing to use session workspace path outside configured base/
   );
   await access(join(escapedWorkspacePath, "keep.txt"));
+});
+
+test("deleteWorkspace refuses symlinked workspace aliases to other sessions", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const targetWorkspacePath = await service.ensureWorkspace("ses_target3");
+  await writeFile(join(targetWorkspacePath, "keep.txt"), "keep");
+  await mkdir(join(baseDirectory, "ses_alias3"), { recursive: true });
+  await symlink(targetWorkspacePath, join(baseDirectory, "ses_alias3", "workspace"), "dir");
+
+  await service.deleteWorkspace("ses_alias3");
+
+  await access(join(baseDirectory, "ses_alias3", "workspace"));
+  await access(join(targetWorkspacePath, "keep.txt"));
+});
+
+test("deleteWorkspace refuses symlinked session directory aliases to other sessions", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const targetWorkspacePath = await service.ensureWorkspace("ses_target4");
+  await writeFile(join(targetWorkspacePath, "keep.txt"), "keep");
+  await symlink(join(baseDirectory, "ses_target4"), join(baseDirectory, "ses_alias4"), "dir");
+
+  await assert.rejects(
+    service.deleteWorkspace("ses_alias4"),
+    /Refusing to use session workspace path that resolves to a different session workspace/
+  );
+  await access(join(targetWorkspacePath, "keep.txt"));
 });
 
 test("cleanupOrphanWorkspaces deletes inactive workspaces while preserving active session workspaces", async (t) => {
