@@ -15,6 +15,7 @@ import {
 } from "./controller-process";
 import { createLogger } from "./logger";
 import { isAllowedMainWindowNavigation, shouldOpenNavigationExternally } from "./navigation";
+import { openWorkspaceDirectoryForSession, type OpenPathResult } from "./open-workspace-directory";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
 import { waitForRendererReady } from "./renderer-readiness";
 import { createDesktopUpdater, type UpdateStatePayload } from "./updater";
@@ -48,23 +49,6 @@ interface ProviderSecretMutationResult {
     readonly reason?: string;
   };
   readonly storage: ProviderSecretStorageSnapshot;
-}
-
-interface OpenPathResult {
-  readonly opened: boolean;
-  readonly path?: string;
-  readonly error?: string;
-  readonly errorDetails?: OpenPathErrorDetails;
-}
-
-interface OpenPathErrorDetails {
-  readonly workspacePath?: string;
-  readonly nativeOpenFailureReason?: string;
-}
-
-interface OpenWorkspaceDirectoryResponse {
-  readonly ok: true;
-  readonly workspacePath: string;
 }
 
 type DesktopShortcutAction = "new-session" | "open-settings";
@@ -304,58 +288,12 @@ ipcMain.handle("monet:open-path", async (_event, payload: { path: string }) => {
 });
 
 ipcMain.handle("monet:open-workspace-directory", async (_event, payload: { sessionId?: string } | null) => {
-  const sessionId = payload?.sessionId?.trim() ?? "";
-
-  if (!sessionId) {
-    return {
-      opened: false,
-      error: "Session ID is required."
-    } satisfies OpenPathResult;
-  }
-
-  const workspaceResult = await ensureWorkspaceDirectoryForSession(sessionId);
-
-  if (!workspaceResult.ok) {
-    return {
-      opened: false,
-      ...(workspaceResult.workspacePath ? { path: workspaceResult.workspacePath } : {}),
-      error: workspaceResult.error
-    } satisfies OpenPathResult;
-  }
-
-  const workspacePath = workspaceResult.workspacePath;
-
-  try {
-    await mkdir(workspacePath, {
-      recursive: true,
-      mode: 0o700
-    });
-  } catch (error) {
-    return {
-      opened: false,
-      path: workspacePath,
-      error: error instanceof Error ? error.message : "Could not create the workspace directory."
-    } satisfies OpenPathResult;
-  }
-
-  const error = await shell.openPath(workspacePath);
-
-  if (error.length > 0) {
-    return {
-      opened: false,
-      path: workspacePath,
-      error: `Could not open the workspace folder: ${error}`,
-      errorDetails: {
-        workspacePath,
-        nativeOpenFailureReason: error
-      }
-    } satisfies OpenPathResult;
-  }
-
-  return {
-    opened: true,
-    path: workspacePath
-  } satisfies OpenPathResult;
+  return openWorkspaceDirectoryForSession({
+    sessionId: payload?.sessionId,
+    runtime: controllerRuntime,
+    mkdirWorkspace: mkdir,
+    openPath: shell.openPath.bind(shell)
+  }) satisfies Promise<OpenPathResult>;
 });
 
 ipcMain.handle(
@@ -1253,110 +1191,6 @@ async function applyProviderCredentialToController(
       reason: error instanceof Error ? error.message : "controller request failed"
     };
   }
-}
-
-async function ensureWorkspaceDirectoryForSession(
-  sessionId: string,
-  runtime = controllerRuntime
-): Promise<
-  | {
-      readonly ok: true;
-      readonly workspacePath: string;
-    }
-  | {
-      readonly ok: false;
-      readonly error: string;
-      readonly workspacePath?: string;
-    }
-> {
-  if (!runtime) {
-    return {
-      ok: false,
-      error: "The Monet controller is not available."
-    };
-  }
-
-  const headers: Record<string, string> = {};
-
-  if (runtime.bearerToken) {
-    headers.Authorization = `Bearer ${runtime.bearerToken}`;
-  }
-
-  try {
-    const response = await fetch(
-      new URL(`/api/sessions/${encodeURIComponent(sessionId)}/workspace/open`, runtime.apiBase).toString(),
-      {
-        method: "POST",
-        headers
-      }
-    );
-    const responseBody = await response.text();
-    const parsedBody = parseJsonResponse(responseBody);
-    const workspacePath = getWorkspacePathFromResponse(parsedBody);
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        ...(workspacePath ? { workspacePath } : {}),
-        error: getControllerErrorMessage(parsedBody, response.status)
-      };
-    }
-
-    if (!workspacePath) {
-      return {
-        ok: false,
-        error: "The controller did not return a workspace path."
-      };
-    }
-
-    return {
-      ok: true,
-      workspacePath
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Could not contact the Monet controller."
-    };
-  }
-}
-
-function parseJsonResponse(responseBody: string): unknown {
-  if (!responseBody.trim()) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(responseBody) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-function getWorkspacePathFromResponse(responseBody: unknown) {
-  if (!responseBody || typeof responseBody !== "object" || !("workspacePath" in responseBody)) {
-    return null;
-  }
-
-  const workspacePath = (responseBody as Partial<OpenWorkspaceDirectoryResponse>).workspacePath;
-
-  return typeof workspacePath === "string" && workspacePath.trim().length > 0 ? workspacePath : null;
-}
-
-function getControllerErrorMessage(responseBody: unknown, status: number) {
-  if (responseBody && typeof responseBody === "object") {
-    const candidate = responseBody as { error?: unknown; message?: unknown };
-
-    if (typeof candidate.error === "string" && candidate.error.trim().length > 0) {
-      return candidate.error;
-    }
-
-    if (typeof candidate.message === "string" && candidate.message.trim().length > 0) {
-      return candidate.message;
-    }
-  }
-
-  return `The controller returned ${status}.`;
 }
 
 function isSafeControllerCredentialSyncTarget(apiBase: string) {
