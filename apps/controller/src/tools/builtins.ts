@@ -35,6 +35,22 @@ interface FetchUrlRequestOptions {
 }
 
 type FetchUrlRequestFn = (options: FetchUrlRequestOptions) => Promise<FetchUrlResponse>;
+type FilesystemAccessMode = "read" | "write";
+type FilesystemPathZone = "session_workspace" | "authorized_directory" | "denied";
+
+interface ResolvedFilesystemPath {
+  readonly requestedPath: string;
+  readonly resolvedPath: string;
+  readonly zone: FilesystemPathZone;
+  readonly requiresConfirmation: boolean;
+}
+
+interface ClassifyFilesystemPathOptions {
+  readonly requestedPath: string;
+  readonly accessMode: FilesystemAccessMode;
+  readonly sessionWorkspacePath: string;
+  readonly authorizedDirectories: readonly string[];
+}
 
 function assertFetchUrlContentWithinLimit(response: FetchUrlResponse, maxBytes: number) {
   const contentLength = response.headers.get("content-length");
@@ -365,7 +381,7 @@ function isWithinDirectory(parentPath: string, candidatePath: string) {
   return pathRelativeToParent === "" || (!pathRelativeToParent.startsWith("..") && !isAbsolute(pathRelativeToParent));
 }
 
-async function getExistingRealPath(targetPath: string) {
+async function getNearestExistingRealPath(targetPath: string) {
   let candidatePath = resolve(targetPath);
 
   while (true) {
@@ -404,39 +420,74 @@ async function getAuthorizedDirectoriesRealPaths(allowedDirectories: readonly st
   return settledDirectories.flatMap((result) => (result.status === "fulfilled" ? [result.value.realPath] : []));
 }
 
+async function getCanonicalPathForAccess(targetPath: string, accessMode: FilesystemAccessMode) {
+  const resolvedPath = resolve(targetPath);
+  const existingPath = await getNearestExistingRealPath(resolvedPath);
+
+  if (accessMode === "read" || existingPath.existingPath === resolvedPath) {
+    return existingPath.realPath;
+  }
+
+  return resolve(existingPath.realPath, relative(existingPath.existingPath, resolvedPath));
+}
+
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
 }
 
-async function resolveAuthorizedPath(inputPath: string, allowedDirectories: readonly string[], accessMode: "read" | "write") {
-  const normalizedInputPath = inputPath.trim();
+async function classifyFilesystemPath(options: ClassifyFilesystemPathOptions): Promise<ResolvedFilesystemPath> {
+  const normalizedInputPath = options.requestedPath.trim();
 
   if (!normalizedInputPath) {
     throw new Error("Path is required.");
   }
 
-  const authorizedDirectories = await getAuthorizedDirectoriesRealPaths(allowedDirectories);
-
-  if (authorizedDirectories.length === 0) {
-    throw new Error("No authorized directories are currently available.");
-  }
+  const [sessionWorkspacePath, authorizedDirectories] = await Promise.all([
+    realpath(options.sessionWorkspacePath),
+    getAuthorizedDirectoriesRealPaths(options.authorizedDirectories)
+  ]);
 
   const resolvedPath = isAbsolute(normalizedInputPath)
     ? resolve(normalizedInputPath)
-    : resolve(authorizedDirectories[0]!, normalizedInputPath);
+    : resolve(sessionWorkspacePath, normalizedInputPath);
+  const candidatePath = await getCanonicalPathForAccess(resolvedPath, options.accessMode);
 
-  const existingPath = await getExistingRealPath(resolvedPath);
-  const candidatePath =
-    accessMode === "read" || existingPath.existingPath === resolvedPath
-      ? existingPath.realPath
-      : resolve(existingPath.realPath, relative(existingPath.existingPath, resolvedPath));
-  const matchingDirectory = authorizedDirectories.find((directory) => isWithinDirectory(directory, candidatePath));
-
-  if (!matchingDirectory) {
-    throw new Error("Path is outside the authorized directories.");
+  if (isWithinDirectory(sessionWorkspacePath, candidatePath)) {
+    return {
+      requestedPath: options.requestedPath,
+      resolvedPath: candidatePath,
+      zone: "session_workspace",
+      requiresConfirmation: false
+    };
   }
 
-  return candidatePath;
+  const matchingAuthorizedDirectory = authorizedDirectories.find((directory) => isWithinDirectory(directory, candidatePath));
+
+  if (matchingAuthorizedDirectory) {
+    return {
+      requestedPath: options.requestedPath,
+      resolvedPath: candidatePath,
+      zone: "authorized_directory",
+      requiresConfirmation: options.accessMode === "write"
+    };
+  }
+
+  return {
+    requestedPath: options.requestedPath,
+    resolvedPath: candidatePath,
+    zone: "denied",
+    requiresConfirmation: false
+  };
+}
+
+async function assertFilesystemPathAllowed(options: ClassifyFilesystemPathOptions) {
+  const resolvedPath = await classifyFilesystemPath(options);
+
+  if (resolvedPath.zone === "denied") {
+    throw new Error("Path is outside the authorized directories or session workspace.");
+  }
+
+  return resolvedPath;
 }
 
 export function createBuiltinToolDefinitions(
@@ -491,15 +542,20 @@ export function createBuiltinToolDefinitions(
       inputSchema: z.object({
         path: z.string()
       }).strict(),
-      async execute(input) {
+      async execute(input, context) {
         const normalizedInput = input as ReadFileInput;
-        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, getAllowedDirectories(), "read");
-        const fileStat = await stat(authorizedPath);
+        const resolvedPath = await assertFilesystemPathAllowed({
+          requestedPath: normalizedInput.path,
+          accessMode: "read",
+          sessionWorkspacePath: context.sessionWorkspacePath,
+          authorizedDirectories: getAllowedDirectories()
+        });
+        const fileStat = await stat(resolvedPath.resolvedPath);
         assertReadFileWithinLimit(fileStat.size, readFileMaxBytes);
-        const content = await readFile(authorizedPath, "utf8");
+        const content = await readFile(resolvedPath.resolvedPath, "utf8");
 
         return {
-          path: authorizedPath,
+          path: resolvedPath.resolvedPath,
           content,
           sizeBytes: fileStat.size
         };
@@ -515,15 +571,20 @@ export function createBuiltinToolDefinitions(
         path: z.string(),
         content: z.string()
       }).strict(),
-      async execute(input) {
+      async execute(input, context) {
         const normalizedInput = input as WriteFileInput;
-        const authorizedPath = await resolveAuthorizedPath(normalizedInput.path, getAllowedDirectories(), "write");
+        const resolvedPath = await assertFilesystemPathAllowed({
+          requestedPath: normalizedInput.path,
+          accessMode: "write",
+          sessionWorkspacePath: context.sessionWorkspacePath,
+          authorizedDirectories: getAllowedDirectories()
+        });
 
-        await mkdir(dirname(authorizedPath), { recursive: true });
-        await writeFile(authorizedPath, normalizedInput.content, "utf8");
+        await mkdir(dirname(resolvedPath.resolvedPath), { recursive: true });
+        await writeFile(resolvedPath.resolvedPath, normalizedInput.content, "utf8");
 
         return {
-          path: authorizedPath,
+          path: resolvedPath.resolvedPath,
           bytesWritten: Buffer.byteLength(normalizedInput.content, "utf8")
         };
       }
