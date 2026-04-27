@@ -9,6 +9,7 @@ import {
   NavigationMenuItem,
   NavigationMenuLabel,
   NavigationMenuList,
+  NavItem,
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -193,17 +194,17 @@ export function AppShell({
                 const isActive = session.id === currentSessionId;
 
                 return (
-                  <button
+                  <NavItem
                     key={session.id}
                     type="button"
-                    className="grid grid-cols-[minmax(0,1fr)] gap-0 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:text-text-heading"
-                    data-active={isActive ? "true" : "false"}
+                    selected={isActive}
+                    className="grid grid-cols-[minmax(0,1fr)] gap-0 rounded-md px-2.5 py-2 text-left text-text-secondary hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus data-[state=selected]:bg-app-hover data-[state=selected]:text-text-heading"
                     aria-current={isActive ? "page" : undefined}
                     onClick={() => openSession(session.id, "/")}
                   >
                     <span className="overflow-hidden text-ellipsis whitespace-nowrap text-lg leading-[1.3] font-medium text-inherit">{session.title}</span>
                     <span className="text-xs leading-[1.3] text-text-tertiary">{formatSessionPreview(session.updatedAt)}</span>
-                  </button>
+                  </NavItem>
                 );
               })}
             </div>
