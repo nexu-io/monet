@@ -37,9 +37,11 @@ export interface LiveArtifactRefreshFailure {
 
 export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): Promise<RefreshLiveArtifactResult> {
   const artifact = options.chatStorage.getLiveArtifact(options.artifactId);
+  const refreshableTileIds = artifact.tiles.filter(isRefreshEligibleTile).map((tile) => tile.id);
   const refresh = options.chatStorage.startLiveArtifactRefresh({
     artifactId: artifact.id,
-    scope: "artifact"
+    scope: "artifact",
+    tileIdsToRefresh: refreshableTileIds
   });
   const abortSignal = options.abortSignal ?? new AbortController().signal;
 

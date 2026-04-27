@@ -239,6 +239,160 @@ test("live artifact refresh audit persists parent and connector step metadata be
   }
 });
 
+test("starting a live artifact refresh marks artifact and selected tiles as refreshing", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [
+        {
+          title: "Revenue",
+          kind: "metric",
+          renderJson: {
+            kind: "metric",
+            label: "Revenue",
+            value: "$42"
+          }
+        },
+        {
+          title: "Notes",
+          kind: "markdown",
+          renderJson: {
+            kind: "markdown",
+            markdown: "Ready"
+          }
+        }
+      ]
+    });
+
+    const [refreshingTile, idleTile] = artifact.tiles;
+    assert.ok(refreshingTile);
+    assert.ok(idleTile);
+
+    storage.startLiveArtifactRefresh({
+      artifactId: artifact.id,
+      scope: "artifact",
+      tileIdsToRefresh: [refreshingTile.id]
+    });
+
+    const refreshedArtifact = storage.getLiveArtifact(artifact.id);
+    const updatedRefreshingTile = refreshedArtifact.tiles.find((tile) => tile.id === refreshingTile.id);
+    const updatedIdleTile = refreshedArtifact.tiles.find((tile) => tile.id === idleTile.id);
+
+    assert.equal(refreshedArtifact.refreshStatus, "refreshing");
+    assert.ok(refreshedArtifact.refreshStartedAt);
+    assert.equal(refreshedArtifact.lastRefreshError, null);
+
+    assert.ok(updatedRefreshingTile);
+    assert.equal(updatedRefreshingTile.refreshStatus, "refreshing");
+    assert.ok(updatedRefreshingTile.refreshStartedAt);
+    assert.equal(updatedRefreshingTile.lastError, null);
+
+    assert.ok(updatedIdleTile);
+    assert.equal(updatedIdleTile.refreshStatus, "idle");
+    assert.equal(updatedIdleTile.refreshStartedAt, null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("overlapping live artifact refreshes are rejected", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        }
+      }]
+    });
+
+    storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+
+    assert.throws(
+      () => storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" }),
+      (error: unknown) => {
+        assert.ok(error instanceof ChatStorageResolutionError);
+        assert.equal(error.errorCode, "refresh_in_progress");
+        assert.equal(error.statusCode, 409);
+        return true;
+      }
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("completing a live artifact refresh updates exposed refresh state", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        }
+      }]
+    });
+
+    const tileId = artifact.tiles[0]!.id;
+
+    const completedRefresh = storage.startLiveArtifactRefresh({
+      artifactId: artifact.id,
+      scope: "artifact",
+      tileIdsToRefresh: [tileId]
+    });
+    storage.completeLiveArtifactRefresh({ refreshId: completedRefresh.id, status: "completed" });
+
+    const completedArtifact = storage.getLiveArtifact(artifact.id);
+    assert.equal(completedArtifact.refreshStatus, "idle");
+    assert.equal(completedArtifact.refreshStartedAt, null);
+    assert.equal(completedArtifact.lastRefreshError, null);
+    assert.equal(completedArtifact.tiles[0]?.refreshStatus, "idle");
+    assert.equal(completedArtifact.tiles[0]?.refreshStartedAt, null);
+    assert.equal(completedArtifact.tiles[0]?.lastError, null);
+
+    const failedRefresh = storage.startLiveArtifactRefresh({
+      artifactId: artifact.id,
+      scope: "artifact",
+      tileIdsToRefresh: [tileId]
+    });
+    storage.completeLiveArtifactRefresh({
+      refreshId: failedRefresh.id,
+      status: "failed",
+      errorMessage: "provider temporarily unavailable"
+    });
+
+    const failedArtifact = storage.getLiveArtifact(artifact.id);
+    assert.equal(failedArtifact.refreshStatus, "failed");
+    assert.equal(failedArtifact.refreshStartedAt, null);
+    assert.equal(failedArtifact.lastRefreshError, "provider temporarily unavailable");
+    assert.equal(failedArtifact.tiles[0]?.refreshStatus, "failed");
+    assert.equal(failedArtifact.tiles[0]?.refreshStartedAt, null);
+    assert.equal(failedArtifact.tiles[0]?.lastError, "provider temporarily unavailable");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("live artifact connector refresh steps require persisted audit metadata", () => {
   const fixture = createStorageFixture();
 

@@ -308,6 +308,14 @@ const refreshLiveArtifactRoute = createRoute({
         }
       }
     },
+    409: {
+      description: "A live artifact refresh is already in progress.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
     500: {
       description: "The live artifact refresh failed unexpectedly.",
       content: {
@@ -467,7 +475,15 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
       return context.json({ artifact: result.artifact, failures: [...result.failures] }, 200);
     } catch (error) {
       if (error instanceof ChatStorageResolutionError) {
-        return context.json(createErrorResponse(error.errorCode, error.message), error.statusCode === 404 ? 404 : 400);
+        if (error.statusCode === 404) {
+          return context.json(createErrorResponse(error.errorCode, error.message), 404);
+        }
+
+        if (error.statusCode === 409) {
+          return context.json(createErrorResponse(error.errorCode, error.message), 409);
+        }
+
+        return context.json(createErrorResponse(error.errorCode, error.message), 400);
       }
 
       liveArtifactsLogger.error("live_artifacts.refresh_failed", error);

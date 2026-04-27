@@ -608,6 +608,7 @@ export interface StartLiveArtifactRefreshInput {
   readonly artifactId: string;
   readonly scope: "artifact" | "tile";
   readonly requestedTileId?: string | null;
+  readonly tileIdsToRefresh?: readonly string[];
 }
 
 export interface StartLiveArtifactRefreshStepInput {
@@ -1477,45 +1478,100 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     },
 
     startLiveArtifactRefresh(input) {
-      const artifact = getLiveArtifactRow(connection, input.artifactId);
+      connection.exec("BEGIN IMMEDIATE");
 
-      if (!artifact) {
-        throw new ChatStorageResolutionError({
-          message: `Unknown artifactId: ${input.artifactId}`,
-          statusCode: 404,
-          errorCode: "not_found"
-        });
-      }
+      try {
+        const artifact = getLiveArtifactRow(connection, input.artifactId);
 
-      const requestedTileId = input.requestedTileId?.trim() || null;
-
-      if (input.scope === "tile") {
-        if (!requestedTileId) {
+        if (!artifact) {
           throw new ChatStorageResolutionError({
-            message: "Tile refresh audit records require requestedTileId.",
+            message: `Unknown artifactId: ${input.artifactId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+
+        if (artifact.refresh_status === "refreshing" || hasRunningLiveArtifactRefresh(connection, input.artifactId)) {
+          throw new ChatStorageResolutionError({
+            message: "Live artifact refresh is already in progress.",
+            statusCode: 409,
+            errorCode: "refresh_in_progress"
+          });
+        }
+
+        const requestedTileId = input.requestedTileId?.trim() || null;
+        const tileIdsToRefresh = [...new Set((input.tileIdsToRefresh ?? []).map((tileId) => tileId.trim()).filter(Boolean))];
+
+        if (input.scope === "tile") {
+          if (!requestedTileId) {
+            throw new ChatStorageResolutionError({
+              message: "Tile refresh audit records require requestedTileId.",
+              errorCode: "invalid_request"
+            });
+          }
+
+          const tile = assertLiveArtifactTileBelongsToArtifact(connection, input.artifactId, requestedTileId);
+          if (tile.refresh_status === "refreshing") {
+            throw new ChatStorageResolutionError({
+              message: "Live artifact tile refresh is already in progress.",
+              statusCode: 409,
+              errorCode: "refresh_in_progress"
+            });
+          }
+        } else if (requestedTileId !== null) {
+          throw new ChatStorageResolutionError({
+            message: "Whole-artifact refresh audit records cannot include requestedTileId.",
             errorCode: "invalid_request"
           });
         }
 
-        assertLiveArtifactTileBelongsToArtifact(connection, input.artifactId, requestedTileId);
-      } else if (requestedTileId !== null) {
-        throw new ChatStorageResolutionError({
-          message: "Whole-artifact refresh audit records cannot include requestedTileId.",
-          errorCode: "invalid_request"
-        });
+        for (const tileId of tileIdsToRefresh) {
+          const tile = assertLiveArtifactTileBelongsToArtifact(connection, input.artifactId, tileId);
+          if (tile.refresh_status === "refreshing") {
+            throw new ChatStorageResolutionError({
+              message: "Live artifact tile refresh is already in progress.",
+              statusCode: 409,
+              errorCode: "refresh_in_progress"
+            });
+          }
+        }
+
+        const refreshId = createPrefixedId("lar");
+        const now = new Date().toISOString();
+
+        connection
+          .prepare(
+            `INSERT INTO live_artifact_refreshes (id, artifact_id, scope, requested_tile_id, status, trigger, started_at, ended_at, error_message)
+             VALUES (?, ?, ?, ?, 'running', 'manual', ?, NULL, NULL)`
+          )
+          .run(refreshId, input.artifactId, input.scope, requestedTileId, now);
+
+        connection
+          .prepare(
+            `UPDATE live_artifacts
+             SET refresh_status = 'refreshing', refresh_started_at = ?, last_refresh_error = NULL, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(now, now, input.artifactId);
+
+        const tileIdsToMark = input.scope === "tile" && requestedTileId ? [requestedTileId] : tileIdsToRefresh;
+        const markTileRefreshing = connection.prepare(
+          `UPDATE live_artifact_tiles
+           SET refresh_status = 'refreshing', refresh_started_at = ?, last_error = NULL, updated_at = ?
+           WHERE id = ? AND artifact_id = ?`
+        );
+
+        for (const tileId of tileIdsToMark) {
+          markTileRefreshing.run(now, now, tileId, input.artifactId);
+        }
+
+        const refresh = getLiveArtifactRefreshOrThrow(connection, refreshId);
+        connection.exec("COMMIT");
+        return refresh;
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
       }
-
-      const refreshId = createPrefixedId("lar");
-      const now = new Date().toISOString();
-
-      connection
-        .prepare(
-          `INSERT INTO live_artifact_refreshes (id, artifact_id, scope, requested_tile_id, status, trigger, started_at, ended_at, error_message)
-           VALUES (?, ?, ?, ?, 'running', 'manual', ?, NULL, NULL)`
-        )
-        .run(refreshId, input.artifactId, input.scope, requestedTileId, now);
-
-      return getLiveArtifactRefreshOrThrow(connection, refreshId);
     },
 
     startLiveArtifactRefreshStep(input) {
@@ -1651,6 +1707,17 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
 
     completeLiveArtifactRefresh({ refreshId, status, errorMessage }) {
       const endedAt = new Date().toISOString();
+      const refresh = getLiveArtifactRefreshRow(connection, refreshId);
+
+      if (!refresh) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown live artifact refreshId: ${refreshId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const truncatedError = errorMessage ? truncateLiveArtifactError(errorMessage) : null;
 
       connection
         .prepare(
@@ -1658,7 +1725,27 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
            SET status = ?, error_message = ?, ended_at = ?
            WHERE id = ?`
         )
-        .run(status, errorMessage ? truncateLiveArtifactError(errorMessage) : null, endedAt, refreshId);
+        .run(status, truncatedError, endedAt, refreshId);
+
+      connection
+        .prepare(
+          `UPDATE live_artifacts
+           SET refresh_status = ?, refresh_started_at = NULL,
+               last_refreshed_at = CASE WHEN ? = 'completed' THEN ? ELSE last_refreshed_at END,
+               last_refresh_error = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(status === "completed" ? "idle" : "failed", status, endedAt, truncatedError, endedAt, refresh.artifact_id);
+
+      connection
+        .prepare(
+          `UPDATE live_artifact_tiles
+           SET refresh_status = ?, refresh_started_at = NULL,
+               last_refreshed_at = CASE WHEN ? = 'completed' THEN ? ELSE last_refreshed_at END,
+               last_error = ?, updated_at = ?
+           WHERE artifact_id = ? AND refresh_status = 'refreshing'`
+        )
+        .run(status === "completed" ? "idle" : "failed", status, endedAt, truncatedError, endedAt, refresh.artifact_id);
     },
 
     listProviders() {
@@ -2824,7 +2911,7 @@ function getLiveArtifactTileRow(connection: DatabaseSync, tileId: string) {
     .get(tileId) as LiveArtifactTileRow | undefined;
 }
 
-function assertLiveArtifactTileBelongsToArtifact(connection: DatabaseSync, artifactId: string, tileId: string): void {
+function assertLiveArtifactTileBelongsToArtifact(connection: DatabaseSync, artifactId: string, tileId: string): LiveArtifactTileRow {
   const row = getLiveArtifactTileRow(connection, tileId);
 
   if (!row || row.artifact_id !== artifactId) {
@@ -2834,6 +2921,21 @@ function assertLiveArtifactTileBelongsToArtifact(connection: DatabaseSync, artif
       errorCode: "not_found"
     });
   }
+
+  return row;
+}
+
+function hasRunningLiveArtifactRefresh(connection: DatabaseSync, artifactId: string): boolean {
+  const row = connection
+    .prepare(
+      `SELECT 1 AS found
+       FROM live_artifact_refreshes
+       WHERE artifact_id = ? AND status = 'running'
+       LIMIT 1`
+    )
+    .get(artifactId) as { found: number } | undefined;
+
+  return row !== undefined;
 }
 
 function insertLiveArtifactTiles(
