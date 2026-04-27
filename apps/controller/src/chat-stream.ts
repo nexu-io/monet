@@ -265,7 +265,7 @@ export async function createChatStreamResponse(options: {
         : "failed";
   };
 
-  const replayContext = buildReplayContext(messages);
+  const replayContext = buildReplayContext(messages, { sessionWorkspacePath });
 
   runtimeLogger.info("chat.replay_context_prepared", { ...replayContext.stats });
 
