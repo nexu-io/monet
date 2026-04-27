@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -586,6 +586,90 @@ test("read_file rejects oversized files before reading them into memory", async 
       ),
       /read_file exceeded the size limit of 1000000 bytes/
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("write_file rejects oversized content before creating a partial file", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const writeFileTool = runtimeTools.write_file!;
+    const oversizedTargetPath = join(fixture.workspaceDir, "oversized-write.txt");
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: oversizedTargetPath,
+          content: "x".repeat(1_000_001)
+        },
+        createExecutionContext()
+      ),
+      /write_file content exceeded the size limit of 1000000 bytes/
+    );
+
+    assert.throws(() => readFileSync(oversizedTargetPath, "utf8"), /ENOENT/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("write_file rejects workspace quota overflow before creating a partial file", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const fillerPath = join(fixture.workspaceDir, "quota-filler.bin");
+    const oversizedTargetPath = join(fixture.workspaceDir, "quota-overflow.txt");
+    writeFileSync(fillerPath, "", "utf8");
+    truncateSync(fillerPath, 100 * 1024 * 1024 - 10);
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const writeFileTool = runtimeTools.write_file!;
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: oversizedTargetPath,
+          content: "exceeds quota"
+        },
+        createExecutionContext()
+      ),
+      /Session workspace quota exceeded/
+    );
+
+    assert.throws(() => readFileSync(oversizedTargetPath, "utf8"), /ENOENT/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("write_file rejects workspace quota overflow without partially overwriting an existing file", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const fillerPath = join(fixture.workspaceDir, "quota-filler.bin");
+    const existingTargetPath = join(fixture.workspaceDir, "existing.txt");
+    writeFileSync(existingTargetPath, "safe", "utf8");
+    writeFileSync(fillerPath, "", "utf8");
+    truncateSync(fillerPath, 100 * 1024 * 1024 - Buffer.byteLength("safe", "utf8"));
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const writeFileTool = runtimeTools.write_file!;
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: existingTargetPath,
+          content: "would exceed quota"
+        },
+        createExecutionContext()
+      ),
+      /Session workspace quota exceeded/
+    );
+
+    assert.equal(readFileSync(existingTargetPath, "utf8"), "safe");
   } finally {
     fixture.cleanup();
   }
