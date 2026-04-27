@@ -5,6 +5,19 @@ import { DatabaseSync } from "node:sqlite";
 import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import type { UIMessage } from "ai";
 import type { ConnectorId } from "./connectors/catalog";
+import {
+  LIVE_ARTIFACT_SCHEMA_VERSION,
+  LiveArtifactCreateInputSchema,
+  LiveArtifactCreateTileInputSchema,
+  LiveArtifactSchema,
+  LiveArtifactTileSchema,
+  LiveArtifactWithTilesSchema,
+  type LiveArtifact,
+  type LiveArtifactCreateInput,
+  type LiveArtifactCreateTileInput,
+  type LiveArtifactTile,
+  type LiveArtifactWithTiles
+} from "./live-artifacts/schema";
 import { sanitizeToolCallPersistenceValue } from "./tool-call-redaction";
 
 const DEFAULT_SESSION_TITLE = "New chat";
@@ -191,6 +204,43 @@ interface ToolCallRow {
   readonly error_message: string | null;
   readonly started_at: string;
   readonly ended_at: string | null;
+}
+
+interface LiveArtifactRow {
+  readonly id: string;
+  readonly schema_version: number;
+  readonly session_id: string | null;
+  readonly created_by_run_id: string | null;
+  readonly created_by_tool_call_id: string | null;
+  readonly title: string;
+  readonly slug: string;
+  readonly description: string | null;
+  readonly status: "draft" | "active" | "archived";
+  readonly pinned: number;
+  readonly refresh_status: "idle" | "refreshing" | "failed";
+  readonly refresh_started_at: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly last_refreshed_at: string | null;
+  readonly last_refresh_error: string | null;
+}
+
+interface LiveArtifactTileRow {
+  readonly id: string;
+  readonly artifact_id: string;
+  readonly schema_version: number;
+  readonly position: number;
+  readonly title: string;
+  readonly kind: "markdown" | "metric" | "list" | "table" | "link_card" | "json";
+  readonly render_json: string;
+  readonly provenance_json: string | null;
+  readonly source_json: string | null;
+  readonly refresh_status: "idle" | "refreshing" | "failed";
+  readonly refresh_started_at: string | null;
+  readonly last_refreshed_at: string | null;
+  readonly last_error: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 export interface StoredSession {
@@ -434,6 +484,28 @@ export interface CreateSessionInput {
   readonly modelId?: string;
 }
 
+export interface CreateLiveArtifactInput extends LiveArtifactCreateInput {
+  readonly createdByRunId?: string | null;
+  readonly createdByToolCallId?: string | null;
+}
+
+export interface ListLiveArtifactsInput {
+  readonly includeArchived?: boolean;
+  readonly sessionId?: string | null;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface UpdateLiveArtifactInput {
+  readonly title?: string;
+  readonly description?: string | null;
+}
+
+export interface ReplaceLiveArtifactTilesInput {
+  readonly artifactId: string;
+  readonly tiles: readonly LiveArtifactCreateTileInput[];
+}
+
 export class ChatStorageResolutionError extends Error {
   readonly statusCode: number;
   readonly errorCode: string;
@@ -465,6 +537,13 @@ export interface ChatStorage {
   updateSessionTitle(input: { sessionId: string; title: string }): StoredSession;
   archiveSession(sessionId: string): StoredSession;
   deleteSession(sessionId: string): StoredSession;
+  createLiveArtifact(input: CreateLiveArtifactInput): LiveArtifactWithTiles;
+  listLiveArtifacts(input?: ListLiveArtifactsInput): LiveArtifact[];
+  getLiveArtifact(artifactId: string): LiveArtifactWithTiles;
+  updateLiveArtifact(artifactId: string, input: UpdateLiveArtifactInput): LiveArtifactWithTiles;
+  archiveLiveArtifact(artifactId: string): LiveArtifactWithTiles;
+  pinLiveArtifact(artifactId: string, pinned: boolean): LiveArtifactWithTiles;
+  replaceLiveArtifactTiles(input: ReplaceLiveArtifactTilesInput): LiveArtifactWithTiles;
   listProviders(): StoredProvider[];
   createProvider(input: CreateProviderInput): StoredProvider;
   updateProvider(providerId: string, input: UpdateProviderInput): StoredProvider;
@@ -950,6 +1029,229 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .run(sessionId);
 
       return deletedSession;
+    },
+
+    createLiveArtifact(input) {
+      const parsed = LiveArtifactCreateInputSchema.parse(input);
+      const artifactId = createPrefixedId("art");
+      const now = new Date().toISOString();
+
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const slug = createUniqueLiveArtifactSlug(connection, parsed.title, artifactId);
+
+        connection
+          .prepare(
+            `INSERT INTO live_artifacts (
+               id, schema_version, session_id, created_by_run_id, created_by_tool_call_id,
+               title, slug, description, status, pinned, refresh_status, refresh_started_at,
+               created_at, updated_at, last_refreshed_at, last_refresh_error
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 'idle', NULL, ?, ?, NULL, NULL)`
+          )
+          .run(
+            artifactId,
+            LIVE_ARTIFACT_SCHEMA_VERSION,
+            parsed.sessionId ?? null,
+            input.createdByRunId?.trim() || null,
+            input.createdByToolCallId?.trim() || null,
+            parsed.title,
+            slug,
+            parsed.description ?? null,
+            now,
+            now
+          );
+
+        insertLiveArtifactTiles(connection, artifactId, parsed.tiles, now);
+
+        connection.exec("COMMIT");
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+
+      return getLiveArtifactOrThrow(connection, artifactId);
+    },
+
+    listLiveArtifacts(input = {}) {
+      const includeArchived = input.includeArchived === true;
+      const sessionId = input.sessionId === undefined ? undefined : input.sessionId;
+      const limit = clampLiveArtifactListLimit(input.limit);
+      const offset = Math.max(0, Math.trunc(input.offset ?? 0));
+      const whereClauses: string[] = [];
+      const params: Array<string | number> = [];
+
+      if (!includeArchived) {
+        whereClauses.push("status != 'archived'");
+      }
+
+      if (sessionId !== undefined) {
+        if (sessionId === null) {
+          whereClauses.push("session_id IS NULL");
+        } else {
+          whereClauses.push("session_id = ?");
+          params.push(sessionId);
+        }
+      }
+
+      params.push(limit, offset);
+
+      const rows = connection
+        .prepare(
+          `SELECT id, schema_version, session_id, created_by_run_id, created_by_tool_call_id,
+                  title, slug, description, status, pinned, refresh_status, refresh_started_at,
+                  created_at, updated_at, last_refreshed_at, last_refresh_error
+           FROM live_artifacts
+           ${whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : ""}
+           ORDER BY pinned DESC, updated_at DESC, created_at DESC
+           LIMIT ? OFFSET ?`
+        )
+        .all(...params) as unknown as LiveArtifactRow[];
+
+      return rows.map(mapLiveArtifactRow);
+    },
+
+    getLiveArtifact(artifactId) {
+      return getLiveArtifactOrThrow(connection, artifactId);
+    },
+
+    updateLiveArtifact(artifactId, input) {
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const existing = getLiveArtifactRow(connection, artifactId);
+
+        if (!existing) {
+          throw new ChatStorageResolutionError({
+            message: `Unknown artifactId: ${artifactId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+
+        const patch = parseLiveArtifactUpdateInput(input, existing);
+        const now = new Date().toISOString();
+
+        connection
+          .prepare(
+            `UPDATE live_artifacts
+             SET title = ?, description = ?, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(patch.title, patch.description, now, artifactId);
+
+        const artifact = getLiveArtifactOrThrow(connection, artifactId);
+        connection.exec("COMMIT");
+        return artifact;
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+    },
+
+    archiveLiveArtifact(artifactId) {
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const existing = getLiveArtifactRow(connection, artifactId);
+
+        if (!existing) {
+          throw new ChatStorageResolutionError({
+            message: `Unknown artifactId: ${artifactId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+
+        const now = new Date().toISOString();
+
+        connection
+          .prepare(
+            `UPDATE live_artifacts
+             SET status = 'archived', pinned = 0, refresh_status = 'idle', refresh_started_at = NULL, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(now, artifactId);
+
+        const artifact = getLiveArtifactOrThrow(connection, artifactId);
+        connection.exec("COMMIT");
+        return artifact;
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+    },
+
+    pinLiveArtifact(artifactId, pinned) {
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const existing = getLiveArtifactRow(connection, artifactId);
+
+        if (!existing) {
+          throw new ChatStorageResolutionError({
+            message: `Unknown artifactId: ${artifactId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+
+        if (existing.status === "archived" && pinned) {
+          throw new ChatStorageResolutionError({
+            message: "Archived artifacts cannot be pinned.",
+            statusCode: 409,
+            errorCode: "invalid_state"
+          });
+        }
+
+        const now = new Date().toISOString();
+
+        connection
+          .prepare(
+            `UPDATE live_artifacts
+             SET pinned = ?, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(pinned ? 1 : 0, now, artifactId);
+
+        const artifact = getLiveArtifactOrThrow(connection, artifactId);
+        connection.exec("COMMIT");
+        return artifact;
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+    },
+
+    replaceLiveArtifactTiles(input) {
+      const tiles = input.tiles.map((tile) => LiveArtifactCreateTileInputSchema.parse(tile));
+      LiveArtifactCreateInputSchema.shape.tiles.parse(tiles);
+      const now = new Date().toISOString();
+
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const existing = getLiveArtifactRow(connection, input.artifactId);
+
+        if (!existing) {
+          throw new ChatStorageResolutionError({
+            message: `Unknown artifactId: ${input.artifactId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+
+        connection.prepare("DELETE FROM live_artifact_tiles WHERE artifact_id = ?").run(input.artifactId);
+        insertLiveArtifactTiles(connection, input.artifactId, tiles, now);
+        connection.prepare("UPDATE live_artifacts SET updated_at = ? WHERE id = ?").run(now, input.artifactId);
+        connection.exec("COMMIT");
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+
+      return getLiveArtifactOrThrow(connection, input.artifactId);
     },
 
     listProviders() {
@@ -2054,6 +2356,184 @@ function cancelPendingConnectorApprovals(connection: DatabaseSync, connectorId: 
     .run(now, now, connectorId);
 
   return Number(result.changes);
+}
+
+const LIVE_ARTIFACT_LIST_LIMIT_DEFAULT = 100;
+const LIVE_ARTIFACT_LIST_LIMIT_MAX = 500;
+
+function getLiveArtifactRow(connection: DatabaseSync, artifactId: string) {
+  return connection
+    .prepare(
+      `SELECT id, schema_version, session_id, created_by_run_id, created_by_tool_call_id,
+              title, slug, description, status, pinned, refresh_status, refresh_started_at,
+              created_at, updated_at, last_refreshed_at, last_refresh_error
+       FROM live_artifacts
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(artifactId) as LiveArtifactRow | undefined;
+}
+
+function getLiveArtifactOrThrow(connection: DatabaseSync, artifactId: string): LiveArtifactWithTiles {
+  const row = getLiveArtifactRow(connection, artifactId);
+
+  if (!row) {
+    throw new ChatStorageResolutionError({
+      message: `Unknown artifactId: ${artifactId}`,
+      statusCode: 404,
+      errorCode: "not_found"
+    });
+  }
+
+  return LiveArtifactWithTilesSchema.parse({
+    ...mapLiveArtifactRow(row),
+    tiles: listLiveArtifactTiles(connection, artifactId)
+  });
+}
+
+function listLiveArtifactTiles(connection: DatabaseSync, artifactId: string): LiveArtifactTile[] {
+  const rows = connection
+    .prepare(
+      `SELECT id, artifact_id, schema_version, position, title, kind, render_json, provenance_json, source_json,
+              refresh_status, refresh_started_at, last_refreshed_at, last_error, created_at, updated_at
+       FROM live_artifact_tiles
+       WHERE artifact_id = ?
+       ORDER BY position ASC, created_at ASC`
+    )
+    .all(artifactId) as unknown as LiveArtifactTileRow[];
+
+  return rows.map(mapLiveArtifactTileRow);
+}
+
+function insertLiveArtifactTiles(
+  connection: DatabaseSync,
+  artifactId: string,
+  tiles: readonly LiveArtifactCreateTileInput[],
+  now: string
+): void {
+  const insertTile = connection.prepare(
+    `INSERT INTO live_artifact_tiles (
+       id, artifact_id, schema_version, position, title, kind, render_json, provenance_json, source_json,
+       refresh_status, refresh_started_at, last_refreshed_at, last_error, created_at, updated_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, NULL, NULL, ?, ?)`
+  );
+
+  tiles.forEach((tile, index) => {
+    const parsed = LiveArtifactCreateTileInputSchema.parse(tile);
+
+    insertTile.run(
+      createPrefixedId("tile"),
+      artifactId,
+      LIVE_ARTIFACT_SCHEMA_VERSION,
+      index,
+      parsed.title,
+      parsed.kind,
+      JSON.stringify(parsed.renderJson),
+      parsed.provenanceJson == null ? null : JSON.stringify(parsed.provenanceJson),
+      parsed.sourceJson == null ? null : JSON.stringify(parsed.sourceJson),
+      now,
+      now
+    );
+  });
+}
+
+function mapLiveArtifactRow(row: LiveArtifactRow): LiveArtifact {
+  return LiveArtifactSchema.parse({
+    id: row.id,
+    schemaVersion: row.schema_version,
+    sessionId: row.session_id,
+    createdByRunId: row.created_by_run_id,
+    createdByToolCallId: row.created_by_tool_call_id,
+    title: row.title,
+    slug: row.slug,
+    description: row.description,
+    status: row.status,
+    pinned: Boolean(row.pinned),
+    refreshStatus: row.refresh_status,
+    refreshStartedAt: row.refresh_started_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastRefreshedAt: row.last_refreshed_at,
+    lastRefreshError: row.last_refresh_error
+  });
+}
+
+function mapLiveArtifactTileRow(row: LiveArtifactTileRow): LiveArtifactTile {
+  return LiveArtifactTileSchema.parse({
+    id: row.id,
+    artifactId: row.artifact_id,
+    schemaVersion: row.schema_version,
+    position: row.position,
+    title: row.title,
+    kind: row.kind,
+    renderJson: JSON.parse(row.render_json) as unknown,
+    provenanceJson: row.provenance_json === null ? null : (JSON.parse(row.provenance_json) as unknown),
+    sourceJson: row.source_json === null ? null : (JSON.parse(row.source_json) as unknown),
+    refreshStatus: row.refresh_status,
+    refreshStartedAt: row.refresh_started_at,
+    lastRefreshedAt: row.last_refreshed_at,
+    lastError: row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  });
+}
+
+function parseLiveArtifactUpdateInput(input: UpdateLiveArtifactInput, existing: LiveArtifactRow): { title: string; description: string | null } {
+  const parsed = LiveArtifactCreateInputSchema.pick({ title: true, description: true }).parse({
+    title: input.title ?? existing.title,
+    description: input.description === undefined ? existing.description : input.description
+  });
+
+  return {
+    title: parsed.title,
+    description: parsed.description ?? null
+  };
+}
+
+function clampLiveArtifactListLimit(limit: number | undefined): number {
+  if (limit === undefined) {
+    return LIVE_ARTIFACT_LIST_LIMIT_DEFAULT;
+  }
+
+  if (!Number.isFinite(limit)) {
+    return LIVE_ARTIFACT_LIST_LIMIT_DEFAULT;
+  }
+
+  return Math.min(LIVE_ARTIFACT_LIST_LIMIT_MAX, Math.max(1, Math.trunc(limit)));
+}
+
+function createUniqueLiveArtifactSlug(connection: DatabaseSync, title: string, fallbackId: string): string {
+  const base = slugifyLiveArtifactTitle(title) || fallbackId.replace(/_/g, "-").toLowerCase();
+  let candidate = base;
+  let suffix = 2;
+
+  while (liveArtifactSlugExists(connection, candidate)) {
+    const suffixText = `-${suffix}`;
+    candidate = `${base.slice(0, Math.max(1, 180 - suffixText.length)).replace(/-+$/u, "")}${suffixText}`;
+    suffix += 1;
+  }
+
+  return candidate;
+}
+
+function liveArtifactSlugExists(connection: DatabaseSync, slug: string): boolean {
+  const row = connection
+    .prepare("SELECT 1 AS exists_flag FROM live_artifacts WHERE slug = ? LIMIT 1")
+    .get(slug) as { exists_flag: number } | undefined;
+
+  return row != null;
+}
+
+function slugifyLiveArtifactTitle(title: string): string {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .replace(/-{2,}/gu, "-")
+    .slice(0, 180)
+    .replace(/-+$/u, "");
 }
 
 const COMPOSIO_PROVIDER_SETTINGS_KEY = "connector_provider_composio";
