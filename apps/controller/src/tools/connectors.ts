@@ -37,15 +37,26 @@ class ConnectorToolSource implements ToolSource {
 
       prefixedNames.add(prefixedName);
 
-      return toRegisteredToolDefinition(connectorTool, prefixedName);
+      return toRegisteredToolDefinition({
+        connectorTool,
+        prefixedName,
+        provider: this.provider,
+        userId
+      });
     });
   }
 }
 
-function toRegisteredToolDefinition(
-  connectorTool: ConnectorToolDefinition,
-  prefixedName: string
-): RegisteredToolDefinition<unknown, unknown> {
+interface ConnectorRegisteredToolOptions {
+  readonly connectorTool: ConnectorToolDefinition;
+  readonly prefixedName: string;
+  readonly provider: ConnectorProvider;
+  readonly userId: string;
+}
+
+function toRegisteredToolDefinition(options: ConnectorRegisteredToolOptions): RegisteredToolDefinition<unknown, unknown> {
+  const { connectorTool, prefixedName, provider, userId } = options;
+
   return {
     metadata: {
       name: prefixedName,
@@ -53,8 +64,15 @@ function toRegisteredToolDefinition(
       requiresConfirmation: requiresConnectorToolApproval(connectorTool.policy)
     },
     inputSchema: jsonSchema(connectorTool.inputSchema as unknown as AiSdkJsonSchemaInput),
-    execute() {
-      throw new Error("Connector tool execution bridge is not available yet.");
+    async execute(input, context) {
+      const result = await provider.executeTool({
+        userId,
+        toolId: connectorTool.providerToolId,
+        args: input,
+        abortSignal: context.abortSignal
+      });
+
+      return result.output;
     }
   };
 }

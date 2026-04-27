@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ChatStorage } from "../chat-storage";
-import type { ConnectorProvider, ConnectorListToolsInput } from "../connectors/provider";
+import type { ConnectorExecuteToolInput, ConnectorProvider, ConnectorListToolsInput } from "../connectors/provider";
 import { createLogger } from "../logger";
 import { createConnectorToolSource } from "./connectors";
 
@@ -131,6 +131,82 @@ test("connector tool source fails closed when prefixed connector names collide",
     async () => source.resolveTools(createToolSourceContext()),
     /Connector tool name collision after prefixing: github_search_repositories/
   );
+});
+
+test("connector tool execution dispatches prefixed tools through the provider", async () => {
+  const executeToolInputs: ConnectorExecuteToolInput[] = [];
+  const provider: ConnectorProvider = {
+    async listConnectors() {
+      return [];
+    },
+    getConnectionStatus() {
+      throw new Error("not used");
+    },
+    connect() {
+      throw new Error("not used");
+    },
+    completeConnection() {
+      throw new Error("not used");
+    },
+    disconnect() {
+      throw new Error("not used");
+    },
+    async listTools() {
+      return [
+        {
+          connectorId: "github",
+          providerToolId: "GITHUB_GET_REPOSITORY",
+          name: "GITHUB_GET_REPOSITORY",
+          displayName: "Get repository",
+          description: "Get repository details.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              owner: { type: "string" },
+              repo: { type: "string" }
+            },
+            required: ["owner", "repo"],
+            additionalProperties: false
+          },
+          policy: {
+            sideEffect: "read",
+            approval: "never"
+          }
+        }
+      ];
+    },
+    async executeTool(input) {
+      executeToolInputs.push(input);
+      return {
+        output: { fullName: "monet/connectors" },
+        providerExecutionId: "provider-exec-1"
+      };
+    }
+  };
+  const source = createConnectorToolSource({ provider });
+  const abortController = new AbortController();
+  const tools = await source.resolveTools(createToolSourceContext());
+
+  assert.equal(tools[0]?.metadata.name, "github_get_repository");
+
+  const output = await tools[0]?.execute(
+    { owner: "monet", repo: "connectors" },
+    {
+      toolCallId: "tool-call-1",
+      messages: [],
+      abortSignal: abortController.signal,
+      persistedToolCallId: "tool-call-1"
+    }
+  );
+
+  assert.deepEqual(output, { fullName: "monet/connectors" });
+  assert.equal(executeToolInputs.length, 1);
+  assert.deepEqual(executeToolInputs[0], {
+    userId: "monet-install-id",
+    toolId: "GITHUB_GET_REPOSITORY",
+    args: { owner: "monet", repo: "connectors" },
+    abortSignal: abortController.signal
+  });
 });
 
 function createProviderWithTools(
