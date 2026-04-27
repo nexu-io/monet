@@ -288,6 +288,30 @@ ipcMain.handle("monet:open-path", async (_event, payload: { path: string }) => {
   };
 });
 
+ipcMain.handle("monet:open-external-url", async (_event, payload: { url: string }) => {
+  const targetUrl = payload.url.trim();
+
+  if (!targetUrl) {
+    return {
+      opened: false,
+      error: "URL is required."
+    };
+  }
+
+  if (!shouldOpenNavigationExternally(targetUrl)) {
+    return {
+      opened: false,
+      error: "URL is not allowed."
+    };
+  }
+
+  await shell.openExternal(targetUrl);
+
+  return {
+    opened: true
+  };
+});
+
 ipcMain.handle(
   "monet:save-provider-secret",
   async (_event, payload: { providerType: ProviderType; secret: string }) => {

@@ -130,6 +130,40 @@ function getProviderExecutionId(connector: ConnectorDetail) {
   return detail.lastProviderExecutionId ?? detail.providerExecutionId;
 }
 
+function isSafeExternalConnectorUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function openProviderAuthorizationUrl(url: string) {
+  if (!isSafeExternalConnectorUrl(url)) {
+    throw new Error("The provider returned an unsupported authorization URL.");
+  }
+
+  const desktopApi = typeof window === "undefined" ? undefined : window.monetDesktop;
+
+  if (desktopApi?.openExternalUrl) {
+    const result = await desktopApi.openExternalUrl({ url });
+
+    if (!result.opened) {
+      throw new Error(result.error ?? "Unable to open the provider authorization page.");
+    }
+
+    return;
+  }
+
+  const popup = window.open(url, "_blank", "noopener,noreferrer");
+
+  if (!popup) {
+    throw new Error("Unable to open the provider authorization page.");
+  }
+}
+
 function ConnectorIcon({ connector }: { readonly connector: ConnectorCatalogCard }) {
   const meta = connectorIconMeta[connector.icon] ?? {
     label: connector.displayName,
@@ -555,6 +589,7 @@ export default function ConnectorsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [loadState, setLoadState] = useState<ConnectorsLoadState>({ status: "idle" });
   const [actionState, setActionState] = useState<ConnectorActionState>({ status: "idle" });
+  const [pendingExternalReturnConnectorId, setPendingExternalReturnConnectorId] = useState<ConnectorId | null>(null);
   const selectedConnectorId = useMemo(() => {
     const value = searchParams.get(connectorDetailQueryParam);
 
@@ -610,6 +645,34 @@ export default function ConnectorsPage() {
     });
   }, [setSearchParams]);
 
+  useEffect(() => {
+    if (!pendingExternalReturnConnectorId) {
+      return;
+    }
+
+    let refreshStarted = false;
+
+    const refreshOnReturn = () => {
+      if (refreshStarted || document.visibilityState === "hidden") {
+        return;
+      }
+
+      refreshStarted = true;
+      setPendingExternalReturnConnectorId(null);
+      void refreshConnectors().finally(() => {
+        openConnectorDetail(pendingExternalReturnConnectorId);
+      });
+    };
+
+    window.addEventListener("focus", refreshOnReturn, { once: true });
+    document.addEventListener("visibilitychange", refreshOnReturn);
+
+    return () => {
+      window.removeEventListener("focus", refreshOnReturn);
+      document.removeEventListener("visibilitychange", refreshOnReturn);
+    };
+  }, [openConnectorDetail, pendingExternalReturnConnectorId, refreshConnectors]);
+
   const handleConnectorPrimaryAction = useCallback(
     async (connector: ConnectorCatalogCard) => {
       if (connector.status === "unavailable") {
@@ -634,21 +697,37 @@ export default function ConnectorsPage() {
         }
 
         if (response.status === "pending") {
+          if (response.redirectUrl) {
+            await openProviderAuthorizationUrl(response.redirectUrl);
+            setPendingExternalReturnConnectorId(connector.id);
+          }
+
           setActionState({
             status: "success",
             connectorId: connector.id,
-            message: `${connector.displayName} connection is pending. Return to Monet after completing provider authorization to refresh its status.`
+            message: response.redirectUrl
+              ? `${connector.displayName} authorization opened in your browser. Return to Monet after completing provider authorization to refresh its status.`
+              : `${connector.displayName} connection is pending. Return to Monet after completing provider authorization to refresh its status.`
           });
           await refreshConnectors();
           openConnectorDetail(connector.id);
           return;
         }
 
+        if (response.redirectUrl) {
+          await openProviderAuthorizationUrl(response.redirectUrl);
+          setPendingExternalReturnConnectorId(connector.id);
+        }
+
         setActionState({
           status: "success",
           connectorId: connector.id,
-          message: `${connector.displayName} authorization is ready. Complete the provider flow, then return to Monet to refresh connector status.`
+          message: response.redirectUrl
+            ? `${connector.displayName} authorization opened in your browser. Return to Monet after completing the provider flow to refresh connector status.`
+            : `${connector.displayName} authorization is ready. Complete the provider flow, then return to Monet to refresh connector status.`
         });
+        await refreshConnectors();
+        openConnectorDetail(connector.id);
       } catch (error) {
         setActionState({
           status: "error",

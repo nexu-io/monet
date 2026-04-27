@@ -53,6 +53,11 @@ export interface OpenPathResult {
   readonly error?: string;
 }
 
+export interface OpenExternalUrlResult {
+  readonly opened: boolean;
+  readonly error?: string;
+}
+
 export type MonetDesktopApi = {
   readonly platform?: NodeJS.Platform;
   readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretMutationResult>;
@@ -67,6 +72,7 @@ export type MonetDesktopApi = {
     readonly features?: FeatureConfig;
   };
   readonly installUpdate?: () => Promise<{ started: boolean }>;
+  readonly openExternalUrl?: (payload: { url: string }) => Promise<OpenExternalUrlResult>;
   readonly openPath?: (payload: { path: string }) => Promise<OpenPathResult>;
   readonly onControllerStateChange?: (listener: (payload: ControllerStatePayload) => void) => () => void;
   readonly onUpdateStateChange?: (listener: (payload: UpdateStatePayload) => void) => () => void;
