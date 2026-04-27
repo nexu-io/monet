@@ -25,8 +25,11 @@ class ConnectorToolSource implements ToolSource {
 
   async resolveTools(context: ToolSourceContext): Promise<ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>> {
     const userId = context.chatStorage.getMonetInstallId();
-    const connectorTools = await this.provider.listTools({ userId });
-    const connectorAccountLabels = await this.resolveConnectorAccountLabels(userId, connectorTools);
+    const connectorTools = await this.provider.listTools({
+      userId,
+      ...(context.abortSignal ? { abortSignal: context.abortSignal } : {})
+    });
+    const connectorAccountLabels = await this.resolveConnectorAccountLabels(userId, connectorTools, context.abortSignal);
     const prefixedNames = new Set<string>();
 
     return connectorTools.map((connectorTool) => {
@@ -48,13 +51,21 @@ class ConnectorToolSource implements ToolSource {
     });
   }
 
-  private async resolveConnectorAccountLabels(userId: string, connectorTools: readonly ConnectorToolDefinition[]) {
+  private async resolveConnectorAccountLabels(
+    userId: string,
+    connectorTools: readonly ConnectorToolDefinition[],
+    abortSignal: AbortSignal | undefined
+  ) {
     const connectorIds = Array.from(new Set(connectorTools.map((tool) => tool.connectorId)));
     const accountLabels = new Map<string, string | null>();
 
     await Promise.all(
       connectorIds.map(async (connectorId) => {
-        const status = await this.provider.getConnectionStatus({ userId, connectorId });
+        const status = await this.provider.getConnectionStatus({
+          userId,
+          connectorId,
+          ...(abortSignal ? { abortSignal } : {})
+        });
 
         accountLabels.set(connectorId, status.account?.accountLabel ?? null);
       })

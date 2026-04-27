@@ -240,6 +240,56 @@ test("tool registry persists failed executions", async () => {
   }
 });
 
+test("tool registry propagates run abort signal into tool executions", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "abort" }] }]
+    });
+    const runAbortController = new AbortController();
+    let observedAbortSignal: AbortSignal | undefined;
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "abortable_tool",
+          description: "Observes aborts.",
+          requiresConfirmation: false
+        },
+        inputSchema: { type: "object", additionalProperties: false } as never,
+        async execute(_input: unknown, context) {
+          observedAbortSignal = context.abortSignal;
+          runAbortController.abort(new Error("stop_requested"));
+
+          return { aborted: context.abortSignal.aborted };
+        }
+      }
+    ]);
+
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      chatStorage: fixture.storage,
+      logger: createLogger("test"),
+      abortSignal: runAbortController.signal
+    });
+    const execute = (runtimeTools.abortable_tool as { execute: (input: unknown, context: unknown) => Promise<unknown> }).execute;
+
+    const output = await execute(
+      {},
+      {
+        toolCallId: "call_sdk_abort_1",
+        messages: [],
+        experimental_context: undefined
+      }
+    );
+
+    assert.equal(observedAbortSignal?.aborted, true);
+    assert.deepEqual(output, { aborted: true });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("tool registry composes static and dynamic tool sources at runtime", async () => {
   const fixture = createTestStorage();
 

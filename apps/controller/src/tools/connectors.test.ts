@@ -8,11 +8,13 @@ import { createConnectorToolSource } from "./connectors";
 
 test("connector tool source resolves connected curated tools for active monet install id", async () => {
   const listToolInputs: ConnectorListToolsInput[] = [];
+  const getConnectionStatusInputs: unknown[] = [];
   const provider: ConnectorProvider = {
     async listConnectors() {
       return [];
     },
-    async getConnectionStatus() {
+    async getConnectionStatus(input) {
+      getConnectionStatusInputs.push(input);
       return {
         connectorId: "github",
         state: "connected",
@@ -59,6 +61,7 @@ test("connector tool source resolves connected curated tools for active monet in
     }
   };
   const source = createConnectorToolSource({ provider });
+  const abortController = new AbortController();
   const tools = await source.resolveTools({
     runId: "run_test",
     chatStorage: {
@@ -66,10 +69,14 @@ test("connector tool source resolves connected curated tools for active monet in
         return "monet-install-id";
       }
     } as ChatStorage,
-    logger: createLogger("test")
+    logger: createLogger("test"),
+    abortSignal: abortController.signal
   });
 
-  assert.deepEqual(listToolInputs, [{ userId: "monet-install-id" }]);
+  assert.deepEqual(listToolInputs, [{ userId: "monet-install-id", abortSignal: abortController.signal }]);
+  assert.deepEqual(getConnectionStatusInputs, [
+    { userId: "monet-install-id", connectorId: "github", abortSignal: abortController.signal }
+  ]);
   assert.equal(tools.length, 1);
   assert.deepEqual(tools[0]?.metadata, {
     name: "github_list_pull_requests",

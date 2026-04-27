@@ -37,6 +37,7 @@ export interface ToolExecutionContext {
   readonly runId: string;
   readonly chatStorage: ChatStorage;
   readonly logger: Logger;
+  readonly abortSignal?: AbortSignal;
 }
 
 export type ToolSourceContext = ToolExecutionContext;
@@ -245,7 +246,7 @@ export function createToolRegistry(
                 const output = await definition.execute(input, {
                   toolCallId: executionContext.toolCallId,
                   messages: executionContext.messages,
-                  abortSignal: executionContext.abortSignal ?? new AbortController().signal,
+                  abortSignal: resolveToolAbortSignal(context.abortSignal, executionContext.abortSignal),
                   experimental_context: executionContext.experimental_context,
                   persistedToolCallId,
                   setConnectorExecutionMetadata(metadata) {
@@ -291,6 +292,14 @@ export function createToolRegistry(
       );
     }
   };
+}
+
+function resolveToolAbortSignal(runAbortSignal: AbortSignal | undefined, executionAbortSignal: AbortSignal | undefined): AbortSignal {
+  if (runAbortSignal && executionAbortSignal && runAbortSignal !== executionAbortSignal) {
+    return AbortSignal.any([runAbortSignal, executionAbortSignal]);
+  }
+
+  return executionAbortSignal ?? runAbortSignal ?? new AbortController().signal;
 }
 
 function createToolCallMetadata(metadata: ToolMetadata, input: unknown) {

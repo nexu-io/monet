@@ -88,14 +88,8 @@ export async function createChatStreamResponse(options: {
     modelId: request.modelId,
     runtimeArea: "tool-runtime"
   });
-  const runtimeTools = await options.toolRegistry.createRuntimeTools({
-    runId: request.runId,
-    chatStorage: options.chatStorage,
-    logger: runtimeLogger
-  });
-
-  const startedAt = Date.now();
   const abortController = new AbortController();
+  const startedAt = Date.now();
   let runFinishReason: RunFinishReason | null = null;
   const persistedCurrentStep = Math.max(0, request.currentStep ?? 0);
   const initialUsage = resolveObservedRunUsage(request);
@@ -125,6 +119,42 @@ export async function createChatStreamResponse(options: {
     abort: abortRun
   });
 
+  const abortRequestHandler = () => {
+    abortRun("request_aborted");
+  };
+
+  if (options.requestSignal.aborted) {
+    abortRequestHandler();
+  } else {
+    options.requestSignal.addEventListener("abort", abortRequestHandler, { once: true });
+  }
+
+  let wallClockTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const cleanupRunResources = () => {
+    unregisterRun();
+
+    if (wallClockTimer) {
+      clearTimeout(wallClockTimer);
+    }
+
+    options.requestSignal.removeEventListener("abort", abortRequestHandler);
+  };
+
+  let runtimeTools: Record<string, unknown>;
+
+  try {
+    runtimeTools = await options.toolRegistry.createRuntimeTools({
+      runId: request.runId,
+      chatStorage: options.chatStorage,
+      logger: runtimeLogger,
+      abortSignal: abortController.signal
+    });
+  } catch (error) {
+    cleanupRunResources();
+    throw error;
+  }
+
   runtimeLogger.info("chat.run_started", {
     maxSteps: request.maxSteps,
     maxTokensPerRun: request.maxTokensPerRun,
@@ -141,7 +171,7 @@ export async function createChatStreamResponse(options: {
   try {
     model = await options.providerRuntime.createChatModel(request.providerId, request.modelId);
   } catch (error) {
-    unregisterRun();
+    cleanupRunResources();
     throw error;
   }
 
@@ -156,7 +186,7 @@ export async function createChatStreamResponse(options: {
   if (wallClockBudgetMs === 0 && isExpiredWallClockBudget(wallClockDeadlineAt, startedAt)) {
     abortRun("wall_clock_budget_exceeded");
   }
-  const wallClockTimer =
+  wallClockTimer =
     wallClockBudgetMs > 0
       ? setTimeout(() => {
           abortRun("wall_clock_budget_exceeded");
@@ -170,26 +200,6 @@ export async function createChatStreamResponse(options: {
   if (isToolCallBudgetExhausted(observedToolCallCount, options.runtime.maxToolCallsPerRun)) {
     abortRun("tool_call_budget_exceeded");
   }
-
-  const abortRequestHandler = () => {
-    abortRun("request_aborted");
-  };
-
-  if (options.requestSignal.aborted) {
-    abortRequestHandler();
-  } else {
-    options.requestSignal.addEventListener("abort", abortRequestHandler, { once: true });
-  }
-
-  const cleanupRunResources = () => {
-    unregisterRun();
-
-    if (wallClockTimer) {
-      clearTimeout(wallClockTimer);
-    }
-
-    options.requestSignal.removeEventListener("abort", abortRequestHandler);
-  };
 
   const finalizeRun = (status: "completed" | "failed" | "interrupted" | "awaiting_confirmation", finishReason: string | null) => {
     if (finalizedRun) {
