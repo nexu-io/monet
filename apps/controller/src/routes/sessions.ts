@@ -454,8 +454,11 @@ export function registerSessionRoutes(
     const sessionId = context.req.valid("param").sessionId;
 
     try {
-      options.getChatStorage().deleteSession(sessionId);
+      const storage = options.getChatStorage();
+
+      storage.getSessionDetail(sessionId);
       await options.sessionWorkspaceService.deleteWorkspace(sessionId);
+      storage.deleteSession(sessionId);
 
       return context.body(null, 204);
     } catch (error) {
