@@ -56,6 +56,10 @@ interface OpenPathResult {
   readonly opened: boolean;
   readonly path?: string;
   readonly error?: string;
+  readonly errorDetails?: {
+    readonly workspacePath?: string;
+    readonly nativeOpenFailureReason?: string;
+  };
 }
 
 const runtimeInfo = ipcRenderer.sendSync("monet:get-runtime-info-sync") as {

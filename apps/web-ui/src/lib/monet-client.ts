@@ -48,6 +48,10 @@ export interface OpenPathResult {
   readonly opened: boolean;
   readonly path?: string;
   readonly error?: string;
+  readonly errorDetails?: {
+    readonly workspacePath?: string;
+    readonly nativeOpenFailureReason?: string;
+  };
 }
 
 export type MonetDesktopApi = {

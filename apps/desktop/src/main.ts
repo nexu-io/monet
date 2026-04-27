@@ -54,6 +54,12 @@ interface OpenPathResult {
   readonly opened: boolean;
   readonly path?: string;
   readonly error?: string;
+  readonly errorDetails?: OpenPathErrorDetails;
+}
+
+interface OpenPathErrorDetails {
+  readonly workspacePath?: string;
+  readonly nativeOpenFailureReason?: string;
 }
 
 interface OpenWorkspaceDirectoryResponse {
@@ -334,10 +340,21 @@ ipcMain.handle("monet:open-workspace-directory", async (_event, payload: { sessi
 
   const error = await shell.openPath(workspacePath);
 
+  if (error.length > 0) {
+    return {
+      opened: false,
+      path: workspacePath,
+      error: `Could not open the workspace folder: ${error}`,
+      errorDetails: {
+        workspacePath,
+        nativeOpenFailureReason: error
+      }
+    } satisfies OpenPathResult;
+  }
+
   return {
-    opened: error.length === 0,
-    path: workspacePath,
-    ...(error.length > 0 ? { error } : {})
+    opened: true,
+    path: workspacePath
   } satisfies OpenPathResult;
 });
 
