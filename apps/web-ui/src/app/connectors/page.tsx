@@ -1,16 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { PageFrame } from "../../components/page-frame";
 import { useControllerState } from "../../lib/controller-state";
-import { listConnectors, type ConnectorCatalogCard } from "../../lib/connectors-api";
+import { getConnector, listConnectors, type ConnectorCatalogCard, type ConnectorDetail, type ConnectorId } from "../../lib/connectors-api";
 
 type ConnectorsLoadState =
   | { readonly status: "idle" }
   | { readonly status: "loading" }
   | { readonly status: "error"; readonly message: string }
   | { readonly status: "loaded"; readonly connectors: ConnectorCatalogCard[] };
+
+type ConnectorDetailLoadState =
+  | { readonly status: "idle" }
+  | { readonly status: "loading" }
+  | { readonly status: "error"; readonly message: string }
+  | { readonly status: "loaded"; readonly connector: ConnectorDetail };
+
+type ConnectorDetailWithExecutionMetadata = ConnectorDetail & {
+  readonly lastProviderExecutionId?: string;
+  readonly providerExecutionId?: string;
+};
 
 const statePanelClassName =
   "rounded-2xl border border-border-subtle bg-surface-1 p-6 shadow-xs";
@@ -24,7 +36,10 @@ const secondaryButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-border-subtle bg-surface-0 px-3.5 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
 const primaryButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
+const dangerButtonClassName =
+  "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-error/30 bg-error-subtle px-3.5 text-sm font-semibold text-error transition-colors hover:border-error/50 hover:bg-error-subtle/80 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
 const connectorGridClassName = "grid gap-4 lg:grid-cols-3";
+const connectorDetailQueryParam = "connector";
 
 const connectorIconMeta: Record<ConnectorCatalogCard["icon"], { readonly label: string; readonly glyph: string; readonly className: string }> = {
   github: {
@@ -81,6 +96,27 @@ function formatToolId(toolId: string) {
     .join(" ");
 }
 
+function isConnectorId(value: string | null): value is ConnectorId {
+  return value === "github" || value === "notion" || value === "google_drive";
+}
+
+function formatPolicyLabel(policy: ConnectorDetail["allowedTools"][number]["policy"]) {
+  const sideEffectLabel = policy.sideEffect.replaceAll("_", " ");
+  const approvalLabel = policy.approval.replaceAll("_", " ");
+
+  return `${sideEffectLabel} · ${approvalLabel}`;
+}
+
+function getConnectorAccountLabel(connector: ConnectorDetail) {
+  return connector.connection.connectedAccountLabel ?? connector.connection.account?.accountLabel ?? connector.connectedAccountLabel;
+}
+
+function getProviderExecutionId(connector: ConnectorDetail) {
+  const detail = connector as ConnectorDetailWithExecutionMetadata;
+
+  return detail.lastProviderExecutionId ?? detail.providerExecutionId;
+}
+
 function ConnectorIcon({ connector }: { readonly connector: ConnectorCatalogCard }) {
   const meta = connectorIconMeta[connector.icon] ?? {
     label: connector.displayName,
@@ -105,7 +141,13 @@ function ConnectorStatusBadge({ status }: { readonly status: ConnectorCatalogCar
   );
 }
 
-function ConnectorCard({ connector }: { readonly connector: ConnectorCatalogCard }) {
+function ConnectorCard({
+  connector,
+  onOpenDetail
+}: {
+  readonly connector: ConnectorCatalogCard;
+  readonly onOpenDetail: (connectorId: ConnectorId) => void;
+}) {
   const statusMeta = connectorStatusMeta[connector.status];
   const featuredTools = connector.featuredTools.slice(0, 3).map(formatToolId);
   const accountLabel = connector.connectedAccountLabel?.trim();
@@ -154,10 +196,16 @@ function ConnectorCard({ connector }: { readonly connector: ConnectorCatalogCard
       </div>
 
       <div className="flex flex-col gap-2 border-t border-border-subtle pt-4 sm:flex-row sm:items-center">
-        <button className={primaryButtonClassName} type="button" disabled={statusMeta.primaryActionDisabled} aria-label={`${statusMeta.primaryActionLabel} ${connector.displayName}`}>
+        <button
+          className={primaryButtonClassName}
+          type="button"
+          disabled={statusMeta.primaryActionDisabled}
+          onClick={() => onOpenDetail(connector.id)}
+          aria-label={`${statusMeta.primaryActionLabel} ${connector.displayName}`}
+        >
           {statusMeta.primaryActionLabel}
         </button>
-        <button className={secondaryButtonClassName} type="button" disabled={connector.status === "unavailable"} aria-label={`View ${connector.displayName} tools`}>
+        <button className={secondaryButtonClassName} type="button" disabled={connector.status === "unavailable"} onClick={() => onOpenDetail(connector.id)} aria-label={`View ${connector.displayName} tools`}>
           View tools
         </button>
       </div>
@@ -165,7 +213,7 @@ function ConnectorCard({ connector }: { readonly connector: ConnectorCatalogCard
   );
 }
 
-function ConnectorCardGrid({ connectors }: { readonly connectors: readonly ConnectorCatalogCard[] }) {
+function ConnectorCardGrid({ connectors, onOpenDetail }: { readonly connectors: readonly ConnectorCatalogCard[]; readonly onOpenDetail: (connectorId: ConnectorId) => void }) {
   return (
     <section className="flex flex-col gap-4" aria-label="Available connectors">
       <div className="flex flex-col gap-2">
@@ -179,10 +227,165 @@ function ConnectorCardGrid({ connectors }: { readonly connectors: readonly Conne
       </div>
       <div className={connectorGridClassName}>
         {connectors.map((connector) => (
-          <ConnectorCard key={connector.id} connector={connector} />
+          <ConnectorCard key={connector.id} connector={connector} onOpenDetail={onOpenDetail} />
         ))}
       </div>
     </section>
+  );
+}
+
+function ConnectorDetailDrawer({ connectorId, onClose }: { readonly connectorId: ConnectorId; readonly onClose: () => void }) {
+  const [detailState, setDetailState] = useState<ConnectorDetailLoadState>({ status: "idle" });
+
+  const refreshConnectorDetail = useCallback(async () => {
+    setDetailState({ status: "loading" });
+
+    try {
+      const response = await getConnector(connectorId);
+      setDetailState({ status: "loaded", connector: response.connector });
+    } catch (error) {
+      setDetailState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to load connector details."
+      });
+    }
+  }, [connectorId]);
+
+  useEffect(() => {
+    void refreshConnectorDetail();
+  }, [refreshConnectorDetail]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const loadedConnector = detailState.status === "loaded" ? detailState.connector : undefined;
+  const drawerTitle = loadedConnector?.displayName ?? "Connector details";
+  const accountLabel = loadedConnector ? getConnectorAccountLabel(loadedConnector) : undefined;
+  const providerExecutionId = loadedConnector ? getProviderExecutionId(loadedConnector) : undefined;
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="connector-detail-title">
+      <button className="absolute inset-0 cursor-default border-0 bg-black/30 p-0" type="button" aria-label="Close connector details" onClick={onClose} />
+      <aside className="relative z-10 flex h-full w-full max-w-xl flex-col border-l border-border-subtle bg-surface-0 shadow-xl">
+        <header className="flex items-start justify-between gap-4 border-b border-border-subtle p-5">
+          <div className="flex flex-col gap-2">
+            <p className={eyebrowClassName}>Connector details</p>
+            <h2 id="connector-detail-title" className="m-0 font-heading text-2xl font-semibold tracking-[-0.02em] text-text-heading">
+              {drawerTitle}
+            </h2>
+            {loadedConnector ? <p className="m-0 leading-[1.5] text-text-muted">{loadedConnector.description}</p> : null}
+          </div>
+          <button className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border border-border-subtle bg-surface-1 text-xl leading-none text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus" type="button" onClick={onClose} aria-label="Close connector details">
+            ×
+          </button>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
+          {detailState.status === "idle" || detailState.status === "loading" ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-border-subtle bg-surface-1 p-4" aria-live="polite">
+              <div className="h-4 w-28 animate-pulse rounded bg-surface-2" />
+              <div className="h-8 w-40 animate-pulse rounded bg-surface-2" />
+              <div className="h-20 w-full animate-pulse rounded bg-surface-2" />
+              <span className="sr-only">Loading connector details</span>
+            </div>
+          ) : null}
+
+          {detailState.status === "error" ? (
+            <ConnectorStatePanel
+              eyebrow="Error"
+              title="Unable to load connector details."
+              description={detailState.message}
+              action={
+                <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectorDetail()}>
+                  Try again
+                </button>
+              }
+            />
+          ) : null}
+
+          {loadedConnector ? (
+            <>
+              <section className="rounded-2xl border border-border-subtle bg-surface-1 p-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <ConnectorIcon connector={loadedConnector} />
+                      <div className="flex flex-col gap-1">
+                        <p className="m-0 text-sm font-semibold text-text-heading">Connection status</p>
+                        <p className="m-0 text-sm text-text-muted">{accountLabel ? `Connected account: ${accountLabel}` : "No connected account label is available."}</p>
+                      </div>
+                    </div>
+                    <ConnectorStatusBadge status={loadedConnector.connection.status} />
+                  </div>
+
+                  {loadedConnector.connection.lastErrorCode ? (
+                    <p className="m-0 rounded-lg border border-error/20 bg-error-subtle px-3 py-2 text-sm text-error">
+                      Last connector error: {loadedConnector.connection.lastErrorMessage ?? loadedConnector.connection.lastErrorCode}
+                    </p>
+                  ) : null}
+
+                  <dl className="m-0 grid gap-3 rounded-xl border border-border-subtle bg-surface-0 p-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="font-semibold text-text-heading">Provider connector ID</dt>
+                      <dd className="m-0 mt-1 break-all text-text-muted">{loadedConnector.providerConnectorId}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-text-heading">Provider execution ID</dt>
+                      <dd className="m-0 mt-1 break-all text-text-muted">{providerExecutionId ?? "Shown after a connector tool execution completes."}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-border-subtle bg-surface-1 p-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1">
+                    <h3 className="m-0 font-heading text-lg font-semibold text-text-heading">Available allowlisted tools</h3>
+                    <p className="m-0 text-sm leading-[1.5] text-text-muted">Only these curated provider tools can be mounted at chat runtime for this connector.</p>
+                  </div>
+                  <ul className="m-0 flex list-none flex-col gap-3 p-0">
+                    {loadedConnector.allowedTools.map((tool) => (
+                      <li key={tool.providerToolId} className="rounded-xl border border-border-subtle bg-surface-0 p-3">
+                        <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="m-0 font-semibold text-text-heading">{tool.displayName}</p>
+                              <p className="m-0 break-all text-xs text-text-tertiary">{tool.providerToolId}</p>
+                            </div>
+                            <span className="rounded-full border border-border-subtle bg-surface-1 px-2.5 py-1 text-xs font-semibold capitalize text-text-secondary">
+                              {formatPolicyLabel(tool.policy)}
+                            </span>
+                          </div>
+                          <p className="m-0 text-sm leading-[1.5] text-text-muted">{tool.summary}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </section>
+            </>
+          ) : null}
+        </div>
+
+        <footer className="flex flex-col gap-2 border-t border-border-subtle p-5 sm:flex-row sm:justify-between">
+          <button className={secondaryButtonClassName} type="button" onClick={onClose}>
+            Close
+          </button>
+          <button className={dangerButtonClassName} type="button" disabled={!loadedConnector || !loadedConnector.connection.connected} aria-label={`Disconnect ${drawerTitle}`}>
+            Disconnect
+          </button>
+        </footer>
+      </aside>
+    </div>
   );
 }
 
@@ -237,7 +440,13 @@ function LoadingConnectorsState() {
 
 export default function ConnectorsPage() {
   const { config, controllerState, isDesktop, restartController, restartPending } = useControllerState();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [loadState, setLoadState] = useState<ConnectorsLoadState>({ status: "idle" });
+  const selectedConnectorId = useMemo(() => {
+    const value = searchParams.get(connectorDetailQueryParam);
+
+    return isConnectorId(value) ? value : undefined;
+  }, [searchParams]);
   const connectorsEnabled = config?.features.connectors ?? false;
   const controllerStatus = controllerState?.state;
   const controllerStarting = controllerStatus === "starting" || controllerStatus === "restarting";
@@ -268,6 +477,25 @@ export default function ConnectorsPage() {
 
     void refreshConnectors();
   }, [config, refreshConnectors]);
+
+  const openConnectorDetail = useCallback(
+    (connectorId: ConnectorId) => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set(connectorDetailQueryParam, connectorId);
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
+
+  const closeConnectorDetail = useCallback(() => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete(connectorDetailQueryParam);
+      return next;
+    });
+  }, [setSearchParams]);
 
   let content: ReactNode;
 
@@ -346,7 +574,7 @@ export default function ConnectorsPage() {
       />
     );
   } else {
-    content = <ConnectorCardGrid connectors={loadState.connectors} />;
+    content = <ConnectorCardGrid connectors={loadState.connectors} onOpenDetail={openConnectorDetail} />;
   }
 
   return (
@@ -356,6 +584,7 @@ export default function ConnectorsPage() {
       description="Connect approved external services so Monet can use curated tools with safe approval policies."
     >
       {content}
+      {connectorsEnabled && selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} /> : null}
     </PageFrame>
   );
 }
