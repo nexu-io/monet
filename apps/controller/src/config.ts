@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { ConnectorId } from "./connectors/catalog";
 
 const defaultControllerPort = 42831;
 const defaultControllerHost = "127.0.0.1";
@@ -60,6 +61,7 @@ export interface ComposioProviderConfig {
   readonly apiKey: string | null;
   readonly baseUrl: string;
   readonly timeoutMs: number | null;
+  readonly authConfigIds: Partial<Record<ConnectorId, string>>;
 }
 
 export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): ControllerConfig {
@@ -95,7 +97,8 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       composio: {
         apiKey: parseOptionalString(env.MONET_COMPOSIO_API_KEY) ?? parseOptionalString(env.COMPOSIO_API_KEY),
         baseUrl: parseUrl(env.MONET_COMPOSIO_BASE_URL) ?? parseUrl(env.COMPOSIO_BASE_URL) ?? "https://backend.composio.dev",
-        timeoutMs: parseInteger(env.MONET_COMPOSIO_TIMEOUT_MS)
+        timeoutMs: parseInteger(env.MONET_COMPOSIO_TIMEOUT_MS),
+        authConfigIds: parseComposioAuthConfigIds(env)
       }
     },
     openai: {
@@ -111,6 +114,19 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
     }
   };
+}
+
+function parseComposioAuthConfigIds(env: NodeJS.ProcessEnv): Partial<Record<ConnectorId, string>> {
+  return {
+    ...withOptionalConnectorAuthConfigId("github", env.MONET_COMPOSIO_GITHUB_AUTH_CONFIG_ID),
+    ...withOptionalConnectorAuthConfigId("notion", env.MONET_COMPOSIO_NOTION_AUTH_CONFIG_ID),
+    ...withOptionalConnectorAuthConfigId("google_drive", env.MONET_COMPOSIO_GOOGLE_DRIVE_AUTH_CONFIG_ID)
+  };
+}
+
+function withOptionalConnectorAuthConfigId(connectorId: ConnectorId, value: string | undefined): Partial<Record<ConnectorId, string>> {
+  const parsed = parseOptionalString(value);
+  return parsed ? { [connectorId]: parsed } : {};
 }
 
 function parseConnectorProvider(value: string | undefined): ConnectorProviderType {

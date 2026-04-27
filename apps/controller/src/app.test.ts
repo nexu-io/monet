@@ -66,7 +66,8 @@ test("controller app keeps persisted authorized directories when env uses defaul
         composio: {
           apiKey: null,
           baseUrl: "https://backend.composio.dev",
-          timeoutMs: null
+          timeoutMs: null,
+          authConfigIds: {}
         }
       },
       databasePath: fixture.databasePath,

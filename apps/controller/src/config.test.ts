@@ -49,6 +49,9 @@ test("loads Composio connector provider config from controller environment only"
       MONET_COMPOSIO_API_KEY: " monet-composio-key ",
       MONET_COMPOSIO_BASE_URL: "https://api.example.test/composio/",
       MONET_COMPOSIO_TIMEOUT_MS: "2500",
+      MONET_COMPOSIO_GITHUB_AUTH_CONFIG_ID: " github-auth ",
+      MONET_COMPOSIO_NOTION_AUTH_CONFIG_ID: "notion-auth",
+      MONET_COMPOSIO_GOOGLE_DRIVE_AUTH_CONFIG_ID: "drive-auth",
       VITE_MONET_COMPOSIO_API_KEY: "renderer-key-must-not-be-read"
     })
   );
@@ -57,6 +60,11 @@ test("loads Composio connector provider config from controller environment only"
   assert.equal(config.connectorProvider.composio.apiKey, "monet-composio-key");
   assert.equal(config.connectorProvider.composio.baseUrl, "https://api.example.test/composio");
   assert.equal(config.connectorProvider.composio.timeoutMs, 2500);
+  assert.deepEqual(config.connectorProvider.composio.authConfigIds, {
+    github: "github-auth",
+    notion: "notion-auth",
+    google_drive: "drive-auth"
+  });
 });
 
 test("falls back to the standard Composio environment key and default base URL", () => {

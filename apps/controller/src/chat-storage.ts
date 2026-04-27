@@ -20,6 +20,7 @@ const KNOWN_UI_MESSAGE_PART_TYPES = new Set([
 ]);
 
 type ProviderType = "openai" | "openrouter";
+type PersistedConnectorConnectionStatus = "connected" | "expired" | "disconnected";
 
 interface CreateChatStorageOptions {
   readonly databasePath: string;
@@ -91,6 +92,33 @@ interface LocalAppSettingRow {
   readonly value: string;
   readonly created_at: string;
   readonly updated_at: string;
+}
+
+interface ConnectorConnectionRow {
+  readonly id: string;
+  readonly user_id: string;
+  readonly connector_id: string;
+  readonly provider: string;
+  readonly provider_connection_id: string | null;
+  readonly provider_metadata_json: string | null;
+  readonly account_label: string | null;
+  readonly status: PersistedConnectorConnectionStatus;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly last_connected_at: string | null;
+  readonly last_error: string | null;
+}
+
+interface ConnectorOAuthStateRow {
+  readonly id: string;
+  readonly state_hash: string;
+  readonly user_id: string;
+  readonly connector_id: string;
+  readonly provider: string;
+  readonly redirect_url: string | null;
+  readonly expires_at: string;
+  readonly consumed_at: string | null;
+  readonly created_at: string;
 }
 
 interface MessageRow {
@@ -231,6 +259,42 @@ export interface ProviderValidationResult {
   readonly availableModelCount: number;
 }
 
+export interface StoredConnectorConnection {
+  readonly id: string;
+  readonly userId: string;
+  readonly connectorId: string;
+  readonly provider: string;
+  readonly providerConnectionId: string | null;
+  readonly providerMetadataJson: string | null;
+  readonly accountLabel: string | null;
+  readonly status: PersistedConnectorConnectionStatus;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lastConnectedAt: string | null;
+  readonly lastError: string | null;
+}
+
+export interface CreateConnectorOAuthStateInput {
+  readonly stateHash: string;
+  readonly userId: string;
+  readonly connectorId: string;
+  readonly provider: string;
+  readonly redirectUrl?: string;
+  readonly expiresAt: string;
+}
+
+export interface StoredConnectorOAuthState {
+  readonly id: string;
+  readonly stateHash: string;
+  readonly userId: string;
+  readonly connectorId: string;
+  readonly provider: string;
+  readonly redirectUrl: string | null;
+  readonly expiresAt: string;
+  readonly consumedAt: string | null;
+  readonly createdAt: string;
+}
+
 export interface CreateProviderInput {
   readonly type: ProviderType;
   readonly displayName: string;
@@ -301,6 +365,8 @@ export class ChatStorageResolutionError extends Error {
 
 export interface ChatStorage {
   getMonetInstallId(): string;
+  getConnectorConnection(input: { userId: string; connectorId: string; provider: string }): StoredConnectorConnection | null;
+  createConnectorOAuthState(input: CreateConnectorOAuthStateInput): StoredConnectorOAuthState;
   listAuthorizedDirectories(): StoredAuthorizedDirectory[];
   replaceAuthorizedDirectories(paths: readonly string[]): StoredAuthorizedDirectory[];
   listSessions(): StoredSession[];
@@ -385,6 +451,45 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   return {
     getMonetInstallId() {
       return getMonetInstallId(connection);
+    },
+
+    getConnectorConnection(input) {
+      const row = connection
+        .prepare(
+          `SELECT id, user_id, connector_id, provider, provider_connection_id, provider_metadata_json, account_label,
+                  status, created_at, updated_at, last_connected_at, last_error
+           FROM connector_connections
+           WHERE user_id = ? AND connector_id = ? AND provider = ?
+           LIMIT 1`
+        )
+        .get(input.userId, input.connectorId, input.provider) as ConnectorConnectionRow | undefined;
+
+      return row ? mapConnectorConnectionRow(row) : null;
+    },
+
+    createConnectorOAuthState(input) {
+      const now = new Date().toISOString();
+      const stateId = createPrefixedId("cos");
+      const redirectUrl = input.redirectUrl?.trim() || null;
+
+      connection
+        .prepare(
+          `INSERT INTO connector_oauth_states (id, state_hash, user_id, connector_id, provider, redirect_url, expires_at, consumed_at, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+        )
+        .run(stateId, input.stateHash, input.userId, input.connectorId, input.provider, redirectUrl, input.expiresAt, now);
+
+      return {
+        id: stateId,
+        stateHash: input.stateHash,
+        userId: input.userId,
+        connectorId: input.connectorId,
+        provider: input.provider,
+        redirectUrl,
+        expiresAt: input.expiresAt,
+        consumedAt: null,
+        createdAt: now
+      };
     },
 
     listAuthorizedDirectories() {
@@ -2114,6 +2219,23 @@ function mapAuthorizedDirectoryRow(row: AuthorizedDirectoryRow): StoredAuthorize
     path: row.path,
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function mapConnectorConnectionRow(row: ConnectorConnectionRow): StoredConnectorConnection {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    connectorId: row.connector_id,
+    provider: row.provider,
+    providerConnectionId: row.provider_connection_id,
+    providerMetadataJson: row.provider_metadata_json,
+    accountLabel: row.account_label,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastConnectedAt: row.last_connected_at,
+    lastError: row.last_error
   };
 }
 
