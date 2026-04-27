@@ -60,6 +60,75 @@ test("openWorkspaceDirectory reports unsupported environments without native sid
   assert.equal(opened, false);
 });
 
+test("openWorkspaceDirectory reports missing session IDs without native side effects", async () => {
+  let fetched = false;
+  let created = false;
+  let opened = false;
+
+  const result = await openWorkspaceDirectoryForSession({
+    sessionId: "   ",
+    runtime: createRuntime(),
+    fetchImpl: (async () => {
+      fetched = true;
+      throw new Error("should not fetch");
+    }) as typeof fetch,
+    mkdirWorkspace: async () => {
+      created = true;
+    },
+    openPath: async () => {
+      opened = true;
+      return "";
+    }
+  });
+
+  assert.deepEqual(result, {
+    opened: false,
+    error: "Session ID is required."
+  });
+  assert.equal(fetched, false);
+  assert.equal(created, false);
+  assert.equal(opened, false);
+});
+
+test("openWorkspaceDirectory surfaces controller unsupported-platform errors with workspace details", async () => {
+  const workspacePath = path.join(tmpdir(), "monet-unsupported-platform-workspace");
+  let created = false;
+  let opened = false;
+
+  const result = await openWorkspaceDirectoryForSession({
+    sessionId: "ses_unsupported_platform",
+    runtime: createRuntime(),
+    fetchImpl: (async () =>
+      new Response(
+        JSON.stringify({
+          error: "Opening workspace folders is not supported on this desktop platform.",
+          workspacePath
+        }),
+        {
+          status: 501,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      )) as typeof fetch,
+    mkdirWorkspace: async () => {
+      created = true;
+    },
+    openPath: async () => {
+      opened = true;
+      return "";
+    }
+  });
+
+  assert.deepEqual(result, {
+    opened: false,
+    path: workspacePath,
+    error: "Opening workspace folders is not supported on this desktop platform."
+  });
+  assert.equal(created, false);
+  assert.equal(opened, false);
+});
+
 test("openWorkspaceDirectory creates missing directories before opening them", async () => {
   const fixtureDir = mkdtempSync(path.join(tmpdir(), "monet-open-workspace-tests-"));
   const workspacePath = path.join(fixtureDir, "session-workspace");
@@ -173,6 +242,35 @@ test("openWorkspaceDirectory propagates native open failures with workspace deta
       errorDetails: {
         workspacePath,
         nativeOpenFailureReason: "Finder permission denied"
+      }
+    });
+    assert.equal(existsSync(workspacePath), true);
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
+test("openWorkspaceDirectory propagates generic non-macOS native open failures with clear details", async () => {
+  const fixtureDir = mkdtempSync(path.join(tmpdir(), "monet-open-workspace-tests-"));
+  const workspacePath = path.join(fixtureDir, "session-workspace");
+  const nativeOpenFailureReason = "No file manager is available to open this folder";
+
+  try {
+    const result = await openWorkspaceDirectoryForSession({
+      sessionId: "ses_non_macos_open_failure",
+      runtime: createRuntime(),
+      fetchImpl: workspaceFetch(workspacePath),
+      mkdirWorkspace: mkdir,
+      openPath: async () => nativeOpenFailureReason
+    });
+
+    assert.deepEqual(result, {
+      opened: false,
+      path: workspacePath,
+      error: `Could not open the workspace folder: ${nativeOpenFailureReason}`,
+      errorDetails: {
+        workspacePath,
+        nativeOpenFailureReason
       }
     });
     assert.equal(existsSync(workspacePath), true);
