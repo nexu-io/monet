@@ -445,6 +445,84 @@ test("write_file rejects symlink escapes outside authorized directories", async 
   }
 });
 
+test("file tools canonicalize symlinked workspace and authorized directory roots", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const workspaceLink = join(fixture.fixtureDir, "workspace-link");
+    const authorizedDir = join(fixture.fixtureDir, "authorized");
+    const authorizedLink = join(fixture.fixtureDir, "authorized-link");
+    mkdirSync(authorizedDir, { recursive: true });
+    symlinkSync(fixture.workspaceDir, workspaceLink, "dir");
+    symlinkSync(authorizedDir, authorizedLink, "dir");
+    writeFileSync(join(fixture.workspaceDir, "workspace-input.txt"), "from workspace", "utf8");
+    writeFileSync(join(authorizedDir, "authorized-input.txt"), "from authorized", "utf8");
+
+    const runtimeTools = createRuntimeTools(workspaceLink, fixture.storage, {
+      allowedDirectories: [authorizedLink]
+    });
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+    const realWorkspaceDir = realpathSync(fixture.workspaceDir);
+    const realAuthorizedDir = realpathSync(authorizedDir);
+
+    const workspaceReadResult = (await readFileTool.execute(
+      { path: "workspace-input.txt" },
+      createExecutionContext()
+    )) as { path: string; content: string };
+    assert.equal(workspaceReadResult.content, "from workspace");
+    assert.equal(workspaceReadResult.path, join(realWorkspaceDir, "workspace-input.txt"));
+
+    const authorizedReadResult = (await readFileTool.execute(
+      { path: join(authorizedLink, "authorized-input.txt") },
+      createExecutionContext()
+    )) as { path: string; content: string };
+    assert.equal(authorizedReadResult.content, "from authorized");
+    assert.equal(authorizedReadResult.path, join(realAuthorizedDir, "authorized-input.txt"));
+
+    const writeResult = (await writeFileTool.execute(
+      {
+        path: "nested/generated.txt",
+        content: "from symlinked workspace"
+      },
+      createExecutionContext()
+    )) as { path: string; bytesWritten: number };
+    assert.equal(writeResult.path, join(realWorkspaceDir, "nested", "generated.txt"));
+    assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "generated.txt"), "utf8"), "from symlinked workspace");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("write_file canonicalizes non-existing targets through nearest existing parent", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const outsideDir = join(fixture.fixtureDir, "outside");
+    const symlinkPath = join(fixture.workspaceDir, "linked-outside");
+    mkdirSync(outsideDir, { recursive: true });
+    symlinkSync(outsideDir, symlinkPath, "dir");
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const writeFileTool = runtimeTools.write_file!;
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: "linked-outside/new/deep/file.txt",
+          content: "blocked"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+
+    assert.throws(() => readFileSync(join(outsideDir, "new", "deep", "file.txt"), "utf8"), /ENOENT/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("fetch_url fetches HTTPS text responses", async () => {
   const fixture = createTestFixture();
   const dnsLookup: DnsLookupStub = async () => [{ address: "93.184.216.34", family: 4 }];
