@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { REDACTED_TOOL_CALL_SECRET, isSensitiveToolCallKey, redactSensitiveToolCallText } from "../tool-call-redaction";
 
 export const LIVE_ARTIFACT_SCHEMA_VERSION = 1;
 
@@ -146,6 +147,99 @@ export const LiveArtifactJsonValueSchema = jsonValueSchema.superRefine((value, c
 
 const jsonObjectSchema = z.record(LiveArtifactJsonValueSchema);
 
+const rawProviderResponseKeyPattern = /^(?:raw|rawData|rawResponse|response|result|results|payload|body|headers|cookies?)$/i;
+const broadPersonalDataKeyPattern =
+  /(?:emails?|messages?|threads?|contacts?|people|users?|customers?|members?|recipients?|participants?|profile|body|content|transcript)/i;
+const stableRepeatableQueryKeyPattern =
+  /(?:^|_)(?:id|ids|url|uri|slug|key|name|query|q|search|filter|filters|where|sort|order|limit|offset|page|cursor|after|before|since|until|from|to|start|end|date|time|status|state|type|kind|category|label|tag|tags|workspace|project|repo|repository|owner|path|folder|calendar|channel|sheet|table)(?:_|$)/i;
+
+function sanitizeLiveArtifactSourceInputValue(
+  value: LiveArtifactJsonValue,
+  path: Array<string | number>,
+  ctx: z.RefinementCtx
+): LiveArtifactJsonValue {
+  if (typeof value === "string") {
+    const redacted = redactSensitiveToolCallText(value.trim());
+    if (redacted.includes(REDACTED_TOOL_CALL_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path,
+        message: "Tile source input must not contain credentials or tokens"
+      });
+    }
+    return redacted;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item, index) => sanitizeLiveArtifactSourceInputValue(item, [...path, index], ctx));
+  }
+
+  if (value !== null && typeof value === "object") {
+    return sanitizeLiveArtifactSourceInputObject(value, path, ctx);
+  }
+
+  return value;
+}
+
+function sanitizeLiveArtifactSourceInputObject(
+  value: Record<string, LiveArtifactJsonValue>,
+  path: Array<string | number>,
+  ctx: z.RefinementCtx
+): Record<string, LiveArtifactJsonValue> {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => {
+      const childPath = [...path, key];
+      const normalizedKey = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+      if (
+        isSensitiveToolCallKey(key) ||
+        /(?:password|passwd|secret|token|credential|session|cookie|privatekey)/i.test(normalizedKey)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: childPath,
+          message: "Tile source input must not contain credential or token fields"
+        });
+      }
+
+      if (rawProviderResponseKeyPattern.test(key) && (entry === null || typeof entry === "object")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: childPath,
+          message: "Tile source input must not persist raw provider responses"
+        });
+      }
+
+      if (broadPersonalDataKeyPattern.test(key) && !stableRepeatableQueryKeyPattern.test(key)) {
+        const isBroadValue =
+          Array.isArray(entry) ||
+          (entry !== null && typeof entry === "object") ||
+          (typeof entry === "string" && entry.trim().length > 500);
+        if (isBroadValue) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: childPath,
+            message: "Tile source input must minimize broad personal data to stable query identifiers or filters"
+          });
+        }
+      }
+
+      return [key.trim(), sanitizeLiveArtifactSourceInputValue(entry, childPath, ctx)];
+    })
+  );
+}
+
+const liveArtifactSourceInputSchema = jsonObjectSchema
+  .transform((value, ctx) => sanitizeLiveArtifactSourceInputObject(value, [], ctx))
+  .superRefine((value, ctx) => {
+    if (getJsonByteLength(value) > LIVE_ARTIFACT_LIMITS.sourceInputBytes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Tile source input exceeds max size of ${LIVE_ARTIFACT_LIMITS.sourceInputBytes} bytes`
+      });
+    }
+  });
+
 function getJsonByteLength(value: unknown): number {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
@@ -234,7 +328,7 @@ export const LiveArtifactTileSourceSchema = z
   .object({
     type: LiveArtifactTileSourceTypeSchema,
     toolName: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.toolName),
-    input: jsonObjectSchema,
+    input: liveArtifactSourceInputSchema,
     connector: LiveArtifactTileConnectorSourceSchema.optional(),
     refreshPermission: LiveArtifactRefreshPermissionSchema,
     outputMapping: z.object({
@@ -247,6 +341,12 @@ export const LiveArtifactTileSourceSchema = z
         code: z.ZodIssueCode.custom,
         path: ["connector"],
         message: "connector_tool sources require connector metadata"
+      });
+    }
+    if (getJsonByteLength(value) > LIVE_ARTIFACT_LIMITS.sourceJsonBytes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Tile source JSON exceeds max size of ${LIVE_ARTIFACT_LIMITS.sourceJsonBytes} bytes`
       });
     }
   });
