@@ -44,6 +44,9 @@ test("connectors endpoint returns connector catalog with status", async () => {
     },
     startConnection() {
       throw new Error("not used in connectors route test");
+    },
+    completeConnection() {
+      throw new Error("not used in connectors route test");
     }
   };
 
@@ -147,6 +150,9 @@ test("connector detail endpoint returns connector status, tools, and approval po
     },
     startConnection() {
       throw new Error("not used in connector detail route test");
+    },
+    completeConnection() {
+      throw new Error("not used in connector detail route test");
     }
   };
 
@@ -185,6 +191,9 @@ test("connector detail endpoint returns normalized connector errors", async () =
       throw new Error("not used in connector detail error route test");
     },
     startConnection() {
+      throw new Error("not used in connector detail error route test");
+    },
+    completeConnection() {
       throw new Error("not used in connector detail error route test");
     }
   };
@@ -239,6 +248,9 @@ test("connector connect endpoint starts connection flow for Monet install", asyn
         redirectUrl: "https://provider.example/oauth/start",
         expiresAt: "2026-04-27T10:05:00.000Z"
       };
+    },
+    completeConnection() {
+      throw new Error("not used in connector connect route test");
     }
   };
 
@@ -279,9 +291,36 @@ test("connector OAuth callback validates state before redirecting back to connec
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
   const monetInstallId = "monet-install-id-callback";
   const state = "oauth-state-secret";
+  const persistedConnections: unknown[] = [];
 
   registerConnectorRoutes(app, {
-    connectorService: createUnusedConnectorService(),
+    connectorService: {
+      ...createUnusedConnectorService(),
+      async completeConnection(input) {
+        assert.equal(input.userId, monetInstallId);
+        assert.equal(input.connectorId, "github");
+        assert.equal(input.providerConnectionId, "conn_123");
+
+        return {
+          connectorId: "github",
+          state: "connected",
+          connected: true,
+          providerConnectionId: "conn_123",
+          account: {
+            accountLabel: "Octocat",
+            providerConnectionId: "conn_123"
+          },
+          persistence: {
+            status: "connected",
+            providerConnectionId: "conn_123",
+            providerMetadataJson: JSON.stringify({ providerStatus: "ACTIVE", accountId: "acct_123" }),
+            accountLabel: "Octocat",
+            lastConnectedAt: "2026-04-27T10:00:00.000Z",
+            lastError: null
+          }
+        };
+      }
+    },
     getChatStorage: () =>
       ({
         getMonetInstallId() {
@@ -303,17 +342,34 @@ test("connector OAuth callback validates state before redirecting back to connec
             consumedAt: null,
             createdAt: new Date().toISOString()
           };
+        },
+        completeConnectorOAuthConnection(input: unknown) {
+          persistedConnections.push(input);
         }
       }) as never
   });
 
-  const response = await app.request(`http://127.0.0.1:42831/connectors/oauth/callback/github?state=${state}&code=secret-code`, {
+  const response = await app.request(`http://127.0.0.1:42831/connectors/oauth/callback/github?state=${state}&connected_account_id=conn_123`, {
     method: "GET",
     redirect: "manual"
   });
 
   assert.equal(response.status, 302);
-  assert.equal(response.headers.get("location"), "/connectors?connector_oauth=pending&connector_id=github");
+  assert.equal(response.headers.get("location"), "/connectors?connector_oauth=connected&connector_id=github");
+  assert.deepEqual(persistedConnections, [
+    {
+      oauthStateId: "cos_123",
+      userId: monetInstallId,
+      connectorId: "github",
+      provider: "composio",
+      providerConnectionId: "conn_123",
+      providerMetadataJson: JSON.stringify({ providerStatus: "ACTIVE", accountId: "acct_123" }),
+      accountLabel: "Octocat",
+      status: "connected",
+      lastConnectedAt: "2026-04-27T10:00:00.000Z",
+      lastError: null
+    }
+  ]);
 
   const replayResponse = await app.request("http://127.0.0.1:42831/connectors/oauth/callback/github?state=wrong-state", {
     method: "GET",
@@ -336,6 +392,9 @@ function createUnusedConnectorService(): ConnectorService {
       throw new Error("not used in connector OAuth callback route test");
     },
     startConnection() {
+      throw new Error("not used in connector OAuth callback route test");
+    },
+    completeConnection() {
       throw new Error("not used in connector OAuth callback route test");
     }
   };

@@ -224,12 +224,13 @@ export function registerConnectorRoutes(
   app: ControllerApp,
   options: { connectorService: ConnectorService; getChatStorage: () => ChatStorage }
 ) {
-  app.get("/connectors/oauth/callback/:connectorId", (context) => {
+  app.get("/connectors/oauth/callback/:connectorId", async (context) => {
     const storage = options.getChatStorage();
     const connectorId = context.req.param("connectorId");
     const state = context.req.query("state");
+    const providerConnectionId = getProviderConnectionIdFromCallback(context);
 
-    if (!state || state.length > 512 || !getConnectorCatalogItem(connectorId)) {
+    if (!state || state.length > 512 || !providerConnectionId || providerConnectionId.length > 512 || !getConnectorCatalogItem(connectorId)) {
       return redirectToConnectors(context, "error");
     }
 
@@ -246,7 +247,33 @@ export function registerConnectorRoutes(
       return redirectToConnectors(context, "error");
     }
 
-    return redirectToConnectors(context, "pending", connectorId);
+    try {
+      const callbackStatus = getCallbackCompletionStatus(context);
+      const reconciledConnection = await options.connectorService.completeConnection({
+        userId: oauthState.userId,
+        connectorId,
+        providerConnectionId,
+        ...(callbackStatus ? { callbackStatus } : {}),
+        abortSignal: context.req.raw.signal
+      });
+
+      storage.completeConnectorOAuthConnection({
+        oauthStateId: oauthState.id,
+        userId: oauthState.userId,
+        connectorId: oauthState.connectorId,
+        provider: oauthState.provider,
+        providerConnectionId: reconciledConnection.persistence.providerConnectionId,
+        providerMetadataJson: reconciledConnection.persistence.providerMetadataJson,
+        accountLabel: reconciledConnection.persistence.accountLabel,
+        status: reconciledConnection.persistence.status,
+        lastConnectedAt: reconciledConnection.persistence.lastConnectedAt,
+        lastError: reconciledConnection.persistence.lastError
+      });
+
+      return redirectToConnectors(context, reconciledConnection.connected ? "connected" : "pending", connectorId);
+    } catch {
+      return redirectToConnectors(context, "error", connectorId);
+    }
   });
 
   app.openapi(listConnectorsRoute, async (context) => {
@@ -355,7 +382,23 @@ function createDefaultOAuthCallbackUrl(requestUrl: string, connectorId: string):
   return `http://127.0.0.1:${port}/connectors/oauth/callback/${encodeURIComponent(connectorId)}`;
 }
 
-function redirectToConnectors(context: Context, status: "pending" | "error", connectorId?: string) {
+function getProviderConnectionIdFromCallback(context: Context): string | null {
+  for (const key of ["providerConnectionId", "connectedAccountId", "connected_account_id", "connectionId", "connection_id", "account_id", "id"]) {
+    const value = context.req.query(key)?.trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function getCallbackCompletionStatus(context: Context): string | undefined {
+  return context.req.query("callbackStatus")?.trim() || context.req.query("callback_status")?.trim() || undefined;
+}
+
+function redirectToConnectors(context: Context, status: "connected" | "pending" | "error", connectorId?: string) {
   const target = connectorId
     ? `/connectors?connector_oauth=${status}&connector_id=${encodeURIComponent(connectorId)}`
     : `/connectors?connector_oauth=${status}`;

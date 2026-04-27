@@ -283,6 +283,19 @@ export interface CreateConnectorOAuthStateInput {
   readonly expiresAt: string;
 }
 
+export interface CompleteConnectorOAuthConnectionInput {
+  readonly oauthStateId: string;
+  readonly userId: string;
+  readonly connectorId: string;
+  readonly provider: string;
+  readonly providerConnectionId: string;
+  readonly providerMetadataJson: string | null;
+  readonly accountLabel: string | null;
+  readonly status: PersistedConnectorConnectionStatus;
+  readonly lastConnectedAt: string | null;
+  readonly lastError: string | null;
+}
+
 export interface StoredConnectorOAuthState {
   readonly id: string;
   readonly stateHash: string;
@@ -368,6 +381,7 @@ export interface ChatStorage {
   getConnectorConnection(input: { userId: string; connectorId: string; provider: string }): StoredConnectorConnection | null;
   createConnectorOAuthState(input: CreateConnectorOAuthStateInput): StoredConnectorOAuthState;
   getConnectorOAuthStateByHash(stateHash: string): StoredConnectorOAuthState | null;
+  completeConnectorOAuthConnection(input: CompleteConnectorOAuthConnectionInput): StoredConnectorConnection;
   listAuthorizedDirectories(): StoredAuthorizedDirectory[];
   replaceAuthorizedDirectories(paths: readonly string[]): StoredAuthorizedDirectory[];
   listSessions(): StoredSession[];
@@ -504,6 +518,91 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .get(stateHash) as ConnectorOAuthStateRow | undefined;
 
       return row ? mapConnectorOAuthStateRow(row) : null;
+    },
+
+    completeConnectorOAuthConnection(input) {
+      const now = new Date().toISOString();
+      const connectionId = createPrefixedId("cco");
+
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const consumedResult = connection
+          .prepare(
+            `UPDATE connector_oauth_states
+             SET consumed_at = ?
+             WHERE id = ?
+               AND user_id = ?
+               AND connector_id = ?
+               AND provider = ?
+               AND consumed_at IS NULL
+               AND expires_at > ?`
+          )
+          .run(now, input.oauthStateId, input.userId, input.connectorId, input.provider, now) as { changes: number };
+
+        if (consumedResult.changes !== 1) {
+          throw new ChatStorageResolutionError({
+            message: "Connector OAuth state is invalid, expired, or already consumed.",
+            statusCode: 409,
+            errorCode: "connector_oauth_state_invalid"
+          });
+        }
+
+        connection
+          .prepare(
+            `INSERT INTO connector_connections (
+               id, user_id, connector_id, provider, provider_connection_id, provider_metadata_json,
+               account_label, status, created_at, updated_at, last_connected_at, last_error
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(user_id, connector_id, provider) DO UPDATE SET
+               provider_connection_id = excluded.provider_connection_id,
+               provider_metadata_json = excluded.provider_metadata_json,
+               account_label = excluded.account_label,
+               status = excluded.status,
+               updated_at = excluded.updated_at,
+               last_connected_at = excluded.last_connected_at,
+               last_error = excluded.last_error`
+          )
+          .run(
+            connectionId,
+            input.userId,
+            input.connectorId,
+            input.provider,
+            input.providerConnectionId,
+            input.providerMetadataJson,
+            input.accountLabel,
+            input.status,
+            now,
+            now,
+            input.lastConnectedAt,
+            input.lastError
+          );
+
+        const row = connection
+          .prepare(
+            `SELECT id, user_id, connector_id, provider, provider_connection_id, provider_metadata_json, account_label,
+                    status, created_at, updated_at, last_connected_at, last_error
+             FROM connector_connections
+             WHERE user_id = ? AND connector_id = ? AND provider = ?
+             LIMIT 1`
+          )
+          .get(input.userId, input.connectorId, input.provider) as ConnectorConnectionRow | undefined;
+
+        if (!row) {
+          throw new ChatStorageResolutionError({
+            message: "Connector connection was not persisted.",
+            statusCode: 500,
+            errorCode: "connector_connection_not_persisted"
+          });
+        }
+
+        connection.exec("COMMIT");
+        return mapConnectorConnectionRow(row);
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
     },
 
     listAuthorizedDirectories() {
