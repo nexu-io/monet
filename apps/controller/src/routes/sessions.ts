@@ -386,8 +386,18 @@ export function registerSessionRoutes(
   });
 
   app.openapi(getSessionDetailRoute, (context) => {
+    const sessionId = context.req.valid("param").sessionId;
+
     try {
-      return context.json(options.getChatStorage().getSessionDetail(context.req.valid("param").sessionId), 200);
+      const sessionDetail = options.getChatStorage().getSessionDetail(sessionId);
+
+      return context.json(
+        {
+          ...sessionDetail,
+          workspacePath: options.sessionWorkspaceService.getWorkspacePath(sessionId)
+        },
+        200
+      );
     } catch (error) {
       const response = createSessionLookupErrorResponse(error);
 

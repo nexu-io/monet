@@ -227,6 +227,13 @@
           {
             "type": "object",
             "properties": {
+              "workspacePath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "example": "/Users/example/Library/Application Support/Monet/session-workspaces/ses_abc123/workspace"
+              },
               "messages": {
                 "type": "array",
                 "items": {
@@ -235,6 +242,7 @@
               }
             },
             "required": [
+              "workspacePath",
               "messages"
             ]
           }

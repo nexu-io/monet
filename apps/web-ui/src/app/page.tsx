@@ -300,7 +300,9 @@ function SessionChatSurface({
       header={(
         <ConversationHeader
           sessionTitle={session.title}
+          sessionId={session.id}
           messageCount={messages.length}
+          workspacePath={session.workspacePath}
           activeTarget={activeProviderTarget}
           isTargetOverridden={overrideProviderTarget !== null}
           onChangeTarget={handleChangeProviderTarget}

@@ -45,6 +45,9 @@ export const SessionMessageSchema = z
   .openapi("SessionMessage");
 
 export const SessionDetailSchema = SessionSchema.extend({
+  workspacePath: z.string().nullable().openapi({
+    example: "/Users/example/Library/Application Support/Monet/session-workspaces/ses_abc123/workspace"
+  }),
   messages: z.array(SessionMessageSchema)
 }).openapi("SessionDetail");
 

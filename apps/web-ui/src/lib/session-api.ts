@@ -24,6 +24,7 @@ export interface SessionMessageRecord {
 }
 
 export interface SessionDetailRecord extends SessionRecord {
+  readonly workspacePath: string | null;
   readonly messages: SessionMessageRecord[];
 }
 
