@@ -70,6 +70,29 @@ export interface ConnectorCreateConnectionInput extends ConnectorConnectionInput
   readonly state: string;
 }
 
+export interface ConnectorCompleteConnectionInput extends ConnectorConnectionInput {
+  readonly providerConnectionId: string;
+  readonly callbackStatus?: string;
+}
+
+export interface ConnectorReconciledConnection {
+  readonly connectorId: ConnectorId;
+  readonly state: ConnectorConnectionState;
+  readonly connected: boolean;
+  readonly providerConnectionId: string;
+  readonly account?: ConnectorAccountMetadata;
+  readonly persistence: {
+    readonly status: "connected" | "expired" | "disconnected";
+    readonly providerConnectionId: string;
+    readonly providerMetadataJson: string | null;
+    readonly accountLabel: string | null;
+    readonly lastConnectedAt: string | null;
+    readonly lastError: string | null;
+  };
+  readonly lastErrorCode?: ConnectorProviderErrorCode;
+  readonly lastErrorMessage?: string;
+}
+
 export interface ConnectorListToolsInput extends ConnectorUserInput {
   readonly connectorId?: ConnectorId;
 }
@@ -85,6 +108,7 @@ export interface ConnectorProvider {
   listConnectors(): Promise<readonly ConnectorCatalogItem[]>;
   getConnectionStatus(input: ConnectorConnectionInput): Promise<ConnectorConnectionStatus>;
   connect(input: ConnectorCreateConnectionInput): Promise<ConnectorConnectionStart>;
+  completeConnection(input: ConnectorCompleteConnectionInput): Promise<ConnectorReconciledConnection>;
   disconnect(input: ConnectorConnectionInput): Promise<void>;
   listTools(input: ConnectorListToolsInput): Promise<readonly ConnectorToolDefinition[]>;
   executeTool(input: ConnectorExecuteToolInput): Promise<ConnectorToolResult>;

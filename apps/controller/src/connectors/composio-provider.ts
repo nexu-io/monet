@@ -5,6 +5,7 @@ import type { ComposioProviderConfig } from "../config";
 import { getConnectorCatalogItem, listConnectorCatalog, type ConnectorCatalogItem, type ConnectorId } from "./catalog";
 import { createConnectorProviderError, normalizeConnectorProviderError, type ConnectorProviderErrorCode } from "./errors";
 import type {
+  ConnectorCompleteConnectionInput,
   ConnectorConnectionInput,
   ConnectorConnectionStart,
   ConnectorConnectionStatus,
@@ -12,6 +13,7 @@ import type {
   ConnectorExecuteToolInput,
   ConnectorListToolsInput,
   ConnectorProvider,
+  ConnectorReconciledConnection,
   ConnectorToolDefinition,
   ConnectorToolResult
 } from "./provider";
@@ -30,6 +32,15 @@ interface ComposioConnectedAccountResponse {
   readonly redirectUrl?: unknown;
   readonly callback_url?: unknown;
   readonly user_id?: unknown;
+  readonly userId?: unknown;
+  readonly account_id?: unknown;
+  readonly accountId?: unknown;
+  readonly account_label?: unknown;
+  readonly accountLabel?: unknown;
+  readonly name?: unknown;
+  readonly email?: unknown;
+  readonly status_reason?: unknown;
+  readonly statusReason?: unknown;
   readonly toolkit?: {
     readonly slug?: unknown;
   };
@@ -37,6 +48,7 @@ interface ComposioConnectedAccountResponse {
     readonly id?: unknown;
   };
   readonly data?: unknown;
+  readonly metadata?: unknown;
 }
 
 export interface ComposioConnectorProviderOptions {
@@ -173,6 +185,39 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     };
   }
 
+  async completeConnection(input: ConnectorCompleteConnectionInput): Promise<ConnectorReconciledConnection> {
+    const catalogItem = getConnectorCatalogItem(input.connectorId);
+
+    if (!catalogItem) {
+      throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
+    }
+
+    const authConfigId = this.authConfigIds[input.connectorId];
+
+    if (!this.apiKey || !authConfigId) {
+      throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
+    }
+
+    if (input.callbackStatus && input.callbackStatus.toLowerCase() !== "success") {
+      throw createConnectorProviderError("provider_error", { message: "Connector provider did not complete OAuth successfully." });
+    }
+
+    const providerConnection = await this.requestConnectedAccount(input.providerConnectionId, input.abortSignal);
+    const providerConnectionId = getComposioConnectionId(providerConnection) ?? input.providerConnectionId;
+    const providerUserId = getString(providerConnection.user_id) ?? getString(providerConnection.userId);
+    const providerAuthConfigId = getString(providerConnection.auth_config?.id);
+
+    if (providerUserId && providerUserId !== input.userId) {
+      throw createConnectorProviderError("forbidden", { message: "Connector account belongs to a different user." });
+    }
+
+    if (providerAuthConfigId && providerAuthConfigId !== authConfigId) {
+      throw createConnectorProviderError("forbidden", { message: "Connector account belongs to a different auth configuration." });
+    }
+
+    return mapComposioReconciledConnection(input.connectorId, providerConnectionId, providerConnection);
+  }
+
   async disconnect(_input: ConnectorConnectionInput): Promise<void> {
     throw createConnectorProviderError("provider_error", { message: "Composio connector disconnect is not implemented yet." });
   }
@@ -298,6 +343,80 @@ function mapComposioConnectionStatus(
   };
 }
 
+function mapComposioReconciledConnection(
+  connectorId: ConnectorId,
+  providerConnectionId: string,
+  providerConnection: ComposioConnectedAccountResponse
+): ConnectorReconciledConnection {
+  const providerStatus = getString(providerConnection.status)?.toUpperCase();
+  const accountId = getComposioAccountId(providerConnection);
+  const accountLabel = getComposioAccountLabel(providerConnection);
+  const providerConnectorId = getString(providerConnection.toolkit?.slug);
+  const authConfigId = getString(providerConnection.auth_config?.id);
+  const now = new Date().toISOString();
+  const providerMetadataJson = JSON.stringify({
+    providerStatus: providerStatus ?? "UNKNOWN",
+    ...(accountId ? { accountId } : {}),
+    ...(providerConnectorId ? { providerConnectorId } : {}),
+    ...(authConfigId ? { authConfigId } : {})
+  });
+
+  if (providerStatus === "ACTIVE") {
+    return {
+      connectorId,
+      state: "connected",
+      connected: true,
+      providerConnectionId,
+      account: {
+        ...(accountLabel ? { accountLabel } : {}),
+        ...(accountId ? { accountId } : {}),
+        providerConnectionId,
+        ...(providerConnectorId ? { providerConnectorId } : {}),
+        connectedAt: now,
+        updatedAt: now
+      },
+      persistence: {
+        status: "connected",
+        providerConnectionId,
+        providerMetadataJson,
+        accountLabel: accountLabel ?? null,
+        lastConnectedAt: now,
+        lastError: null
+      }
+    };
+  }
+
+  const expired = providerStatus === "EXPIRED" || providerStatus === "FAILED" || providerStatus === "DISABLED" || providerStatus === "INACTIVE";
+  const lastErrorCode: ConnectorProviderErrorCode = expired ? "connection_expired" : "provider_error";
+  const lastErrorMessage = expired
+    ? "Connector account credentials have expired. Reconnect to continue."
+    : "Connector account authorization has not completed yet.";
+
+  return {
+    connectorId,
+    state: expired ? "expired" : "not_connected",
+    connected: false,
+    providerConnectionId,
+    account: {
+      ...(accountLabel ? { accountLabel } : {}),
+      ...(accountId ? { accountId } : {}),
+      providerConnectionId,
+      ...(providerConnectorId ? { providerConnectorId } : {}),
+      updatedAt: now
+    },
+    persistence: {
+      status: expired ? "expired" : "disconnected",
+      providerConnectionId,
+      providerMetadataJson,
+      accountLabel: accountLabel ?? null,
+      lastConnectedAt: null,
+      lastError: JSON.stringify({ code: lastErrorCode, message: lastErrorMessage })
+    },
+    lastErrorCode,
+    lastErrorMessage
+  };
+}
+
 function parseProviderMetadata(value: string | null): Record<string, unknown> {
   if (!value) {
     return {};
@@ -337,6 +456,44 @@ function parseLastError(value: string | null): { code?: ConnectorConnectionStatu
 
 function getComposioConnectionId(response: ComposioConnectedAccountResponse): string | undefined {
   return getString(response.id) ?? getString(response.nanoid);
+}
+
+function getComposioAccountId(response: ComposioConnectedAccountResponse): string | undefined {
+  const data = getRecord(response.data);
+  const metadata = getRecord(response.metadata);
+
+  return (
+    getString(response.account_id) ??
+    getString(response.accountId) ??
+    getString(data?.account_id) ??
+    getString(data?.accountId) ??
+    getString(metadata?.account_id) ??
+    getString(metadata?.accountId)
+  );
+}
+
+function getComposioAccountLabel(response: ComposioConnectedAccountResponse): string | undefined {
+  const data = getRecord(response.data);
+  const metadata = getRecord(response.metadata);
+
+  return (
+    getString(response.account_label) ??
+    getString(response.accountLabel) ??
+    getString(response.email) ??
+    getString(response.name) ??
+    getString(data?.account_label) ??
+    getString(data?.accountLabel) ??
+    getString(data?.email) ??
+    getString(data?.name) ??
+    getString(metadata?.account_label) ??
+    getString(metadata?.accountLabel) ??
+    getString(metadata?.email) ??
+    getString(metadata?.name)
+  );
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function getString(value: unknown): string | undefined {
