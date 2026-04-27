@@ -282,6 +282,8 @@ test("continue endpoint rejects requests without messages", async () => {
 
 test("continue endpoint rejects runs that have exhausted their max-step budget", async () => {
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  let interruptCalled = false;
+  let interruptRunPayload: { runId: string; finishReason: string } | undefined;
   let persistCalled = false;
   let resumeCalled = false;
 
@@ -317,6 +319,11 @@ test("continue endpoint rejects runs that have exhausted their max-step budget",
         },
         resumeRun() {
           resumeCalled = true;
+        },
+        interruptRun(options: { runId: string; finishReason: string }) {
+          interruptCalled = true;
+          interruptRunPayload = options;
+          return "interrupted";
         }
       }) as unknown as ChatStorage
   });
@@ -345,6 +352,11 @@ test("continue endpoint rejects runs that have exhausted their max-step budget",
   assert.deepEqual(await response.json(), {
     error: "invalid_state",
     message: "Run has exhausted its max-step budget."
+  });
+  assert.equal(interruptCalled, true);
+  assert.deepEqual(interruptRunPayload, {
+    runId: "run_pending",
+    finishReason: "max_step_budget_exceeded"
   });
   assert.equal(persistCalled, false);
   assert.equal(resumeCalled, false);

@@ -142,6 +142,11 @@ export function registerRunRoutes(
       const remainingSteps = run.maxSteps - Math.max(0, run.currentStep);
 
       if (remainingSteps <= 0) {
+        options.getChatStorage().interruptRun({
+          runId,
+          finishReason: "max_step_budget_exceeded"
+        });
+
         return context.json(createErrorResponse("invalid_state", "Run has exhausted its max-step budget."), 409);
       }
 
