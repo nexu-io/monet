@@ -848,6 +848,148 @@
         "required": [
           "connectors"
         ]
+      },
+      "ConnectorAccountMetadata": {
+        "type": "object",
+        "properties": {
+          "accountLabel": {
+            "type": "string",
+            "example": "octocat"
+          },
+          "accountId": {
+            "type": "string",
+            "example": "123456"
+          },
+          "providerConnectionId": {
+            "type": "string",
+            "example": "conn_123"
+          },
+          "providerConnectorId": {
+            "type": "string",
+            "example": "GITHUB"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-27T10:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-27T10:05:00.000Z"
+          }
+        }
+      },
+      "ConnectorServiceConnection": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorStatus"
+              },
+              {
+                "example": "connected"
+              }
+            ]
+          },
+          "connected": {
+            "type": "boolean",
+            "example": true
+          },
+          "connectedAccountLabel": {
+            "type": "string",
+            "example": "octocat"
+          },
+          "account": {
+            "$ref": "#/components/schemas/ConnectorAccountMetadata"
+          },
+          "lastErrorCode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorProviderErrorCode"
+              },
+              {
+                "example": "connection_expired"
+              }
+            ]
+          },
+          "lastErrorMessage": {
+            "type": "string",
+            "example": "Connector account credentials have expired."
+          }
+        },
+        "required": [
+          "status",
+          "connected"
+        ]
+      },
+      "ConnectorAllowedTool": {
+        "type": "object",
+        "properties": {
+          "providerToolId": {
+            "type": "string",
+            "example": "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Search issues and pull requests"
+          },
+          "summary": {
+            "type": "string",
+            "example": "Search issues and pull requests across accessible repositories."
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ConnectorToolPolicy"
+          }
+        },
+        "required": [
+          "providerToolId",
+          "displayName",
+          "summary",
+          "policy"
+        ]
+      },
+      "ConnectorDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ConnectorCatalogCard"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "providerConnectorId": {
+                "type": "string",
+                "example": "GITHUB"
+              },
+              "connection": {
+                "$ref": "#/components/schemas/ConnectorServiceConnection"
+              },
+              "allowedTools": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ConnectorAllowedTool"
+                }
+              }
+            },
+            "required": [
+              "providerConnectorId",
+              "connection",
+              "allowedTools"
+            ]
+          }
+        ]
+      },
+      "GetConnectorResponse": {
+        "type": "object",
+        "properties": {
+          "connector": {
+            "$ref": "#/components/schemas/ConnectorDetail"
+          }
+        },
+        "required": [
+          "connector"
+        ]
       }
     },
     "parameters": {}
@@ -2034,6 +2176,119 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListConnectorsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connectors/{connectorId}": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Get connector detail",
+        "description": "Returns connector detail, connection status, allowlisted tools, and approval policies for this Monet install.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "github"
+            },
+            "required": true,
+            "name": "connectorId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connector fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetConnectorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid connector request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Connector credentials have expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Connector provider denied access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connector not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Connector connection is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Connector provider rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Connector provider request failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Connector provider is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

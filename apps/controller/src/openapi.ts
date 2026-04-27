@@ -33,11 +33,54 @@ export const ConnectorCatalogCardSchema = z
   })
   .openapi("ConnectorCatalogCard");
 
+export const ConnectorAccountMetadataSchema = z
+  .object({
+    accountLabel: z.string().optional().openapi({ example: "octocat" }),
+    accountId: z.string().optional().openapi({ example: "123456" }),
+    providerConnectionId: z.string().optional().openapi({ example: "conn_123" }),
+    providerConnectorId: z.string().optional().openapi({ example: "GITHUB" }),
+    connectedAt: z.string().datetime().optional().openapi({ example: "2026-04-27T10:00:00.000Z" }),
+    updatedAt: z.string().datetime().optional().openapi({ example: "2026-04-27T10:05:00.000Z" })
+  })
+  .openapi("ConnectorAccountMetadata");
+
+export const ConnectorServiceConnectionSchema = z
+  .object({
+    status: ConnectorStatusSchema.openapi({ example: "connected" }),
+    connected: z.boolean().openapi({ example: true }),
+    connectedAccountLabel: z.string().optional().openapi({ example: "octocat" }),
+    account: ConnectorAccountMetadataSchema.optional(),
+    lastErrorCode: ConnectorProviderErrorCodeSchema.optional().openapi({ example: "connection_expired" }),
+    lastErrorMessage: z.string().optional().openapi({ example: "Connector account credentials have expired." })
+  })
+  .openapi("ConnectorServiceConnection");
+
+export const ConnectorAllowedToolSchema = z
+  .object({
+    providerToolId: z.string().openapi({ example: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS" }),
+    displayName: z.string().openapi({ example: "Search issues and pull requests" }),
+    summary: z.string().openapi({ example: "Search issues and pull requests across accessible repositories." }),
+    policy: ConnectorToolPolicySchema
+  })
+  .openapi("ConnectorAllowedTool");
+
+export const ConnectorDetailSchema = ConnectorCatalogCardSchema.extend({
+  providerConnectorId: z.string().openapi({ example: "GITHUB" }),
+  connection: ConnectorServiceConnectionSchema,
+  allowedTools: z.array(ConnectorAllowedToolSchema)
+}).openapi("ConnectorDetail");
+
 export const ListConnectorsResponseSchema = z
   .object({
     connectors: z.array(ConnectorCatalogCardSchema)
   })
   .openapi("ListConnectorsResponse");
+
+export const GetConnectorResponseSchema = z
+  .object({
+    connector: ConnectorDetailSchema
+  })
+  .openapi("GetConnectorResponse");
 
 export const ErrorResponseSchema = z
   .object({
