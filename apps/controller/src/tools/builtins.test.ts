@@ -77,6 +77,7 @@ function createRuntimeTools(
   workspaceDir: string,
   storage: ReturnType<typeof createChatStorage>,
   options?: {
+    allowedDirectories?: readonly string[];
     controllerPort?: number;
     dnsLookup?: DnsLookupStub;
     fetchUrlRequest?: (options: {
@@ -90,7 +91,7 @@ function createRuntimeTools(
     messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "hello" }] }]
   });
   const builtinOptions = {
-    allowedDirectories: [workspaceDir],
+    allowedDirectories: options?.allowedDirectories ?? [workspaceDir],
     ...(options?.controllerPort !== undefined ? { controllerPort: options.controllerPort } : {}),
     ...(options?.dnsLookup ? { dnsLookup: options.dnsLookup } : {}),
     ...(options?.fetchUrlRequest ? { fetchUrlRequest: options.fetchUrlRequest } : {})
@@ -195,6 +196,54 @@ test("read_file and write_file operate inside authorized directories", async () 
     assert.equal(writeRelativeResult.bytesWritten, Buffer.byteLength("relative generated content", "utf8"));
     assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "relative-output.txt"), "utf8"), "relative generated content");
   } finally {
+    fixture.cleanup();
+  }
+});
+
+test("relative file paths resolve against the session workspace, not cwd or authorized directories", async () => {
+  const fixture = createTestFixture();
+  const originalCwd = process.cwd();
+
+  try {
+    const controllerCwdDir = join(fixture.fixtureDir, "controller-cwd");
+    const authorizedDir = join(fixture.fixtureDir, "authorized-external");
+    mkdirSync(controllerCwdDir, { recursive: true });
+    mkdirSync(authorizedDir, { recursive: true });
+    writeFileSync(join(fixture.workspaceDir, "same-name.txt"), "from session workspace", "utf8");
+    writeFileSync(join(controllerCwdDir, "same-name.txt"), "from cwd", "utf8");
+    writeFileSync(join(authorizedDir, "same-name.txt"), "from authorized directory", "utf8");
+
+    process.chdir(controllerCwdDir);
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      allowedDirectories: [authorizedDir]
+    });
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+    const realWorkspaceDir = realpathSync(fixture.workspaceDir);
+
+    const readResult = (await readFileTool.execute(
+      { path: "same-name.txt" },
+      createExecutionContext()
+    )) as { path: string; content: string };
+
+    assert.equal(readResult.content, "from session workspace");
+    assert.equal(readResult.path, join(realWorkspaceDir, "same-name.txt"));
+
+    const writeResult = (await writeFileTool.execute(
+      {
+        path: "created-by-relative-write.txt",
+        content: "written to workspace"
+      },
+      createExecutionContext()
+    )) as { path: string; bytesWritten: number };
+
+    assert.equal(writeResult.path, join(realWorkspaceDir, "created-by-relative-write.txt"));
+    assert.equal(readFileSync(join(fixture.workspaceDir, "created-by-relative-write.txt"), "utf8"), "written to workspace");
+    assert.throws(() => readFileSync(join(controllerCwdDir, "created-by-relative-write.txt"), "utf8"), /ENOENT/);
+    assert.throws(() => readFileSync(join(authorizedDir, "created-by-relative-write.txt"), "utf8"), /ENOENT/);
+  } finally {
+    process.chdir(originalCwd);
     fixture.cleanup();
   }
 });
