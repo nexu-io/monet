@@ -6,14 +6,14 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { ControllerApp, ControllerAppVariables } from "../app";
 import { LIVE_ARTIFACT_REFRESH_PHASE_GATE, registerLiveArtifactRoutes } from "./live-artifacts";
 
-test("live artifact refresh routes are disabled by the static-only phase gate", async () => {
+test("live artifact refresh routes fail closed when refresh dependencies are unavailable", async () => {
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
   let storageAccesses = 0;
 
   registerLiveArtifactRoutes(app, {
     getChatStorage() {
       storageAccesses += 1;
-      throw new Error("refresh gate should not touch storage or execute tools");
+      throw new Error("refresh dependency gate should not touch storage or execute tools");
     }
   });
 
@@ -24,7 +24,7 @@ test("live artifact refresh routes are disabled by the static-only phase gate", 
     method: "POST"
   });
 
-  assert.equal(LIVE_ARTIFACT_REFRESH_PHASE_GATE.enabled, false);
+  assert.equal(LIVE_ARTIFACT_REFRESH_PHASE_GATE.enabled, true);
   assert.equal(artifactRefreshResponse.status, 501);
   assert.equal(tileRefreshResponse.status, 501);
   assert.equal(storageAccesses, 0);

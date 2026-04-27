@@ -305,7 +305,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });
   registerConnectorRoutes(app, { connectorService, getChatStorage });
-  registerLiveArtifactRoutes(app, { getChatStorage });
+  registerLiveArtifactRoutes(app, { getChatStorage, toolRegistry, sessionWorkspaceService });
 
   return {
     app,

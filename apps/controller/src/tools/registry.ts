@@ -81,6 +81,7 @@ export interface ToolRegistry {
   register<TInput, TOutput>(definition: RegisteredToolDefinition<TInput, TOutput>): void;
   registerSource(source: ToolSource): void;
   listTools(): Promise<readonly ToolMetadata[]>;
+  resolveTools(context: ToolSourceContext): Promise<ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>>;
   createRuntimeTools(context: ToolExecutionContext): Promise<Record<string, unknown>>;
 }
 
@@ -222,6 +223,10 @@ export function createToolRegistry(
       }
 
       return Array.from(tools.values());
+    },
+
+    resolveTools(context) {
+      return resolveDefinitions(context);
     },
 
     async createRuntimeTools(context) {

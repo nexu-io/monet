@@ -8,8 +8,11 @@ import {
   LiveArtifactSchema,
   LiveArtifactWithTilesSchema
 } from "../live-artifacts/schema";
+import { refreshLiveArtifact } from "../live-artifacts/refresh";
 import { createLogger } from "../logger";
 import { ErrorResponseSchema, createErrorResponse } from "../openapi";
+import type { SessionWorkspaceService } from "../session-workspace-service";
+import type { ToolRegistry } from "../tools/registry";
 
 const liveArtifactsLogger = createLogger("controller", {
   component: "live-artifacts-route"
@@ -71,11 +74,10 @@ const RefreshDisabledResponseSchema = ErrorResponseSchema.extend({
 }).openapi("LiveArtifactRefreshDisabledResponse");
 
 export const LIVE_ARTIFACT_REFRESH_PHASE_GATE = {
-  enabled: false,
+  enabled: true,
   errorCode: "refresh_disabled",
-  message:
-    "Live artifact refresh is disabled until connector readiness gates pass; this increment supports static artifact creation, listing, detail, update, pin, and archive only.",
-  unmetPrerequisites: ["stable_connected_account_labels"]
+  message: "Live artifact refresh is disabled.",
+  unmetPrerequisites: []
 } as const;
 
 const listLiveArtifactsRoute = createRoute({
@@ -267,6 +269,38 @@ const refreshLiveArtifactRoute = createRoute({
           schema: RefreshDisabledResponseSchema
         }
       }
+    },
+    200: {
+      description: "Live artifact refreshed successfully.",
+      content: {
+        "application/json": {
+          schema: LiveArtifactResponseSchema
+        }
+      }
+    },
+    400: {
+      description: "The live artifact could not be refreshed.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "The requested live artifact was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The live artifact refresh failed unexpectedly.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
     }
   }
 });
@@ -303,7 +337,11 @@ function createRefreshDisabledResponse() {
   };
 }
 
-export function registerLiveArtifactRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
+export function registerLiveArtifactRoutes(app: ControllerApp, options: {
+  getChatStorage: () => ChatStorage;
+  toolRegistry?: ToolRegistry;
+  sessionWorkspaceService?: SessionWorkspaceService;
+}) {
   app.openapi(listLiveArtifactsRoute, (context) => {
     const query = context.req.valid("query");
     const listInput = {
@@ -392,10 +430,39 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: { getCha
     }
   });
 
-  app.openapi(refreshLiveArtifactRoute, (context) => {
-    void context.req.valid("param");
+  app.openapi(refreshLiveArtifactRoute, async (context) => {
+    const { artifactId } = context.req.valid("param");
 
-    return context.json(createRefreshDisabledResponse(), 501);
+    if (!LIVE_ARTIFACT_REFRESH_PHASE_GATE.enabled || !options.toolRegistry || !options.sessionWorkspaceService) {
+      return context.json(createRefreshDisabledResponse(), 501);
+    }
+
+    try {
+      const artifact = options.getChatStorage().getLiveArtifact(artifactId);
+      const sessionId = artifact.sessionId ?? "ses_liveartifactrefresh";
+      const sessionWorkspacePath = await options.sessionWorkspaceService.ensureWorkspace(sessionId);
+      const result = await refreshLiveArtifact({
+        artifactId,
+        chatStorage: options.getChatStorage(),
+        toolRegistry: options.toolRegistry,
+        sessionWorkspacePath,
+        logger: liveArtifactsLogger,
+        abortSignal: context.req.raw.signal
+      });
+
+      return context.json({ artifact: result.artifact }, 200);
+    } catch (error) {
+      if (error instanceof ChatStorageResolutionError) {
+        return context.json(createErrorResponse(error.errorCode, error.message), error.statusCode === 404 ? 404 : 400);
+      }
+
+      liveArtifactsLogger.error("live_artifacts.refresh_failed", error);
+
+      return context.json(
+        createErrorResponse("refresh_failed", error instanceof Error ? error.message : "Failed to refresh live artifact."),
+        400
+      );
+    }
   });
 
   app.openapi(refreshLiveArtifactTileRoute, (context) => {

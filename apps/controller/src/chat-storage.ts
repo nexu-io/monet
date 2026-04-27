@@ -17,6 +17,8 @@ import {
   type LiveArtifactCreateInput,
   type LiveArtifactCreateTileInput,
   type LiveArtifactTile,
+  type LiveArtifactRenderJson,
+  type LiveArtifactProvenanceJson,
   type LiveArtifactWithTiles
 } from "./live-artifacts/schema";
 import { redactSensitiveToolCallText, sanitizeToolCallPersistenceValue } from "./tool-call-redaction";
@@ -542,6 +544,16 @@ export interface ReplaceLiveArtifactTilesInput {
   readonly tiles: readonly LiveArtifactCreateTileInput[];
 }
 
+export interface ApplyLiveArtifactRefreshResultsInput {
+  readonly artifactId: string;
+  readonly tiles: readonly {
+    readonly tileId: string;
+    readonly kind: LiveArtifactTile["kind"];
+    readonly renderJson: LiveArtifactRenderJson;
+    readonly provenanceJson?: LiveArtifactProvenanceJson | null;
+  }[];
+}
+
 export interface StoredLiveArtifactRefresh {
   readonly id: string;
   readonly artifactId: string;
@@ -641,6 +653,7 @@ export interface ChatStorage {
   archiveLiveArtifact(artifactId: string): LiveArtifactWithTiles;
   pinLiveArtifact(artifactId: string, pinned: boolean): LiveArtifactWithTiles;
   replaceLiveArtifactTiles(input: ReplaceLiveArtifactTilesInput): LiveArtifactWithTiles;
+  applyLiveArtifactRefreshResults(input: ApplyLiveArtifactRefreshResultsInput): LiveArtifactWithTiles;
   startLiveArtifactRefresh(input: StartLiveArtifactRefreshInput): StoredLiveArtifactRefresh;
   startLiveArtifactRefreshStep(input: StartLiveArtifactRefreshStepInput): StoredLiveArtifactRefreshStep;
   markLiveArtifactRefreshStepRunning(stepId: string): boolean;
@@ -1358,6 +1371,79 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       }
 
       return getLiveArtifactOrThrow(connection, input.artifactId);
+    },
+
+    applyLiveArtifactRefreshResults(input) {
+      const now = new Date().toISOString();
+
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const existing = getLiveArtifactRow(connection, input.artifactId);
+
+        if (!existing) {
+          throw new ChatStorageResolutionError({
+            message: `Unknown artifactId: ${input.artifactId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+
+        const updateTile = connection.prepare(
+          `UPDATE live_artifact_tiles
+           SET kind = ?, render_json = ?, provenance_json = ?, refresh_status = 'idle',
+               refresh_started_at = NULL, last_refreshed_at = ?, last_error = NULL, updated_at = ?
+           WHERE id = ? AND artifact_id = ?`
+        );
+
+        for (const tile of input.tiles) {
+          const parsedRenderJson = LiveArtifactCreateTileInputSchema.shape.renderJson.parse(tile.renderJson);
+          const parsedProvenanceJson = tile.provenanceJson == null
+            ? null
+            : LiveArtifactCreateTileInputSchema.shape.provenanceJson.parse(tile.provenanceJson);
+
+          if (tile.kind !== parsedRenderJson.kind) {
+            throw new ChatStorageResolutionError({
+              message: "Refreshed tile kind must match render JSON kind.",
+              errorCode: "invalid_request"
+            });
+          }
+
+          const result = updateTile.run(
+            tile.kind,
+            JSON.stringify(parsedRenderJson),
+            parsedProvenanceJson == null ? null : JSON.stringify(parsedProvenanceJson),
+            now,
+            now,
+            tile.tileId,
+            input.artifactId
+          );
+
+          if (result.changes !== 1) {
+            throw new ChatStorageResolutionError({
+              message: `Unknown tileId for artifact: ${tile.tileId}`,
+              statusCode: 404,
+              errorCode: "not_found"
+            });
+          }
+        }
+
+        connection
+          .prepare(
+            `UPDATE live_artifacts
+             SET refresh_status = 'idle', refresh_started_at = NULL, last_refreshed_at = ?,
+                 last_refresh_error = NULL, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(now, now, input.artifactId);
+
+        const artifact = getLiveArtifactOrThrow(connection, input.artifactId);
+        connection.exec("COMMIT");
+        return artifact;
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
     },
 
     startLiveArtifactRefresh(input) {

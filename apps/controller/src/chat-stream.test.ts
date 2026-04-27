@@ -210,6 +210,9 @@ test("chat stream threads session workspace context into runtime tools", async (
           return [];
         },
         register() {},
+        async resolveTools() {
+          return [];
+        },
         async createRuntimeTools(context: ToolExecutionContext) {
           capturedToolContext = context;
           return {};
