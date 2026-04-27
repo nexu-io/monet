@@ -675,6 +675,91 @@ test("tool registry persists connector approval metadata for connector tools", a
   }
 });
 
+test("tool registry redacts tokens and raw authorization headers from persisted tool-call metadata", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "sensitive connector metadata" }] }]
+    });
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "github_sensitive_metadata",
+          description: "Persists sensitive connector metadata.",
+          requiresConfirmation: false,
+          connector: {
+            connectorId: "github",
+            connectorName: "GitHub",
+            accountLabel: "octocat",
+            toolName: "Sensitive metadata",
+            providerToolId: "GITHUB_SENSITIVE_METADATA",
+            approvalPolicy: { sideEffect: "read", approval: "first_use" }
+          }
+        },
+        inputSchema: { type: "object", additionalProperties: true } as never,
+        execute(_input, context) {
+          context.setConnectorExecutionMetadata({
+            providerExecutionId: "provider-exec-safe",
+            providerExecutionMetadata: {
+              accessToken: "metadata-access-token-secret",
+              refresh_token: "metadata-refresh-token-secret",
+              providerApiKey: "metadata-provider-api-key-secret",
+              authorization: "Bearer metadata-authorization-header-secret",
+              callbackUrl: "https://provider.example/callback?access_token=query-access-token-secret&api_key=query-api-key-secret",
+              nested: {
+                rawAuthorizationHeader: "Bearer nested-authorization-header-secret",
+                safeTraceId: "trace_123"
+              }
+            }
+          });
+
+          return { ok: true };
+        }
+      }
+    ]);
+
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      chatStorage: fixture.storage,
+      logger: createLogger("test")
+    });
+    const execute = (runtimeTools.github_sensitive_metadata as { execute: (input: unknown, context: unknown) => Promise<unknown> }).execute;
+
+    await execute(
+      {
+        authorization: "Bearer input-authorization-header-secret",
+        accessToken: "input-access-token-secret"
+      },
+      {
+        toolCallId: "call_sdk_connector_sensitive_metadata",
+        messages: [],
+        abortSignal: new AbortController().signal,
+        experimental_context: undefined
+      }
+    );
+
+    const [row] = getToolCalls(fixture.databasePath);
+    const persisted = JSON.stringify(row);
+
+    assert.equal(row?.connector_provider_execution_id, "provider-exec-safe");
+    assert.match(row?.connector_provider_execution_metadata_json ?? "", /\[redacted\]/);
+    assert.match(row?.input_json ?? "", /\[redacted\]/);
+    assert.doesNotMatch(persisted, /metadata-access-token-secret/);
+    assert.doesNotMatch(persisted, /metadata-refresh-token-secret/);
+    assert.doesNotMatch(persisted, /metadata-provider-api-key-secret/);
+    assert.doesNotMatch(persisted, /metadata-authorization-header-secret/);
+    assert.doesNotMatch(persisted, /query-access-token-secret/);
+    assert.doesNotMatch(persisted, /query-api-key-secret/);
+    assert.doesNotMatch(persisted, /nested-authorization-header-secret/);
+    assert.doesNotMatch(persisted, /input-authorization-header-secret/);
+    assert.doesNotMatch(persisted, /input-access-token-secret/);
+    assert.match(persisted, /trace_123/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("tool registry fails closed when tool sources collide", async () => {
   const fixture = createTestStorage();
 

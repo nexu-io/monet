@@ -505,6 +505,77 @@ test("connector OAuth callback persists metadata, consumes state, rejects replay
   }
 });
 
+test("connector persistence rejects OAuth tokens, provider API keys, and raw authorization headers", async () => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), "monet-connector-persistence-safety-tests-"));
+
+  try {
+    const storage = createRouteStorage(join(fixtureDir, "controller.sqlite"));
+    const monetInstallId = storage.getMonetInstallId();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+    assert.throws(
+      () =>
+        storage.createConnectorOAuthState({
+          stateHash: hashConnectorOAuthState("unsafe-redirect-state"),
+          userId: monetInstallId,
+          connectorId: "github",
+          provider: "composio",
+          redirectUrl:
+            "https://provider.example/callback?access_token=oauth-access-token-secret&api_key=provider-api-key-secret&authorization=Bearer%20raw-auth-secret",
+          expiresAt
+        }),
+      /CHECK constraint failed: connector_oauth_states_no_redirect_url_secrets/
+    );
+
+    const oauthState = storage.createConnectorOAuthState({
+      stateHash: hashConnectorOAuthState("unsafe-connection-state"),
+      userId: monetInstallId,
+      connectorId: "github",
+      provider: "composio",
+      redirectUrl: "/connectors",
+      expiresAt
+    });
+
+    assert.throws(
+      () =>
+        storage.completeConnectorOAuthConnection({
+          oauthStateId: oauthState.id,
+          userId: monetInstallId,
+          connectorId: "github",
+          provider: "composio",
+          providerConnectionId: "conn_unsafe_123",
+          providerMetadataJson: JSON.stringify({
+            accessToken: "connection-access-token-secret",
+            refresh_token: "connection-refresh-token-secret",
+            providerApiKey: "connection-provider-api-key-secret",
+            authorization: "Bearer connection-authorization-header-secret"
+          }),
+          accountLabel: "Octocat",
+          status: "connected",
+          lastConnectedAt: "2026-04-27T12:00:00.000Z",
+          lastError: "upstream returned Authorization: Bearer connection-last-error-auth-secret"
+        }),
+      /CHECK constraint failed: connector_connections_no_provider_metadata_secrets|CHECK constraint failed: connector_connections_no_last_error_secrets/
+    );
+
+    assert.equal(
+      storage.getConnectorConnection({
+        userId: monetInstallId,
+        connectorId: "github",
+        provider: "composio"
+      }),
+      null
+    );
+
+    const unconsumedState = storage.getConnectorOAuthStateByHash(hashConnectorOAuthState("unsafe-connection-state"));
+
+    assert.ok(unconsumedState);
+    assert.equal(unconsumedState.consumedAt, null);
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
 test("connector OAuth callback rejects consumed, expired, mismatched, and oversized state", async () => {
   const cases = [
     {
