@@ -793,6 +793,88 @@ test("tool registry persists connector approval metadata for connector tools", a
   }
 });
 
+test("connector runtime tools do not reach provider when run/tool-call audit cannot be persisted", async () => {
+  const fixture = createTestStorage();
+  let executeToolCalls = 0;
+
+  try {
+    const provider: ConnectorProvider = {
+      async listConnectors() {
+        return [];
+      },
+      async getConnectionStatus() {
+        return {
+          connectorId: "github",
+          state: "connected",
+          connected: true,
+          account: { accountLabel: "octocat" }
+        };
+      },
+      connect() {
+        throw new Error("not used");
+      },
+      completeConnection() {
+        throw new Error("not used");
+      },
+      disconnect() {
+        throw new Error("not used");
+      },
+      async listTools() {
+        return [
+          {
+            connectorId: "github",
+            providerToolId: "GITHUB_GET_REPOSITORY",
+            name: "GITHUB_GET_REPOSITORY",
+            displayName: "Get repository",
+            description: "Get repository details.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                owner: { type: "string" },
+                repo: { type: "string" }
+              },
+              required: ["owner", "repo"],
+              additionalProperties: false
+            },
+            policy: { sideEffect: "read", approval: "never" }
+          }
+        ];
+      },
+      async executeTool() {
+        executeToolCalls += 1;
+        return { output: { ok: true } };
+      }
+    };
+    const registry = createToolRegistry([], { sources: [createConnectorToolSource({ provider })] });
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: "run_missing_audit_parent",
+      sessionId: "session_test",
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
+      chatStorage: fixture.storage,
+      logger: createLogger("test")
+    });
+    const execute = (runtimeTools.github_get_repository as { execute: (input: unknown, context: unknown) => Promise<unknown> })
+      .execute;
+
+    await assert.rejects(
+      execute(
+        { owner: "monet", repo: "connectors" },
+        {
+          toolCallId: "call_sdk_missing_run_audit",
+          messages: [],
+          abortSignal: new AbortController().signal,
+          experimental_context: undefined
+        }
+      )
+    );
+
+    assert.equal(executeToolCalls, 0);
+    assert.deepEqual(getToolCalls(fixture.databasePath), []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("tool registry redacts tokens and raw authorization headers from persisted tool-call metadata", async () => {
   const fixture = createTestStorage();
 

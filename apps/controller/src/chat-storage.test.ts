@@ -286,6 +286,63 @@ test("live artifact connector refresh steps require persisted audit metadata", (
   }
 });
 
+test("live artifact connector refresh steps reject incomplete audit metadata before execution", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Summary",
+        kind: "markdown",
+        renderJson: {
+          kind: "markdown",
+          markdown: "Ready"
+        }
+      }]
+    });
+    const refresh = storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+
+    assert.throws(
+      () => storage.startLiveArtifactRefreshStep({
+        refreshId: refresh.id,
+        tileId: artifact.tiles[0]!.id,
+        sourceType: "connector_tool",
+        toolName: "gmail_search",
+        input: {
+          query: "from:example"
+        },
+        connectorMetadata: {
+          connectorId: "gmail",
+          connectorName: "Gmail",
+          connectorAccountLabel: "Acme Mail",
+          connectorToolName: "Search email",
+          connectorProviderToolId: "",
+          connectorArgumentsSummary: "query=from:example",
+          connectorApprovalPolicy: null,
+          approvalBasis: "manual_refresh_granted_for_read_only"
+        } as never
+      }),
+      (error: unknown) => error instanceof ChatStorageResolutionError && error.errorCode === "audit_required"
+    );
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const row = connection
+        .prepare("SELECT COUNT(*) AS count FROM live_artifact_refresh_steps WHERE refresh_id = ?")
+        .get(refresh.id) as { count: number };
+
+      assert.equal(row.count, 0);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("monet install id is generated once, persisted, and reused as an opaque UUID", () => {
   const fixture = createStorageFixture();
 

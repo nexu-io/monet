@@ -1435,7 +1435,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         assertLiveArtifactTileBelongsToArtifact(connection, refresh.artifact_id, tileId);
       }
 
-      if (input.sourceType === "connector_tool" && !input.connectorMetadata) {
+      if (input.sourceType === "connector_tool" && !hasCompleteLiveArtifactRefreshConnectorMetadata(input.connectorMetadata)) {
         throw new ChatStorageResolutionError({
           message: "Connector refresh steps require connector audit metadata before execution.",
           errorCode: "audit_required"
@@ -2751,6 +2751,29 @@ function insertLiveArtifactTiles(
       now
     );
   });
+}
+
+function hasCompleteLiveArtifactRefreshConnectorMetadata(
+  metadata: LiveArtifactRefreshStepConnectorMetadataInput | null | undefined
+): metadata is LiveArtifactRefreshStepConnectorMetadataInput {
+  if (!metadata) {
+    return false;
+  }
+
+  return Boolean(
+    hasNonEmptyString(metadata.connectorId)
+    && hasNonEmptyString(metadata.connectorName)
+    && hasNonEmptyString(metadata.connectorToolName)
+    && hasNonEmptyString(metadata.connectorProviderToolId)
+    && hasNonEmptyString(metadata.connectorArgumentsSummary)
+    && hasNonEmptyString(metadata.approvalBasis)
+    && metadata.connectorApprovalPolicy !== null
+    && metadata.connectorApprovalPolicy !== undefined
+  );
+}
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function mapLiveArtifactRow(row: LiveArtifactRow): LiveArtifact {
