@@ -1182,16 +1182,22 @@ function isSafeControllerCredentialSyncTarget(apiBase: string) {
   try {
     const url = new URL(apiBase);
 
-    if (url.protocol === "https:") {
-      return true;
-    }
-
-    if (url.protocol !== "http:") {
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
       return false;
     }
 
-    return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]";
+    return isLoopbackControllerHostname(url.hostname);
   } catch {
     return false;
   }
+}
+
+function isLoopbackControllerHostname(hostname: string) {
+  const normalizedHostname = hostname.toLowerCase();
+
+  if (normalizedHostname === "localhost" || normalizedHostname === "::1" || normalizedHostname === "[::1]") {
+    return true;
+  }
+
+  return /^127(?:\.\d{1,3}){3}$/.test(normalizedHostname);
 }
