@@ -2,6 +2,7 @@ import { tool } from "ai";
 
 import type { ChatStorage } from "../chat-storage";
 import type { FeatureConfig } from "../config";
+import { isConnectorProviderErrorCode, type ConnectorProviderErrorCode } from "../connectors/errors";
 import type { Logger } from "../logger";
 
 type ToolFactoryOptions = Parameters<typeof tool>[0];
@@ -207,15 +208,16 @@ export function createToolRegistry(
                 ...(toolCallMetadata ? { metadata: toolCallMetadata } : {})
               });
 
-              context.logger.info("tool.input_available", {
-                toolCallId: persistedToolCallId,
-                sdkToolCallId: toolCallId,
-                toolName: definition.metadata.name,
-                requiresConfirmation: definition.metadata.requiresConfirmation,
-                connectorId: definition.metadata.connector?.connectorId,
-                connectorToolName: definition.metadata.connector?.toolName,
-                connectorApprovalPolicy: definition.metadata.connector?.approvalPolicy
-              });
+              if (definition.metadata.connector) {
+                context.logger.info("connector.tool.input_available", getConnectorLogContext(definition.metadata, "pending"));
+              } else {
+                context.logger.info("tool.input_available", {
+                  toolCallId: persistedToolCallId,
+                  sdkToolCallId: toolCallId,
+                  toolName: definition.metadata.name,
+                  requiresConfirmation: definition.metadata.requiresConfirmation
+                });
+              }
             },
             execute: async (input, executionContext) => {
               const startedAt = Date.now();
@@ -236,15 +238,16 @@ export function createToolRegistry(
                 throw new Error("Tool execution was cancelled before it could start.");
               }
 
-              context.logger.info("tool.execution_started", {
-                toolCallId: persistedToolCallId,
-                sdkToolCallId: executionContext.toolCallId,
-                toolName: definition.metadata.name,
-                requiresConfirmation: definition.metadata.requiresConfirmation,
-                connectorId: definition.metadata.connector?.connectorId,
-                connectorToolName: definition.metadata.connector?.toolName,
-                connectorApprovalPolicy: definition.metadata.connector?.approvalPolicy
-              });
+              if (definition.metadata.connector) {
+                context.logger.info("connector.tool.execution_started", getConnectorLogContext(definition.metadata, "running"));
+              } else {
+                context.logger.info("tool.execution_started", {
+                  toolCallId: persistedToolCallId,
+                  sdkToolCallId: executionContext.toolCallId,
+                  toolName: definition.metadata.name,
+                  requiresConfirmation: definition.metadata.requiresConfirmation
+                });
+              }
 
               try {
                 const output = await definition.execute(input, {
@@ -263,14 +266,21 @@ export function createToolRegistry(
                   ...(connectorExecutionMetadata ? { connectorExecutionMetadata } : {})
                 });
 
-                context.logger.info("tool.execution_completed", {
-                  toolCallId: persistedToolCallId,
-                  sdkToolCallId: executionContext.toolCallId,
-                  toolName: definition.metadata.name,
-                  durationMs: Date.now() - startedAt,
-                  outputSizeBytes: completion.outputSizeBytes,
-                  outputTruncated: completion.outputTruncated
-                });
+                if (definition.metadata.connector) {
+                  context.logger.info(
+                    "connector.tool.execution_completed",
+                    getConnectorLogContext(definition.metadata, "completed", Date.now() - startedAt)
+                  );
+                } else {
+                  context.logger.info("tool.execution_completed", {
+                    toolCallId: persistedToolCallId,
+                    sdkToolCallId: executionContext.toolCallId,
+                    toolName: definition.metadata.name,
+                    durationMs: Date.now() - startedAt,
+                    outputSizeBytes: completion.outputSizeBytes,
+                    outputTruncated: completion.outputTruncated
+                  });
+                }
 
                 return output;
               } catch (error) {
@@ -279,12 +289,19 @@ export function createToolRegistry(
                   errorMessage: error instanceof Error ? error.message : "tool_execution_failed"
                 });
 
-                context.logger.error("tool.execution_failed", error, {
-                  toolCallId: persistedToolCallId,
-                  sdkToolCallId: executionContext.toolCallId,
-                  toolName: definition.metadata.name,
-                  durationMs: Date.now() - startedAt
-                });
+                if (definition.metadata.connector) {
+                  context.logger.error("connector.tool.execution_failed", undefined, {
+                    ...getConnectorLogContext(definition.metadata, "failed", Date.now() - startedAt),
+                    errorCode: getConnectorErrorCode(error)
+                  });
+                } else {
+                  context.logger.error("tool.execution_failed", error, {
+                    toolCallId: persistedToolCallId,
+                    sdkToolCallId: executionContext.toolCallId,
+                    toolName: definition.metadata.name,
+                    durationMs: Date.now() - startedAt
+                  });
+                }
 
                 throw error;
               }
@@ -320,6 +337,37 @@ function createToolCallMetadata(metadata: ToolMetadata, input: unknown) {
     connectorArgumentsSummary: summarizeToolArguments(input),
     connectorApprovalPolicy: metadata.connector.approvalPolicy
   };
+}
+
+function getConnectorLogContext(metadata: ToolMetadata, status: string, durationMs?: number) {
+  const connector = metadata.connector;
+
+  if (!connector) {
+    return {
+      toolName: metadata.name,
+      status,
+      ...(durationMs !== undefined ? { durationMs } : {})
+    };
+  }
+
+  return {
+    connectorId: connector.connectorId,
+    toolName: connector.toolName,
+    status,
+    ...(durationMs !== undefined ? { durationMs } : {})
+  };
+}
+
+function getConnectorErrorCode(error: unknown): ConnectorProviderErrorCode {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { readonly code?: unknown }).code;
+
+    if (isConnectorProviderErrorCode(code)) {
+      return code;
+    }
+  }
+
+  return "provider_error";
 }
 
 function summarizeToolArguments(value: unknown): string {
