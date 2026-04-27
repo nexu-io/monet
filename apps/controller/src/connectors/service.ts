@@ -1,7 +1,6 @@
-import { randomBytes } from "node:crypto";
-
 import { getConnectorCatalogItem, listConnectorCatalog, type ConnectorAllowedTool, type ConnectorCatalogItem, type ConnectorId } from "./catalog";
 import { createConnectorProviderError, normalizeConnectorProviderError, type ConnectorProviderErrorCode } from "./errors";
+import { createConnectorOAuthStateSecret, hashConnectorOAuthState } from "./oauth-state";
 import type { ConnectorConnectionStart, ConnectorConnectionStatus, ConnectorConnectionState, ConnectorProvider } from "./provider";
 
 export type ConnectorServiceStatus = "unavailable" | "not_connected" | "connected" | "expired";
@@ -157,9 +156,7 @@ class DefaultConnectorService implements ConnectorService {
   }
 }
 
-export function createConnectorOAuthStateSecret(): string {
-  return randomBytes(32).toString("base64url");
-}
+export { createConnectorOAuthStateSecret, hashConnectorOAuthState };
 
 function toCatalogCard(catalogItem: ConnectorCatalogItem, connection: ConnectorServiceConnection): ConnectorCatalogCard {
   return {

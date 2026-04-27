@@ -367,6 +367,7 @@ export interface ChatStorage {
   getMonetInstallId(): string;
   getConnectorConnection(input: { userId: string; connectorId: string; provider: string }): StoredConnectorConnection | null;
   createConnectorOAuthState(input: CreateConnectorOAuthStateInput): StoredConnectorOAuthState;
+  getConnectorOAuthStateByHash(stateHash: string): StoredConnectorOAuthState | null;
   listAuthorizedDirectories(): StoredAuthorizedDirectory[];
   replaceAuthorizedDirectories(paths: readonly string[]): StoredAuthorizedDirectory[];
   listSessions(): StoredSession[];
@@ -490,6 +491,19 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         consumedAt: null,
         createdAt: now
       };
+    },
+
+    getConnectorOAuthStateByHash(stateHash) {
+      const row = connection
+        .prepare(
+          `SELECT id, state_hash, user_id, connector_id, provider, redirect_url, expires_at, consumed_at, created_at
+           FROM connector_oauth_states
+           WHERE state_hash = ?
+           LIMIT 1`
+        )
+        .get(stateHash) as ConnectorOAuthStateRow | undefined;
+
+      return row ? mapConnectorOAuthStateRow(row) : null;
     },
 
     listAuthorizedDirectories() {
@@ -2236,6 +2250,20 @@ function mapConnectorConnectionRow(row: ConnectorConnectionRow): StoredConnector
     updatedAt: row.updated_at,
     lastConnectedAt: row.last_connected_at,
     lastError: row.last_error
+  };
+}
+
+function mapConnectorOAuthStateRow(row: ConnectorOAuthStateRow): StoredConnectorOAuthState {
+  return {
+    id: row.id,
+    stateHash: row.state_hash,
+    userId: row.user_id,
+    connectorId: row.connector_id,
+    provider: row.provider,
+    redirectUrl: row.redirect_url,
+    expiresAt: row.expires_at,
+    consumedAt: row.consumed_at,
+    createdAt: row.created_at
   };
 }
 

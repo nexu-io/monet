@@ -166,6 +166,15 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   if (!options.features.connectors) {
+    app.use("/connectors/oauth/callback/*", async (context) => {
+      return context.json(
+        {
+          error: "not_found",
+          message: "Route not found."
+        },
+        404
+      );
+    });
     app.use("/api/connectors", async (context) => {
       return context.json(
         {

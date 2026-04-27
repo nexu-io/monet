@@ -1,8 +1,11 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import type { Context } from "hono";
 
 import type { ControllerApp } from "../app";
 import type { ChatStorage } from "../chat-storage";
+import { getConnectorCatalogItem } from "../connectors/catalog";
 import { normalizeConnectorProviderError } from "../connectors/errors";
+import { hashConnectorOAuthState } from "../connectors/oauth-state";
 import type { ConnectorService } from "../connectors/service";
 import {
   createErrorResponse,
@@ -14,6 +17,8 @@ import {
 } from "../openapi";
 
 type ConnectorRouteErrorStatus = 400 | 401 | 403 | 404 | 409 | 429 | 502 | 503;
+
+const CONNECTOR_OAUTH_PROVIDER = "composio";
 
 const connectorIdParamSchema = z.object({
   connectorId: z.string().min(1).openapi({ param: { name: "connectorId", in: "path" }, example: "github" })
@@ -219,6 +224,31 @@ export function registerConnectorRoutes(
   app: ControllerApp,
   options: { connectorService: ConnectorService; getChatStorage: () => ChatStorage }
 ) {
+  app.get("/connectors/oauth/callback/:connectorId", (context) => {
+    const storage = options.getChatStorage();
+    const connectorId = context.req.param("connectorId");
+    const state = context.req.query("state");
+
+    if (!state || state.length > 512 || !getConnectorCatalogItem(connectorId)) {
+      return redirectToConnectors(context, "error");
+    }
+
+    const oauthState = storage.getConnectorOAuthStateByHash(hashConnectorOAuthState(state));
+
+    if (
+      !oauthState ||
+      oauthState.connectorId !== connectorId ||
+      oauthState.provider !== CONNECTOR_OAUTH_PROVIDER ||
+      oauthState.userId !== storage.getMonetInstallId() ||
+      oauthState.consumedAt ||
+      Date.parse(oauthState.expiresAt) <= Date.now()
+    ) {
+      return redirectToConnectors(context, "error");
+    }
+
+    return redirectToConnectors(context, "pending", connectorId);
+  });
+
   app.openapi(listConnectorsRoute, async (context) => {
     const connectors = await options.connectorService.listConnectors({
       userId: options.getChatStorage().getMonetInstallId(),
@@ -282,7 +312,7 @@ export function registerConnectorRoutes(
       const connectionStart = await options.connectorService.startConnection({
         userId: options.getChatStorage().getMonetInstallId(),
         connectorId: context.req.valid("param").connectorId,
-        ...(parsedBody.data.redirectUrl ? { redirectUrl: parsedBody.data.redirectUrl } : {}),
+        redirectUrl: parsedBody.data.redirectUrl ?? createDefaultOAuthCallbackUrl(context.req.url, context.req.valid("param").connectorId),
         abortSignal: context.req.raw.signal
       });
 
@@ -316,4 +346,19 @@ async function parseOptionalJsonBody(request: { text: () => Promise<string> }) {
 
 function isConnectorRouteErrorStatus(statusCode: number): statusCode is ConnectorRouteErrorStatus {
   return [400, 401, 403, 404, 409, 429, 502, 503].includes(statusCode);
+}
+
+function createDefaultOAuthCallbackUrl(requestUrl: string, connectorId: string): string {
+  const url = new URL(requestUrl);
+  const port = url.port || (url.protocol === "https:" ? "443" : "80");
+
+  return `http://127.0.0.1:${port}/connectors/oauth/callback/${encodeURIComponent(connectorId)}`;
+}
+
+function redirectToConnectors(context: Context, status: "pending" | "error", connectorId?: string) {
+  const target = connectorId
+    ? `/connectors?connector_oauth=${status}&connector_id=${encodeURIComponent(connectorId)}`
+    : `/connectors?connector_oauth=${status}`;
+
+  return context.redirect(target, 302);
 }

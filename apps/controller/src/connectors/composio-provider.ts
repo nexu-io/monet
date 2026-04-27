@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type { ChatStorage } from "../chat-storage";
 import type { ComposioProviderConfig } from "../config";
 import {
@@ -10,6 +8,7 @@ import {
   type ConnectorId
 } from "./catalog";
 import { createConnectorProviderError, normalizeConnectorProviderError, type ConnectorProviderErrorCode } from "./errors";
+import { hashConnectorOAuthState } from "./oauth-state";
 import type {
   ConnectorCompleteConnectionInput,
   ConnectorConnectionInput,
@@ -189,7 +188,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
 
     const expiresAt = new Date(Date.now() + OAUTH_STATE_TTL_MS).toISOString();
     this.storage.createConnectorOAuthState({
-      stateHash: hashOAuthState(input.state),
+      stateHash: hashConnectorOAuthState(input.state),
       userId: input.userId,
       connectorId: input.connectorId,
       provider: COMPOSIO_PROVIDER,
@@ -817,10 +816,6 @@ function getRecord(value: unknown): Record<string, unknown> | undefined {
 
 function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function hashOAuthState(state: string): string {
-  return createHash("sha256").update(state).digest("hex");
 }
 
 function mapComposioHttpStatus(status: number): ConnectorProviderErrorCode {

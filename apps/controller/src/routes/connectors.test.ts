@@ -5,6 +5,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 
 import type { ControllerApp, ControllerAppVariables } from "../app";
 import { createConnectorProviderError } from "../connectors/errors";
+import { hashConnectorOAuthState } from "../connectors/oauth-state";
 import type { ConnectorCatalogCard, ConnectorDetail, ConnectorService } from "../connectors/service";
 import { registerConnectorRoutes } from "./connectors";
 
@@ -273,3 +274,69 @@ test("connector connect endpoint starts connection flow for Monet install", asyn
     redirectUrl: "monet://connectors/callback"
   });
 });
+
+test("connector OAuth callback validates state before redirecting back to connectors", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  const monetInstallId = "monet-install-id-callback";
+  const state = "oauth-state-secret";
+
+  registerConnectorRoutes(app, {
+    connectorService: createUnusedConnectorService(),
+    getChatStorage: () =>
+      ({
+        getMonetInstallId() {
+          return monetInstallId;
+        },
+        getConnectorOAuthStateByHash(stateHash: string) {
+          if (stateHash !== hashConnectorOAuthState(state)) {
+            return null;
+          }
+
+          return {
+            id: "cos_123",
+            stateHash,
+            userId: monetInstallId,
+            connectorId: "github",
+            provider: "composio",
+            redirectUrl: null,
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            consumedAt: null,
+            createdAt: new Date().toISOString()
+          };
+        }
+      }) as never
+  });
+
+  const response = await app.request(`http://127.0.0.1:42831/connectors/oauth/callback/github?state=${state}&code=secret-code`, {
+    method: "GET",
+    redirect: "manual"
+  });
+
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get("location"), "/connectors?connector_oauth=pending&connector_id=github");
+
+  const replayResponse = await app.request("http://127.0.0.1:42831/connectors/oauth/callback/github?state=wrong-state", {
+    method: "GET",
+    redirect: "manual"
+  });
+
+  assert.equal(replayResponse.status, 302);
+  assert.equal(replayResponse.headers.get("location"), "/connectors?connector_oauth=error");
+});
+
+function createUnusedConnectorService(): ConnectorService {
+  return {
+    listConnectors() {
+      throw new Error("not used in connector OAuth callback route test");
+    },
+    getConnector() {
+      throw new Error("not used in connector OAuth callback route test");
+    },
+    getConnection() {
+      throw new Error("not used in connector OAuth callback route test");
+    },
+    startConnection() {
+      throw new Error("not used in connector OAuth callback route test");
+    }
+  };
+}
