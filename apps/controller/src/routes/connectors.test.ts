@@ -1,13 +1,33 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
 
 import type { ControllerApp, ControllerAppVariables } from "../app";
+import { createChatStorage } from "../chat-storage";
 import { createConnectorProviderError } from "../connectors/errors";
 import { hashConnectorOAuthState } from "../connectors/oauth-state";
 import type { ConnectorCatalogCard, ConnectorDetail, ConnectorService } from "../connectors/service";
 import { registerConnectorRoutes } from "./connectors";
+
+function createRouteStorage(databasePath: string) {
+  return createChatStorage({
+    databasePath,
+    openai: {
+      baseUrl: null,
+      defaultModel: "gpt-4.1-mini",
+      timeoutMs: null
+    },
+    openrouter: {
+      baseUrl: null,
+      defaultModel: "openai/gpt-4.1-mini",
+      timeoutMs: null
+    }
+  });
+}
 
 test("connectors endpoint returns connector catalog with status", async () => {
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
@@ -390,6 +410,99 @@ test("connector OAuth callback validates state before redirecting back to connec
 
   assert.equal(replayResponse.status, 302);
   assert.equal(replayResponse.headers.get("location"), "/connectors?connector_oauth=error");
+});
+
+test("connector OAuth callback persists metadata, consumes state, rejects replay, and returns safely", async () => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), "monet-connector-callback-tests-"));
+
+  try {
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    const storage = createRouteStorage(join(fixtureDir, "controller.sqlite"));
+    const monetInstallId = storage.getMonetInstallId();
+    const state = "oauth-state-secret-real-storage";
+    const stateHash = hashConnectorOAuthState(state);
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    let completionCount = 0;
+
+    const oauthState = storage.createConnectorOAuthState({
+      stateHash,
+      userId: monetInstallId,
+      connectorId: "github",
+      provider: "composio",
+      redirectUrl: "https://attacker.example/unsafe-return",
+      expiresAt
+    });
+
+    registerConnectorRoutes(app, {
+      connectorService: {
+        ...createUnusedConnectorService(),
+        async completeConnection(input) {
+          completionCount += 1;
+          assert.equal(input.userId, monetInstallId);
+          assert.equal(input.connectorId, "github");
+          assert.equal(input.providerConnectionId, "conn_callback_123");
+
+          return {
+            connectorId: "github",
+            state: "connected",
+            connected: true,
+            providerConnectionId: "conn_callback_123",
+            account: {
+              accountLabel: "Octocat Callback",
+              providerConnectionId: "conn_callback_123"
+            },
+            persistence: {
+              status: "connected",
+              providerConnectionId: "conn_callback_123",
+              providerMetadataJson: JSON.stringify({ providerStatus: "ACTIVE", accountId: "acct_callback_123" }),
+              accountLabel: "Octocat Callback",
+              lastConnectedAt: "2026-04-27T11:00:00.000Z",
+              lastError: null
+            }
+          };
+        }
+      },
+      getChatStorage: () => storage
+    });
+
+    const callbackUrl = `http://127.0.0.1:42831/connectors/oauth/callback/github?state=${state}&connected_account_id=conn_callback_123`;
+    const response = await app.request(callbackUrl, { method: "GET", redirect: "manual" });
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get("location"), "/connectors?connector_oauth=connected&connector_id=github");
+    assert.equal(response.headers.get("location")?.includes("attacker.example"), false);
+    assert.equal(completionCount, 1);
+
+    const persistedConnection = storage.getConnectorConnection({
+      userId: monetInstallId,
+      connectorId: "github",
+      provider: "composio"
+    });
+
+    assert.ok(persistedConnection);
+    assert.equal(persistedConnection.userId, monetInstallId);
+    assert.equal(persistedConnection.connectorId, "github");
+    assert.equal(persistedConnection.provider, "composio");
+    assert.equal(persistedConnection.providerConnectionId, "conn_callback_123");
+    assert.equal(persistedConnection.providerMetadataJson, JSON.stringify({ providerStatus: "ACTIVE", accountId: "acct_callback_123" }));
+    assert.equal(persistedConnection.accountLabel, "Octocat Callback");
+    assert.equal(persistedConnection.status, "connected");
+    assert.equal(persistedConnection.lastConnectedAt, "2026-04-27T11:00:00.000Z");
+    assert.equal(persistedConnection.lastError, null);
+
+    const consumedState = storage.getConnectorOAuthStateByHash(stateHash);
+    assert.ok(consumedState);
+    assert.equal(consumedState.id, oauthState.id);
+    assert.equal(consumedState.consumedAt !== null, true);
+
+    const replayResponse = await app.request(callbackUrl, { method: "GET", redirect: "manual" });
+
+    assert.equal(replayResponse.status, 302);
+    assert.equal(replayResponse.headers.get("location"), "/connectors?connector_oauth=error");
+    assert.equal(completionCount, 1);
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
 });
 
 test("connector OAuth callback rejects consumed, expired, mismatched, and oversized state", async () => {
