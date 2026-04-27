@@ -209,6 +209,60 @@ test("monet install id does not contain personally identifying machine or accoun
   }
 });
 
+test("composio provider settings are persisted and reused", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+
+    const updated = storage.replaceConnectorProviderComposioSettings({
+      apiKey: "  secret-api-key  ",
+      baseUrl: "https://composio.custom.test/",
+      timeoutMs: 15000,
+      authConfigIds: {
+        github: "gh-auth-id",
+        notion: "notion-auth-id",
+        google_drive: "drive-auth-id"
+      }
+    });
+
+    const reopened = createStorage(fixture.databasePath);
+    const restored = reopened.getConnectorProviderComposioSettings();
+
+    assert.equal(reopened.getConnectorProviderComposioSettingsPublic().apiKeyConfigured, true);
+    assert.equal(restored.key, "connector_provider_composio");
+    assert.equal(restored.apiKey, "secret-api-key");
+    assert.equal(restored.baseUrl, "https://composio.custom.test");
+    assert.equal(restored.timeoutMs, 15000);
+    assert.deepEqual(restored.authConfigIds, {
+      github: "gh-auth-id",
+      notion: "notion-auth-id",
+      google_drive: "drive-auth-id"
+    });
+    assert.equal(restored.createdAt, updated.createdAt);
+    assert.equal(restored.updatedAt, updated.updatedAt);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing composio provider settings default to sensible defaults", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const settings = storage.getConnectorProviderComposioSettings();
+
+    assert.equal(settings.key, "connector_provider_composio");
+    assert.equal(settings.apiKey, null);
+    assert.equal(settings.baseUrl, "https://backend.composio.dev");
+    assert.equal(settings.timeoutMs, null);
+    assert.deepEqual(settings.authConfigIds, {});
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("persisted tool outputs are truncated for oversized or file-like payloads", () => {
   const fixture = createStorageFixture();
 

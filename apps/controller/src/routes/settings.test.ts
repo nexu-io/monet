@@ -85,3 +85,81 @@ test("settings routes list and replace authorized directories", async () => {
     fixture.cleanup();
   }
 });
+
+test("settings routes expose and replace composio provider settings", async () => {
+  const fixture = createFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    registerSettingsRoutes(app, {
+      getChatStorage: () => storage
+    });
+
+    const listResponse = await app.request("http://127.0.0.1:42831/api/settings/connectors/composio", {
+      method: "GET"
+    });
+    const listBody = (await listResponse.json()) as {
+      key: string;
+      provider: "composio";
+      apiKeyConfigured: boolean;
+      baseUrl: string;
+      timeoutMs: number | null;
+      authConfigIds: Record<string, string>;
+      updatedAt: string;
+    };
+
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(listBody, {
+      key: "connector_provider_composio",
+      provider: "composio",
+      apiKeyConfigured: false,
+      baseUrl: "https://backend.composio.dev",
+      timeoutMs: null,
+      authConfigIds: {},
+      updatedAt: listBody.updatedAt
+    });
+
+    const replaceResponse = await app.request("http://127.0.0.1:42831/api/settings/connectors/composio", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        apiKey: "  my-key  ",
+        baseUrl: "https://composio.custom.test/",
+        timeoutMs: 5000,
+        authConfigIds: {
+          github: "gh-auth-id",
+          notion: "ntion-id"
+        }
+      })
+    });
+    const replaceBody = (await replaceResponse.json()) as {
+      key: string;
+      provider: "composio";
+      apiKeyConfigured: boolean;
+      baseUrl: string;
+      timeoutMs: number | null;
+      authConfigIds: Record<string, string>;
+      updatedAt: string;
+    };
+
+    assert.equal(replaceResponse.status, 200);
+    assert.deepEqual(replaceBody, {
+      key: "connector_provider_composio",
+      provider: "composio",
+      apiKeyConfigured: true,
+      baseUrl: "https://composio.custom.test",
+      timeoutMs: 5000,
+      authConfigIds: {
+        github: "gh-auth-id",
+        notion: "ntion-id"
+      },
+      updatedAt: replaceBody.updatedAt
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});

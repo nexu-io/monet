@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { PageFrame } from "../../components/page-frame";
 import { useControllerState } from "../../lib/controller-state";
@@ -601,13 +601,12 @@ export default function ConnectorsPage() {
 
     return isConnectorId(value) ? value : undefined;
   }, [searchParams]);
-  const connectorsEnabled = config?.features.connectors ?? false;
   const controllerStatus = controllerState?.state;
   const controllerStarting = controllerStatus === "starting" || controllerStatus === "restarting";
   const controllerOffline = controllerStatus === "failed" || controllerStatus === "stopped";
 
   const refreshConnectors = useCallback(async () => {
-    if (!connectorsEnabled || controllerStarting || controllerOffline) {
+    if (controllerStarting || controllerOffline) {
       return;
     }
 
@@ -622,7 +621,7 @@ export default function ConnectorsPage() {
         message: error instanceof Error ? error.message : "Unable to load connectors."
       });
     }
-  }, [connectorsEnabled, controllerOffline, controllerStarting]);
+  }, [controllerOffline, controllerStarting]);
 
   useEffect(() => {
     if (!config) {
@@ -635,7 +634,7 @@ export default function ConnectorsPage() {
   useEffect(() => {
     const oauthReturnStatus = searchParams.get(connectorOAuthStatusQueryParam);
 
-    if (!isConnectorOAuthReturnStatus(oauthReturnStatus) || !connectorsEnabled || controllerStarting || controllerOffline) {
+    if (!isConnectorOAuthReturnStatus(oauthReturnStatus) || controllerStarting || controllerOffline) {
       return;
     }
 
@@ -677,7 +676,7 @@ export default function ConnectorsPage() {
         return next;
       });
     });
-  }, [connectorsEnabled, controllerOffline, controllerStarting, refreshConnectors, searchParams, setSearchParams]);
+  }, [controllerOffline, controllerStarting, refreshConnectors, searchParams, setSearchParams]);
 
   const openConnectorDetail = useCallback(
     (connectorId: ConnectorId) => {
@@ -796,14 +795,6 @@ export default function ConnectorsPage() {
 
   if (!config) {
     content = <LoadingConnectorsState />;
-  } else if (!connectorsEnabled) {
-    content = (
-      <ConnectorStatePanel
-        eyebrow="Unavailable"
-        title="Connectors are not enabled for this workspace."
-        description="Turn on the connectors feature flag and restart Monet to access external tools from GitHub, Notion, and Google Drive."
-      />
-    );
   } else if (controllerStarting) {
     content = (
       <ConnectorStatePanel
@@ -860,11 +851,14 @@ export default function ConnectorsPage() {
       <ConnectorStatePanel
         eyebrow="Unavailable"
         title="Connector providers are currently unavailable."
-        description="The catalog loaded, but none of the configured connector providers are available from this workspace. Check provider configuration and try again."
+        description="Add your Composio API key and connector auth config IDs in Settings to enable GitHub, Notion, and Google Drive."
         action={
-          <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors()}>
-            Refresh status
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link className={secondaryButtonClassName} to="/settings/connectors">Configure connectors</Link>
+            <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors()}>
+              Refresh status
+            </button>
+          </div>
         }
       />
     );
@@ -879,7 +873,7 @@ export default function ConnectorsPage() {
       description="Connect approved external services so Monet can use curated tools with safe approval policies."
     >
       {content}
-      {connectorsEnabled && selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} onDisconnected={refreshConnectors} /> : null}
+      {selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} onDisconnected={refreshConnectors} /> : null}
     </PageFrame>
   );
 }

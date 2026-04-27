@@ -43,47 +43,14 @@ test("uses explicit tool allowed directories when configured", () => {
   assert.equal(config.allowedToolDirectoriesSource, "env");
 });
 
-test("loads Composio connector provider config from controller environment only", () => {
-  const config = createControllerConfig(
-    createEnv({
-      COMPOSIO_API_KEY: "ignored-upstream-key",
-      MONET_COMPOSIO_API_KEY: " monet-composio-key ",
-      MONET_COMPOSIO_BASE_URL: "https://api.example.test/composio/",
-      MONET_COMPOSIO_TIMEOUT_MS: "2500",
-      MONET_COMPOSIO_GITHUB_AUTH_CONFIG_ID: " github-auth ",
-      MONET_COMPOSIO_NOTION_AUTH_CONFIG_ID: "notion-auth",
-      MONET_COMPOSIO_GOOGLE_DRIVE_AUTH_CONFIG_ID: "drive-auth",
-      VITE_MONET_COMPOSIO_API_KEY: "renderer-key-must-not-be-read"
-    })
-  );
+test("uses default Composio connector provider config", () => {
+  const config = createControllerConfig(createEnv());
 
   assert.equal(config.connectorProvider.provider, "composio");
-  assert.equal(config.connectorProvider.composio.apiKey, "monet-composio-key");
-  assert.equal(config.connectorProvider.composio.baseUrl, "https://api.example.test/composio");
-  assert.equal(config.connectorProvider.composio.timeoutMs, 2500);
-  assert.deepEqual(config.connectorProvider.composio.authConfigIds, {
-    github: "github-auth",
-    notion: "notion-auth",
-    google_drive: "drive-auth"
-  });
-});
-
-test("falls back to the standard Composio environment key and default base URL", () => {
-  const config = createControllerConfig(
-    createEnv({
-      COMPOSIO_API_KEY: "standard-composio-key"
-    })
-  );
-
-  assert.equal(config.connectorProvider.composio.apiKey, "standard-composio-key");
+  assert.equal(config.connectorProvider.composio.apiKey, null);
   assert.equal(config.connectorProvider.composio.baseUrl, "https://backend.composio.dev");
-});
-
-test("rejects unsupported connector providers", () => {
-  assert.throws(
-    () => createControllerConfig(createEnv({ MONET_CONNECTOR_PROVIDER: "pipedream" })),
-    /MONET_CONNECTOR_PROVIDER must be composio/
-  );
+  assert.equal(config.connectorProvider.composio.timeoutMs, null);
+  assert.deepEqual(config.connectorProvider.composio.authConfigIds, {});
 });
 
 test("uses explicit session workspace base directory when configured", () => {

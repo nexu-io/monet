@@ -41,13 +41,7 @@ const readyControllerState: ControllerStatePayload = {
 const enabledConfig: MonetClientConfig = {
   apiBase: "http://127.0.0.1:42831",
   bearerToken: null,
-  features: { connectors: true },
   source: "default"
-};
-
-const disabledConfig: MonetClientConfig = {
-  ...enabledConfig,
-  features: { connectors: false }
 };
 
 const connectorCards: ConnectorCatalogCard[] = [
@@ -183,16 +177,23 @@ describe("ConnectorsPage", () => {
     expect(screen.getByRole("button", { name: "View GitHub tools" })).toBeEnabled();
     expect(screen.getAllByText("Connected as")).toHaveLength(2);
     expect(screen.getByText("docs@example.com")).toBeInTheDocument();
+    expect(listConnectorsMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not fetch connector catalog and shows a feature flag message when disabled", async () => {
-    setControllerState(disabledConfig);
+  it("links to connector settings when provider configuration is missing", async () => {
+    listConnectorsMock.mockResolvedValue({
+      connectors: connectorCards.map((connector) => ({
+        ...connector,
+        status: "unavailable" as const,
+        connectedAccountLabel: undefined
+      }))
+    });
 
     renderConnectorsPage();
 
-    expect(await screen.findByRole("heading", { name: "Connectors are not enabled for this workspace." })).toBeInTheDocument();
-    expect(listConnectorsMock).not.toHaveBeenCalled();
-    expect(screen.queryByRole("heading", { name: "GitHub" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Connector providers are currently unavailable." })).toBeInTheDocument();
+    expect(screen.getByText(/Add your Composio API key/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Configure connectors" })).toHaveAttribute("href", "/settings/connectors");
   });
 
   it("starts a connector authorization flow and opens provider redirects safely", async () => {

@@ -90,11 +90,9 @@ Provider-specific mappings:
 
 ### 3.4 V1 provider credential model
 
-V1 supports provider API keys through controller-side environment/config only. Provider secrets are never exposed to the web UI or renderer process.
+V1 supports connector provider API keys through productized local settings only. Composio API keys and auth config IDs are configured from Settings, persisted locally, and must not be read from environment variables.
 
-This means v1 is suitable for local development, dogfooding, and controlled distribution where the user/operator configures the provider key locally. A production shared-key model would require a hosted proxy so the desktop app never ships with an extractable shared provider credential; that hosted proxy is out of scope for this spec.
-
-Settings UI for provider credentials is also out of scope for v1 unless the product explicitly chooses a BYOK model.
+This means v1 uses a BYOK model for local development, dogfooding, and controlled distribution. A production shared-key model would require a hosted proxy so the desktop app never ships with an extractable shared provider credential; that hosted proxy is out of scope for this spec.
 
 ### 3.5 Stable local identity
 
@@ -166,16 +164,14 @@ Initial connector cards:
 - The nav item is active for `/connectors` and connector detail drawer states.
 - Filters and category chips are optional in v1. If only GitHub, Notion, and Google Drive are available, ship a simple card grid first.
 
-### 4.4 Feature flag
+### 4.4 Availability
 
-Ship connectors behind a `features.connectors` flag.
+Ship connectors as an always-on capability.
 
-When disabled:
-
-- Hide the sidebar item.
-- Return 404 from connector routes.
-- Do not mount the connector tool source.
-- Do not include connector tools in chat runtime tool composition.
+- Always show the sidebar item.
+- Always mount connector routes.
+- Always mount the connector tool source.
+- Include connected connector tools in chat runtime tool composition.
 
 ## 5. Target Architecture
 
@@ -601,7 +597,7 @@ Functions:
 
 1. Add `ConnectorProvider` interface.
 2. Add `ComposioConnectorProvider` as the first adapter.
-3. Add controller-side provider configuration through environment/local config only.
+3. Add productized local provider configuration through Settings.
 4. Generate and persist `monet_install_id`.
 5. Implement connection start with single-use OAuth state.
 6. Implement custom protocol or otherwise auth-safe callback verification.
@@ -635,14 +631,14 @@ Functions:
 
 ## 11. Security and Privacy Requirements
 
-1. Provider API keys and OAuth secrets must remain in the controller/main process environment, never the renderer.
+1. Provider API keys and OAuth secrets must remain in controller-owned local settings and must not be configured through environment variables.
 2. Do not expose provider refresh tokens to the UI.
 3. Do not log OAuth codes, access tokens, refresh tokens, provider API keys, or raw authorization headers.
 4. Tool arguments should be redacted where they may contain secrets or personal data.
 5. All write-capable tools require explicit user approval by default.
 6. Connector disconnect should revoke provider-managed credentials when the provider supports it.
 7. Use a stable local user identifier when calling provider APIs (`user_id` / `external_user_id`) rather than email addresses.
-8. Provider secrets should be configured only through controller-side environment/local config in v1.
+8. Provider secrets should be configured only through productized local Settings in v1.
 9. OAuth callbacks must validate single-use, short-lived state before completing connection.
 10. Logs may include connector ID, tool name, duration, status, and normalized error code.
 11. Logs must not include OAuth codes, access tokens, refresh tokens, provider API keys, raw arguments, or raw tool results.

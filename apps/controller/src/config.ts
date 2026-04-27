@@ -19,16 +19,11 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
-  readonly features: FeatureConfig;
   readonly connectorProvider: ConnectorProviderConfig;
   readonly sessionWorkspaceBaseDirectory: string;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
   readonly openrouterApiKey: string | null;
-}
-
-export interface FeatureConfig {
-  readonly connectors: boolean;
 }
 
 export interface AgentRuntimeConfig {
@@ -87,16 +82,13 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       maxToolCallsPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_TOOL_CALLS_PER_RUN, defaultAgentMaxToolCallsPerRun)
     },
     bearerToken,
-    features: {
-      connectors: parseBooleanWithDefault(env.MONET_FEATURE_CONNECTORS, false)
-    },
     connectorProvider: {
-      provider: parseConnectorProvider(env.MONET_CONNECTOR_PROVIDER),
+      provider: "composio",
       composio: {
-        apiKey: parseOptionalString(env.MONET_COMPOSIO_API_KEY) ?? parseOptionalString(env.COMPOSIO_API_KEY),
-        baseUrl: parseUrl(env.MONET_COMPOSIO_BASE_URL) ?? parseUrl(env.COMPOSIO_BASE_URL) ?? "https://backend.composio.dev",
-        timeoutMs: parseInteger(env.MONET_COMPOSIO_TIMEOUT_MS),
-        authConfigIds: parseComposioAuthConfigIds(env)
+        apiKey: null,
+        baseUrl: "https://backend.composio.dev",
+        timeoutMs: null,
+        authConfigIds: {}
       }
     },
     host,
@@ -117,30 +109,6 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
     },
     openrouterApiKey: parseOptionalString(env.MONET_OPENROUTER_API_KEY) ?? parseOptionalString(env.OPENROUTER_API_KEY)
   };
-}
-
-function parseComposioAuthConfigIds(env: NodeJS.ProcessEnv): Partial<Record<ConnectorId, string>> {
-  return {
-    ...withOptionalConnectorAuthConfigId("github", env.MONET_COMPOSIO_GITHUB_AUTH_CONFIG_ID),
-    ...withOptionalConnectorAuthConfigId("notion", env.MONET_COMPOSIO_NOTION_AUTH_CONFIG_ID),
-    ...withOptionalConnectorAuthConfigId("google_drive", env.MONET_COMPOSIO_GOOGLE_DRIVE_AUTH_CONFIG_ID)
-  };
-}
-
-function withOptionalConnectorAuthConfigId(connectorId: ConnectorId, value: string | undefined): Partial<Record<ConnectorId, string>> {
-  const parsed = parseOptionalString(value);
-
-  return parsed ? { [connectorId]: parsed } : {};
-}
-
-function parseConnectorProvider(value: string | undefined): ConnectorProviderType {
-  const normalized = value?.trim().toLowerCase() || "composio";
-
-  if (normalized !== "composio") {
-    throw new Error(`MONET_CONNECTOR_PROVIDER must be composio, received: ${value}`);
-  }
-
-  return normalized;
 }
 
 function resolveSessionWorkspaceBaseDirectory(env: NodeJS.ProcessEnv): string {

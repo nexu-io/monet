@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import type { UIMessage } from "ai";
+import type { ConnectorId } from "./connectors/catalog";
 
 const DEFAULT_SESSION_TITLE = "New chat";
 const CURRENT_UI_MESSAGE_SCHEMA_VERSION = "v1";
@@ -98,6 +99,23 @@ interface LocalAppSettingRow {
   readonly value: string;
   readonly created_at: string;
   readonly updated_at: string;
+}
+
+interface ConnectorProviderComposioSettingsRow {
+  readonly apiKey: string | null;
+  readonly baseUrl: string;
+  readonly timeoutMs: number | null;
+  readonly authConfigIds: Partial<Record<ConnectorId, string>>;
+}
+
+interface ConnectorProviderComposioSettingsStorage {
+  readonly key: string;
+  readonly apiKey: string | null;
+  readonly baseUrl: string;
+  readonly timeoutMs: number | null;
+  readonly authConfigIds: Partial<Record<ConnectorId, string>>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 interface ConnectorConnectionRow {
@@ -338,6 +356,33 @@ export interface StoredConnectorOAuthState {
   readonly createdAt: string;
 }
 
+export interface StoredConnectorProviderComposioSettings {
+  readonly key: string;
+  readonly apiKey: string | null;
+  readonly baseUrl: string;
+  readonly timeoutMs: number | null;
+  readonly authConfigIds: Partial<Record<ConnectorId, string>>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface StoredPublicConnectorProviderComposioSettings {
+  readonly key: string;
+  readonly provider: "composio";
+  readonly apiKeyConfigured: boolean;
+  readonly baseUrl: string;
+  readonly timeoutMs: number | null;
+  readonly authConfigIds: Partial<Record<ConnectorId, string>>;
+  readonly updatedAt: string;
+}
+
+export interface ReplaceConnectorProviderComposioSettingsInput {
+  readonly apiKey?: string | null | undefined;
+  readonly baseUrl?: string | undefined;
+  readonly timeoutMs?: number | null | undefined;
+  readonly authConfigIds?: Partial<Record<ConnectorId, string | undefined>> | undefined;
+}
+
 export interface CreateProviderInput {
   readonly type: ProviderType;
   readonly displayName: string;
@@ -416,6 +461,9 @@ export interface ChatStorage {
   completeConnectorOAuthConnection(input: CompleteConnectorOAuthConnectionInput): StoredConnectorConnection;
   listAuthorizedDirectories(): StoredAuthorizedDirectory[];
   replaceAuthorizedDirectories(paths: readonly string[]): StoredAuthorizedDirectory[];
+  getConnectorProviderComposioSettings(): StoredConnectorProviderComposioSettings;
+  getConnectorProviderComposioSettingsPublic(): StoredPublicConnectorProviderComposioSettings;
+  replaceConnectorProviderComposioSettings(input: ReplaceConnectorProviderComposioSettingsInput): StoredConnectorProviderComposioSettings;
   listSessions(): StoredSession[];
   createSession(input: CreateSessionInput): StoredSession;
   getSessionDetail(sessionId: string): StoredSessionDetail;
@@ -717,6 +765,70 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       }
 
       return this.listAuthorizedDirectories();
+    },
+
+    getConnectorProviderComposioSettings() {
+      return getConnectorProviderComposioSettings(connection);
+    },
+
+    getConnectorProviderComposioSettingsPublic() {
+      const settings = getConnectorProviderComposioSettings(connection);
+
+      return {
+        key: settings.key,
+        provider: "composio",
+        apiKeyConfigured: settings.apiKey !== null,
+        baseUrl: settings.baseUrl,
+        timeoutMs: settings.timeoutMs,
+        authConfigIds: settings.authConfigIds,
+        updatedAt: settings.updatedAt
+      };
+    },
+
+    replaceConnectorProviderComposioSettings(input) {
+      const now = new Date().toISOString();
+      const existing = getLocalAppSettingRow(connection, COMPOSIO_PROVIDER_SETTINGS_KEY);
+      const existingSettings = getConnectorProviderComposioSettings(connection);
+
+      const payload = parseConnectorProviderComposioSettingsInput(input, existingSettings);
+      const createdAt = existing?.created_at ?? now;
+      const settings: ConnectorProviderComposioSettingsStorage = {
+        key: COMPOSIO_PROVIDER_SETTINGS_KEY,
+        apiKey: payload.apiKey,
+        baseUrl: payload.baseUrl,
+        timeoutMs: payload.timeoutMs,
+        authConfigIds: payload.authConfigIds,
+        createdAt,
+        updatedAt: now
+      };
+      const normalized = normalizeConnectorProviderComposioSettings(settings);
+
+      connection
+        .prepare(
+          `INSERT INTO local_app_settings ("key", value, created_at, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT("key") DO UPDATE SET
+             value = excluded.value,
+             updated_at = excluded.updated_at`
+        )
+        .run(
+          normalized.key,
+          JSON.stringify(
+            toConnectorProviderComposioStoragePayload({
+              key: normalized.key,
+              apiKey: normalized.apiKey,
+              baseUrl: normalized.baseUrl,
+              timeoutMs: normalized.timeoutMs,
+              authConfigIds: normalized.authConfigIds,
+              createdAt: normalized.createdAt,
+              updatedAt: normalized.updatedAt
+            })
+          ),
+          normalized.createdAt,
+          normalized.updatedAt
+        );
+
+      return getConnectorProviderComposioSettings(connection);
     },
 
     listSessions() {
@@ -1949,6 +2061,179 @@ function cancelPendingConnectorApprovals(connection: DatabaseSync, connectorId: 
   return Number(result.changes);
 }
 
+const COMPOSIO_PROVIDER_SETTINGS_KEY = "connector_provider_composio";
+const DEFAULT_COMPOSIO_PROVIDER_SETTINGS: ConnectorProviderComposioSettingsRow = {
+  apiKey: null,
+  baseUrl: "https://backend.composio.dev",
+  timeoutMs: null,
+  authConfigIds: {}
+};
+
+function getConnectorProviderComposioSettings(connection: DatabaseSync): StoredConnectorProviderComposioSettings {
+  const row = getLocalAppSettingRow(connection, COMPOSIO_PROVIDER_SETTINGS_KEY);
+  const defaults = parseConnectorProviderComposioSettings({
+    apiKey: DEFAULT_COMPOSIO_PROVIDER_SETTINGS.apiKey,
+    baseUrl: DEFAULT_COMPOSIO_PROVIDER_SETTINGS.baseUrl,
+    timeoutMs: DEFAULT_COMPOSIO_PROVIDER_SETTINGS.timeoutMs,
+    authConfigIds: DEFAULT_COMPOSIO_PROVIDER_SETTINGS.authConfigIds
+  });
+
+  if (!row) {
+    const now = new Date().toISOString();
+
+    return {
+      key: COMPOSIO_PROVIDER_SETTINGS_KEY,
+      apiKey: defaults.apiKey,
+      baseUrl: defaults.baseUrl,
+      timeoutMs: defaults.timeoutMs,
+      authConfigIds: defaults.authConfigIds,
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  const parsed = parseConnectorProviderComposioSettings(row.value);
+
+  return {
+    key: COMPOSIO_PROVIDER_SETTINGS_KEY,
+    apiKey: parsed.apiKey,
+    baseUrl: parsed.baseUrl,
+    timeoutMs: parsed.timeoutMs,
+    authConfigIds: parsed.authConfigIds,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function parseConnectorProviderComposioSettings(value: string | ConnectorProviderComposioSettingsRow): ConnectorProviderComposioSettingsRow {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as Partial<ConnectorProviderComposioSettingsStorage>;
+        const baseUrl = parseConnectorProviderComposioBaseUrl(record.baseUrl) ?? DEFAULT_COMPOSIO_PROVIDER_SETTINGS.baseUrl;
+        const timeoutMs = parseConnectorProviderComposioTimeoutMs(record.timeoutMs);
+
+        return {
+          apiKey: parseConnectorProviderComposioApiKey(record.apiKey),
+          baseUrl,
+          timeoutMs,
+          authConfigIds: normalizeConnectorProviderComposioAuthConfigIds(record.authConfigIds)
+        };
+      }
+    } catch {
+      // fallthrough to defaults
+    }
+  }
+
+  return {
+    apiKey: parseConnectorProviderComposioApiKey((value as ConnectorProviderComposioSettingsRow).apiKey),
+    baseUrl: parseConnectorProviderComposioBaseUrl((value as ConnectorProviderComposioSettingsRow).baseUrl) ?? DEFAULT_COMPOSIO_PROVIDER_SETTINGS.baseUrl,
+    timeoutMs: parseConnectorProviderComposioTimeoutMs((value as ConnectorProviderComposioSettingsRow).timeoutMs),
+    authConfigIds: normalizeConnectorProviderComposioAuthConfigIds((value as ConnectorProviderComposioSettingsRow).authConfigIds)
+  };
+}
+
+function normalizeConnectorProviderComposioSettings(
+  input: Readonly<ConnectorProviderComposioSettingsStorage>
+): StoredConnectorProviderComposioSettings {
+  return {
+    key: input.key,
+    apiKey: parseConnectorProviderComposioApiKey(input.apiKey),
+    baseUrl:
+      parseConnectorProviderComposioBaseUrl(input.baseUrl) ??
+      parseConnectorProviderComposioBaseUrl(DEFAULT_COMPOSIO_PROVIDER_SETTINGS.baseUrl) ??
+      DEFAULT_COMPOSIO_PROVIDER_SETTINGS.baseUrl,
+    timeoutMs: parseConnectorProviderComposioTimeoutMs(input.timeoutMs),
+    authConfigIds: normalizeConnectorProviderComposioAuthConfigIds(input.authConfigIds),
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt
+  };
+}
+
+function parseConnectorProviderComposioSettingsInput(
+  input: ReplaceConnectorProviderComposioSettingsInput,
+  existing: StoredConnectorProviderComposioSettings
+): ConnectorProviderComposioSettingsStorage {
+  const now = new Date().toISOString();
+
+  return {
+    key: COMPOSIO_PROVIDER_SETTINGS_KEY,
+    apiKey: input.apiKey === undefined ? existing.apiKey : parseConnectorProviderComposioApiKey(input.apiKey),
+    baseUrl: input.baseUrl === undefined ? existing.baseUrl : parseConnectorProviderComposioBaseUrl(input.baseUrl) ?? DEFAULT_COMPOSIO_PROVIDER_SETTINGS.baseUrl,
+    timeoutMs: input.timeoutMs === undefined ? existing.timeoutMs : parseConnectorProviderComposioTimeoutMs(input.timeoutMs),
+    authConfigIds: input.authConfigIds === undefined ? existing.authConfigIds : normalizeConnectorProviderComposioAuthConfigIds(input.authConfigIds),
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function parseConnectorProviderComposioApiKey(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function parseConnectorProviderComposioBaseUrl(value: unknown): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : null;
+
+  if (!trimmed) {
+    return null;
+  }
+
+  return trimmed.replace(/\/+$/, "");
+}
+
+function parseConnectorProviderComposioTimeoutMs(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return DEFAULT_COMPOSIO_PROVIDER_SETTINGS.timeoutMs;
+  }
+
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return DEFAULT_COMPOSIO_PROVIDER_SETTINGS.timeoutMs;
+}
+
+function normalizeConnectorProviderComposioAuthConfigIds(value: unknown): Partial<Record<ConnectorId, string>> {
+  const normalized: Partial<Record<ConnectorId, string>> = {};
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return normalized;
+  }
+
+  for (const [key, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    if (key !== "github" && key !== "notion" && key !== "google_drive") {
+      continue;
+    }
+
+    const parsedValue = parseConnectorProviderComposioApiKey(rawValue);
+
+    if (parsedValue) {
+      normalized[key] = parsedValue;
+    }
+  }
+
+  return normalized;
+}
+
+function toConnectorProviderComposioStoragePayload(settings: StoredConnectorProviderComposioSettings) {
+  return {
+    apiKey: settings.apiKey,
+    baseUrl: settings.baseUrl,
+    timeoutMs: settings.timeoutMs,
+    authConfigIds: settings.authConfigIds
+  };
+}
+
 function ensureMonetInstallId(connection: DatabaseSync): string {
   const existingInstallId = getMonetInstallIdRow(connection)?.value.trim();
 
@@ -1980,15 +2265,19 @@ function getMonetInstallId(connection: DatabaseSync): string {
   return installId;
 }
 
-function getMonetInstallIdRow(connection: DatabaseSync) {
+function getLocalAppSettingRow(connection: DatabaseSync, key: string) {
   return connection
     .prepare(
       `SELECT key, value, created_at, updated_at
        FROM local_app_settings
-       WHERE key = 'monet_install_id'
+       WHERE key = ?
        LIMIT 1`
     )
-    .get() as LocalAppSettingRow | undefined;
+    .get(key) as LocalAppSettingRow | undefined;
+}
+
+function getMonetInstallIdRow(connection: DatabaseSync) {
+  return getLocalAppSettingRow(connection, "monet_install_id");
 }
 
 function bootstrapSchema(connection: DatabaseSync) {

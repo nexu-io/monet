@@ -24,7 +24,6 @@ import { createToolRegistry, type ToolRegistry } from "./tools/registry";
 import type {
   AgentRuntimeConfig,
   ConnectorProviderConfig,
-  FeatureConfig,
   OpenAIProviderConfig,
   OpenRouterProviderConfig
 } from "./config";
@@ -37,7 +36,6 @@ export interface CreateControllerAppOptions {
   readonly bearerToken: string;
   readonly databasePath: string;
   readonly connectorProvider: ConnectorProviderConfig;
-  readonly features: FeatureConfig;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
   readonly openrouterApiKey: string | null;
@@ -145,14 +143,13 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   chatStorage.replaceAuthorizedDirectories(effectiveAllowedToolDirectories);
   const runRegistry = createRunRegistry();
   const toolRegistry = createToolRegistry([], {
-    features: options.features,
     sources: [
       createBuiltinToolSource({
         allowedDirectories: effectiveAllowedToolDirectories,
         getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
         getControllerPort: () => controllerPort
       }),
-      ...(options.features.connectors ? [createConnectorToolSource({ provider: connectorProvider })] : [])
+      createConnectorToolSource({ provider: connectorProvider })
     ]
   });
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
@@ -188,36 +185,6 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       }
     }
   });
-
-  if (!options.features.connectors) {
-    app.use("/connectors/oauth/callback/*", async (context) => {
-      return context.json(
-        {
-          error: "not_found",
-          message: "Route not found."
-        },
-        404
-      );
-    });
-    app.use("/api/connectors", async (context) => {
-      return context.json(
-        {
-          error: "not_found",
-          message: "Route not found."
-        },
-        404
-      );
-    });
-    app.use("/api/connectors/*", async (context) => {
-      return context.json(
-        {
-          error: "not_found",
-          message: "Route not found."
-        },
-        404
-      );
-    });
-  }
 
   app.use(
     "/api/*",
@@ -304,9 +271,6 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     hasAllowedOrigins: options.allowedOrigins.length > 0,
     allowedToolDirectoryCount: effectiveAllowedToolDirectories.length,
     databasePath: options.databasePath,
-    features: {
-      connectors: options.features.connectors
-    },
     interruptedRunCount: recoveredRuns.interruptedRunIds.length,
     failedPendingRunCount: recoveredRuns.failedRunIds.length,
     port: options.port

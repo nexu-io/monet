@@ -8,10 +8,6 @@ interface ControllerStatePayload {
   readonly restartAvailable?: boolean;
 }
 
-interface FeatureConfig {
-  readonly connectors: boolean;
-}
-
 interface UpdateStatePayload {
   readonly state: "unsupported" | "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
   readonly message: string;
@@ -74,7 +70,6 @@ interface OpenExternalUrlResult {
 const runtimeInfo = ipcRenderer.sendSync("monet:get-runtime-info-sync") as {
   readonly apiBase?: string;
   readonly bearerToken?: string | null;
-  readonly features?: FeatureConfig;
 };
 
 let apiBase = runtimeInfo.apiBase ?? getArgumentValue("--monet-api-base=");
@@ -126,8 +121,7 @@ contextBridge.exposeInMainWorld("monetDesktop", {
   getRuntimeInfo() {
     return {
       apiBase,
-      bearerToken,
-      features: runtimeInfo.features
+      bearerToken
     };
   },
   async request(input: string, init?: RequestInit): Promise<PreloadRequestResult> {

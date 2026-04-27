@@ -48,18 +48,17 @@ vi.mock("./session-provider", () => ({
   })
 }));
 
-function createConfig(connectors: boolean): MonetClientConfig {
+function createConfig(): MonetClientConfig {
   return {
     apiBase: "http://127.0.0.1:42831",
     bearerToken: null,
-    features: { connectors },
     source: "default"
   };
 }
 
-function renderShell({ connectorsEnabled, pathname = "/" }: { readonly connectorsEnabled: boolean; readonly pathname?: string }) {
+function renderShell({ pathname = "/" }: { readonly pathname?: string }) {
   useControllerStateMock.mockReturnValue({
-    config: createConfig(connectorsEnabled),
+    config: createConfig(),
     isDesktop: false
   });
 
@@ -79,18 +78,23 @@ describe("AppShell connector navigation", () => {
     cleanup();
   });
 
-  it("shows connector sidebar navigation when the feature flag is enabled", () => {
-    renderShell({ connectorsEnabled: true, pathname: "/connectors" });
+  it("shows connector sidebar navigation", () => {
+    renderShell({ pathname: "/connectors" });
 
     const connectorsLink = screen.getByRole("link", { name: /connectors/i });
     expect(connectorsLink).toBeInTheDocument();
     expect(connectorsLink).toHaveAttribute("href", "/connectors");
   });
 
-  it("keeps connector sidebar navigation hidden when the feature flag is disabled", () => {
-    renderShell({ connectorsEnabled: false, pathname: "/connectors" });
+  it("keeps settings navigation available", () => {
+    renderShell({ pathname: "/connectors" });
 
-    expect(screen.queryByRole("link", { name: /connectors/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
+  });
+
+  it("highlights settings independently", () => {
+    renderShell({ pathname: "/settings/general" });
+
     expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
   });
 });

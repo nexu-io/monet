@@ -9,6 +9,7 @@ import { createControllerConfig } from "./config";
 import { createChatStorage } from "./chat-storage";
 import { createLogger } from "./logger";
 import { createSessionWorkspaceService } from "./session-workspace-service";
+import { hashConnectorOAuthState } from "./connectors/oauth-state";
 
 function createAppFixture() {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-app-tests-"));
@@ -50,7 +51,6 @@ function createStorage(databasePath: string) {
 
 function createControllerAppOptions(
   fixture: ReturnType<typeof createAppFixture>,
-  connectors: boolean,
   options: Partial<{
     allowedToolDirectories: readonly string[];
     allowedToolDirectoriesSource: "default" | "env";
@@ -70,16 +70,17 @@ function createControllerAppOptions(
     connectorProvider: {
       provider: "composio" as const,
       composio: {
-        apiKey: null,
+        apiKey: "dummy-connectors-api-key",
         baseUrl: "https://backend.composio.dev",
         timeoutMs: null,
-        authConfigIds: {}
+        authConfigIds: {
+          github: "github",
+          notion: "notion",
+          google_drive: "google_drive"
+        }
       }
     },
     databasePath: fixture.databasePath,
-    features: {
-      connectors
-    },
     openai: {
       apiKey: null,
       baseUrl: null,
@@ -125,14 +126,15 @@ const testControllerOptions = {
   connectorProvider: {
     provider: "composio" as const,
     composio: {
-      apiKey: null,
+      apiKey: "dummy-connectors-api-key",
       baseUrl: "https://backend.composio.dev",
       timeoutMs: null,
-      authConfigIds: {}
+      authConfigIds: {
+        github: "github",
+        notion: "notion",
+        google_drive: "google_drive"
+      }
     }
-  },
-  features: {
-    connectors: false
   },
   openai: {
     apiKey: null,
@@ -162,7 +164,7 @@ test("controller app keeps persisted authorized directories when env uses defaul
     const storage = createStorage(fixture.databasePath);
     storage.replaceAuthorizedDirectories([fixture.persistedDir]);
 
-    createControllerApp(createControllerAppOptions(fixture, false));
+    createControllerApp(createControllerAppOptions(fixture));
 
     const reopenedStorage = createStorage(fixture.databasePath);
 
@@ -254,61 +256,102 @@ test("controller app honors MONET_TOOL_ALLOWED_DIRECTORIES over persisted author
   }
 });
 
-test("controller app returns 404 for connector routes when connectors feature is disabled", async () => {
+test("controller app exposes connectors API routes", async () => {
   const fixture = createAppFixture();
 
   try {
-    const { app } = createControllerApp(createControllerAppOptions(fixture, false));
-    const cases = [
-      { method: "GET", path: "/api/connectors" },
-      { method: "GET", path: "/api/connectors/github" },
-      { method: "POST", path: "/api/connectors/github/connect" },
-      { method: "DELETE", path: "/api/connectors/github/connection" },
-      { method: "GET", path: "/connectors/oauth/callback/composio" }
-    ] as const;
+    const { app } = createControllerApp(createControllerAppOptions(fixture));
+    const response = await app.request("http://127.0.0.1:42831/api/connectors", {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer test-token",
+        Host: "127.0.0.1:42831"
+      }
+    });
 
-    for (const { method, path } of cases) {
-      const response = await app.request(`http://127.0.0.1:42831${path}`, {
-        method,
-        headers: {
-          authorization: "Bearer test-token"
-        }
-      });
-
-      assert.equal(response.status, 404, `${method} ${path}`);
-      assert.deepEqual(
-        await response.json(),
-        {
-          error: "not_found",
-          message: "Route not found."
-        },
-        `${method} ${path}`
-      );
-    }
+    assert.equal(response.status, 200, "/api/connectors");
+    assert.equal(
+      Array.isArray((await response.json() as { readonly connectors: unknown[] }).connectors),
+      true,
+      "connectors response"
+    );
   } finally {
     fixture.cleanup();
   }
 });
 
-test("controller app excludes ConnectorToolSource from chat runtime tools when connectors feature is disabled", async () => {
+test("controller app includes ConnectorToolSource in chat runtime tools", async () => {
   const fixture = createAppFixture();
 
   try {
-    const runtime = createControllerApp(createControllerAppOptions(fixture, false));
-
-    const runtimeTools = await runtime.toolRegistry.createRuntimeTools({
-      runId: "run_disabled_connectors",
-      sessionId: "run_disabled_connectors_session",
-      sessionWorkspacePath: join(fixture.sessionWorkspaceBaseDirectory, "run_disabled_connectors_session", "workspace"),
-      chatStorage: runtime.chatStorage,
-      logger: createLogger("test"),
-      abortSignal: new AbortController().signal
+    const runtime = createControllerApp(createControllerAppOptions(fixture));
+    const userId = runtime.chatStorage.getMonetInstallId();
+    runtime.chatStorage.replaceConnectorProviderComposioSettings({
+      apiKey: "dummy-connectors-api-key",
+      authConfigIds: {
+        github: "github"
+      }
+    });
+    const connectorOauthState = runtime.chatStorage.createConnectorOAuthState({
+      stateHash: hashConnectorOAuthState("test-connection-state"),
+      userId,
+      connectorId: "github",
+      provider: "composio",
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
     });
 
-    assert.equal(
-      Object.keys(runtimeTools).some((toolName) => /^(github|notion|google_drive)_/.test(toolName)),
-      false
-    );
+    runtime.chatStorage.completeConnectorOAuthConnection({
+      oauthStateId: connectorOauthState.id,
+      userId,
+      connectorId: "github",
+      provider: "composio",
+      providerConnectionId: "conn_test_github",
+      providerMetadataJson: null,
+      accountLabel: "octocat@example.com",
+      status: "connected",
+      lastConnectedAt: new Date().toISOString(),
+      lastError: null
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, options) => {
+      const url = input instanceof Request ? new URL(input.url) : new URL(input);
+
+      if (url.hostname === "backend.composio.dev" && url.pathname === "/api/v3.1/tools") {
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                slug: "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER",
+                toolkit: { slug: "GITHUB" },
+                description: "List repositories"
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      return originalFetch(input, options);
+    }) as typeof globalThis.fetch;
+
+    try {
+      const runtimeTools = await runtime.toolRegistry.createRuntimeTools({
+        runId: "run_connectors_enabled",
+        sessionId: "run_connectors_enabled_session",
+        sessionWorkspacePath: join(fixture.sessionWorkspaceBaseDirectory, "run_connectors_enabled_session", "workspace"),
+        chatStorage: runtime.chatStorage,
+        logger: createLogger("test"),
+        abortSignal: new AbortController().signal
+      });
+
+      assert.equal(
+        Object.keys(runtimeTools).some((toolName) => /^github_/.test(toolName)),
+        true
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   } finally {
     fixture.cleanup();
   }

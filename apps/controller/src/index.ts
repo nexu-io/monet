@@ -50,7 +50,6 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     bearerToken: config.bearerToken,
     connectorProvider: config.connectorProvider,
     databasePath: config.databasePath,
-    features: config.features,
     openai: config.openai,
     openrouter: config.openrouter,
     openrouterApiKey: config.openrouterApiKey,

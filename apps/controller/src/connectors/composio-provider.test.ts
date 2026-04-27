@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { StoredConnectorConnection } from "../chat-storage";
+import type { StoredConnectorProviderComposioSettings } from "../chat-storage";
 import { ComposioConnectorProvider } from "./composio-provider";
 import { ConnectorProviderError } from "./errors";
 
@@ -155,12 +156,25 @@ function jsonResponse(value: unknown, status = 200): Response {
 }
 
 function createStorage(connections: Partial<Record<"github" | "notion" | "google_drive", StoredConnectorConnection>>) {
+  const composioSettings: StoredConnectorProviderComposioSettings = {
+    key: "connector_provider_composio",
+    apiKey: "composio-api-key",
+    baseUrl: "https://composio.test",
+    timeoutMs: null,
+    authConfigIds: { github: "github-auth-config", notion: "notion-auth-config", google_drive: "drive-auth-config" },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
   return {
     createConnectorOAuthState() {
       throw new Error("not used");
     },
     getConnectorConnection(input: { connectorId: "github" | "notion" | "google_drive" }) {
       return connections[input.connectorId] ?? null;
+    },
+    getConnectorProviderComposioSettings() {
+      return composioSettings;
     }
   } as never;
 }

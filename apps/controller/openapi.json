@@ -689,6 +689,104 @@
           "paths"
         ]
       },
+      "ConnectorProviderComposioSettingsAuthConfigIds": {
+        "type": "object",
+        "properties": {
+          "github": {
+            "type": "string",
+            "minLength": 1,
+            "example": "github-auth-config-id"
+          },
+          "notion": {
+            "type": "string",
+            "minLength": 1,
+            "example": "notion-auth-config-id"
+          },
+          "google_drive": {
+            "type": "string",
+            "minLength": 1,
+            "example": "google-drive-auth-config-id"
+          }
+        }
+      },
+      "ConnectorProviderComposioSettings": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "connector_provider_composio"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "composio"
+            ],
+            "example": "composio"
+          },
+          "apiKeyConfigured": {
+            "type": "boolean",
+            "example": true
+          },
+          "baseUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://backend.composio.dev"
+          },
+          "timeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "example": null
+          },
+          "authConfigIds": {
+            "$ref": "#/components/schemas/ConnectorProviderComposioSettingsAuthConfigIds"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-23T10:05:00.000Z"
+          }
+        },
+        "required": [
+          "key",
+          "provider",
+          "apiKeyConfigured",
+          "baseUrl",
+          "timeoutMs",
+          "authConfigIds",
+          "updatedAt"
+        ]
+      },
+      "ConnectorProviderComposioSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "example": "abc123"
+          },
+          "baseUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://backend.composio.dev"
+          },
+          "timeoutMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "example": 120000
+          },
+          "authConfigIds": {
+            "$ref": "#/components/schemas/ConnectorProviderComposioSettingsAuthConfigIds"
+          }
+        }
+      },
       "Tool": {
         "type": "object",
         "properties": {
@@ -2323,6 +2421,65 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListAuthorizedDirectoriesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request body was invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/connectors/composio": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Get Composio connector provider settings",
+        "description": "Returns connector provider settings with sensitive values redacted.",
+        "responses": {
+          "200": {
+            "description": "Connector provider settings fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorProviderComposioSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Replace Composio connector provider settings",
+        "description": "Replaces persisted Composio connector provider settings.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorProviderComposioSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connector provider settings updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorProviderComposioSettings"
                 }
               }
             }

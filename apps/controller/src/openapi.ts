@@ -298,6 +298,36 @@ export const AuthorizedDirectorySchema = z
   })
   .openapi("AuthorizedDirectory");
 
+export const ConnectorProviderComposioSettingsAuthConfigIdsSchema = z
+  .object({
+    github: z.string().trim().min(1).optional().openapi({ example: "github-auth-config-id" }),
+    notion: z.string().trim().min(1).optional().openapi({ example: "notion-auth-config-id" }),
+    google_drive: z.string().trim().min(1).optional().openapi({ example: "google-drive-auth-config-id" })
+  })
+  .partial()
+  .openapi("ConnectorProviderComposioSettingsAuthConfigIds");
+
+export const ConnectorProviderComposioSettingsSchema = z
+  .object({
+    key: z.string().openapi({ example: "connector_provider_composio" }),
+    provider: z.literal("composio").openapi({ example: "composio" }),
+    apiKeyConfigured: z.boolean().openapi({ example: true }),
+    baseUrl: z.string().url().openapi({ example: "https://backend.composio.dev" }),
+    timeoutMs: z.number().int().positive().nullable().openapi({ example: null }),
+    authConfigIds: ConnectorProviderComposioSettingsAuthConfigIdsSchema,
+    updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" })
+  })
+  .openapi("ConnectorProviderComposioSettings");
+
+export const ConnectorProviderComposioSettingsRequestSchema = z
+  .object({
+    apiKey: z.string().trim().nullable().optional().openapi({ example: "abc123" }),
+    baseUrl: z.string().url().optional().openapi({ example: "https://backend.composio.dev" }),
+    timeoutMs: z.number().int().positive().nullable().optional().openapi({ example: 120000 }),
+    authConfigIds: ConnectorProviderComposioSettingsAuthConfigIdsSchema.optional()
+  })
+  .openapi("ConnectorProviderComposioSettingsRequest");
+
 export const ListAuthorizedDirectoriesResponseSchema = z
   .object({
     authorizedDirectories: z.array(AuthorizedDirectorySchema)

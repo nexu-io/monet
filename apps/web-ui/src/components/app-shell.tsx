@@ -66,9 +66,8 @@ export function AppShell({
     sessions
   } = useSessions();
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 20);
-  const { config, isDesktop } = useControllerState();
+  const { isDesktop } = useControllerState();
   const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>();
-  const isConnectorsEnabled = config?.features.connectors ?? false;
   const isConnectorsOpen = isConnectorsNavigationActive(pathname, location.search);
   const isSettingsOpen = pathname.startsWith("/settings");
   const openSettingsHref = "/settings/general";
@@ -212,30 +211,28 @@ export function AppShell({
         </SidebarContent>
 
         <SidebarFooter className="flex flex-col gap-4">
-          {isConnectorsEnabled ? (
-            <NavigationMenu aria-label="Main navigation">
-              <NavigationMenuList>
-                <NavigationMenuItem>
-                  <NavigationMenuButton
-                    asChild
-                    active={isConnectorsOpen}
-                    className="group inline-flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-lg font-medium text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:font-semibold data-[active=true]:text-text-heading data-[state=selected]:bg-app-hover data-[state=selected]:font-semibold data-[state=selected]:text-text-heading"
-                  >
-                    <Link to="/connectors">
-                      <span className="inline-flex size-[18px] items-center justify-center text-current opacity-75 group-hover:opacity-100 group-data-[active=true]:opacity-100" aria-hidden="true">
-                        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M5.5 5.5h-1a3 3 0 0 0 0 6h1" />
-                          <path d="M10.5 5.5h1a3 3 0 0 1 0 6h-1" />
-                          <path d="M6 8.5h4" />
-                        </svg>
-                      </span>
-                      <span>Connectors</span>
-                    </Link>
-                  </NavigationMenuButton>
-                </NavigationMenuItem>
-              </NavigationMenuList>
-            </NavigationMenu>
-          ) : null}
+          <NavigationMenu aria-label="Main navigation">
+            <NavigationMenuList>
+              <NavigationMenuItem>
+                <NavigationMenuButton
+                  asChild
+                  active={isConnectorsOpen}
+                  className="group inline-flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-lg font-medium text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:font-semibold data-[active=true]:text-text-heading data-[state=selected]:bg-app-hover data-[state=selected]:font-semibold data-[state=selected]:text-text-heading"
+                >
+                  <Link to="/connectors">
+                    <span className="inline-flex size-[18px] items-center justify-center text-current opacity-75 group-hover:opacity-100 group-data-[active=true]:opacity-100" aria-hidden="true">
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5.5 5.5h-1a3 3 0 0 0 0 6h1" />
+                        <path d="M10.5 5.5h1a3 3 0 0 1 0 6h-1" />
+                        <path d="M6 8.5h4" />
+                      </svg>
+                    </span>
+                    <span>Connectors</span>
+                  </Link>
+                </NavigationMenuButton>
+              </NavigationMenuItem>
+            </NavigationMenuList>
+          </NavigationMenu>
           {/*
             Single settings entry point. Tabs for General / Model live on the page.
             Keeping this as a Link (not a button) preserves

@@ -1,7 +1,6 @@
 import { tool } from "ai";
 
 import type { ChatStorage } from "../chat-storage";
-import type { FeatureConfig } from "../config";
 import { isConnectorProviderErrorCode, type ConnectorProviderErrorCode } from "../connectors/errors";
 import type { Logger } from "../logger";
 
@@ -111,7 +110,6 @@ function getFilesystemPathLogContext(output: unknown): Record<string, unknown> {
 
 export interface CreateToolRegistryOptions {
   readonly connectorDefinitions?: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>;
-  readonly features?: FeatureConfig;
   readonly sources?: readonly ToolSource[];
 }
 
@@ -163,7 +161,7 @@ export function createToolRegistry(
 
   registerSource(staticSource);
 
-  if (options.features?.connectors && options.connectorDefinitions) {
+  if (options.connectorDefinitions) {
     for (const definition of options.connectorDefinitions) {
       staticSource.register(definition);
     }

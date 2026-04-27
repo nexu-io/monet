@@ -10,10 +10,6 @@ export interface ControllerStatePayload {
   readonly restartAvailable?: boolean;
 }
 
-export interface FeatureConfig {
-  readonly connectors: boolean;
-}
-
 export type UpdateLifecycleState = "unsupported" | "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
 
 export interface UpdateStatePayload {
@@ -74,7 +70,6 @@ export type MonetDesktopApi = {
   readonly getRuntimeInfo?: () => {
     readonly apiBase?: string;
     readonly bearerToken?: string;
-    readonly features?: FeatureConfig;
   };
   readonly installUpdate?: () => Promise<{ started: boolean }>;
   readonly openExternalUrl?: (payload: { url: string }) => Promise<OpenExternalUrlResult>;
@@ -100,7 +95,6 @@ declare global {
 export interface MonetClientConfig {
   readonly apiBase: string;
   readonly bearerToken: string | null;
-  readonly features: FeatureConfig;
   readonly source: "preload" | "vite-public-env" | "default";
 }
 
@@ -122,7 +116,6 @@ export function getMonetClientConfig(): MonetClientConfig {
     return {
       apiBase: preloadApiBase,
       bearerToken: preloadBearerToken ?? null,
-      features: runtimeInfo.features ?? getViteFeatureConfig(),
       source: "preload"
     };
   }
@@ -134,7 +127,6 @@ export function getMonetClientConfig(): MonetClientConfig {
     return {
       apiBase: envApiBase,
       bearerToken: envBearerToken || null,
-      features: getViteFeatureConfig(),
       source: "vite-public-env"
     };
   }
@@ -142,31 +134,6 @@ export function getMonetClientConfig(): MonetClientConfig {
   return {
     apiBase: defaultApiBase,
     bearerToken: null,
-    features: getViteFeatureConfig(),
     source: "default"
   };
-}
-
-function getViteFeatureConfig(): FeatureConfig {
-  return {
-    connectors: parseBooleanFlag(import.meta.env.VITE_MONET_FEATURE_CONNECTORS, false)
-  };
-}
-
-function parseBooleanFlag(value: string | undefined, fallback: boolean): boolean {
-  const normalized = value?.trim().toLowerCase();
-
-  if (!normalized) {
-    return fallback;
-  }
-
-  if (["1", "true", "yes", "on"].includes(normalized)) {
-    return true;
-  }
-
-  if (["0", "false", "no", "off"].includes(normalized)) {
-    return false;
-  }
-
-  return fallback;
 }

@@ -5,7 +5,7 @@ This runbook covers the live-provider connector scenarios that cannot be fully p
 ## Prerequisites
 
 1. Use a disposable GitHub account or sandbox organization/repository. Do not run write-tool checks against production repositories.
-2. Configure the controller with connector support enabled and a Composio provider key in controller-only local config or environment.
+2. Configure Composio in Settings → Connectors with a provider API key and auth config IDs for the connectors under test.
 3. Start the normal dev stack:
 
    ```bash

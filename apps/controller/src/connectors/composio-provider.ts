@@ -27,7 +27,7 @@ import type {
 const COMPOSIO_PROVIDER = "composio";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
-type ConnectorStorage = Pick<ChatStorage, "createConnectorOAuthState" | "getConnectorConnection">;
+type ConnectorStorage = Pick<ChatStorage, "createConnectorOAuthState" | "getConnectorConnection" | "getConnectorProviderComposioSettings">;
 
 interface ComposioConnectedAccountResponse {
   readonly id?: unknown;
@@ -91,18 +91,15 @@ export interface ComposioConnectorProviderOptions {
 }
 
 export class ComposioConnectorProvider implements ConnectorProvider {
-  private readonly baseUrl: string;
-  private readonly apiKey: string | null;
-  private readonly timeoutMs: number | null;
-  private readonly authConfigIds: Partial<Record<ConnectorId, string>>;
   private readonly storage: ConnectorStorage;
 
   constructor(options: ComposioConnectorProviderOptions) {
-    this.baseUrl = options.config.baseUrl.replace(/\/+$/, "");
-    this.apiKey = options.config.apiKey;
-    this.timeoutMs = options.config.timeoutMs;
-    this.authConfigIds = options.config.authConfigIds;
+    void options.config;
     this.storage = options.storage;
+  }
+
+  private getProviderConfig() {
+    return this.storage.getConnectorProviderComposioSettings();
   }
 
   async listConnectors(): Promise<readonly ConnectorCatalogItem[]> {
@@ -110,13 +107,15 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async getConnectionStatus(input: ConnectorConnectionInput): Promise<ConnectorConnectionStatus> {
+    const providerConfig = this.getProviderConfig();
+
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
     if (!catalogItem) {
       throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
     }
 
-    if (!this.apiKey || !this.authConfigIds[input.connectorId]) {
+    if (!providerConfig.apiKey || !providerConfig.authConfigIds[input.connectorId]) {
       return {
         connectorId: input.connectorId,
         state: "unavailable",
@@ -174,15 +173,17 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async connect(input: ConnectorCreateConnectionInput): Promise<ConnectorConnectionStart> {
+    const providerConfig = this.getProviderConfig();
+
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
     if (!catalogItem) {
       throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
     }
 
-    const authConfigId = this.authConfigIds[input.connectorId];
+    const authConfigId = providerConfig.authConfigIds[input.connectorId];
 
-    if (!this.apiKey || !authConfigId) {
+    if (!providerConfig.apiKey || !authConfigId) {
       throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
 
@@ -220,15 +221,17 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async completeConnection(input: ConnectorCompleteConnectionInput): Promise<ConnectorReconciledConnection> {
+    const providerConfig = this.getProviderConfig();
+
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
     if (!catalogItem) {
       throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
     }
 
-    const authConfigId = this.authConfigIds[input.connectorId];
+    const authConfigId = providerConfig.authConfigIds[input.connectorId];
 
-    if (!this.apiKey || !authConfigId) {
+    if (!providerConfig.apiKey || !authConfigId) {
       throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
 
@@ -253,13 +256,15 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async disconnect(input: ConnectorConnectionInput): Promise<void> {
+    const providerConfig = this.getProviderConfig();
+
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
     if (!catalogItem) {
       throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
     }
 
-    if (!this.apiKey || !this.authConfigIds[input.connectorId]) {
+    if (!providerConfig.apiKey || !providerConfig.authConfigIds[input.connectorId]) {
       throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
 
@@ -290,16 +295,18 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async listTools(input: ConnectorListToolsInput): Promise<readonly ConnectorToolDefinition[]> {
+    const providerConfig = this.getProviderConfig();
+
     const catalogItems = getCatalogItemsForToolListing(input.connectorId);
 
-    if (!this.apiKey) {
+    if (!providerConfig.apiKey) {
       throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
 
     const tools: ConnectorToolDefinition[] = [];
 
     for (const catalogItem of catalogItems) {
-      const authConfigId = this.authConfigIds[catalogItem.id];
+      const authConfigId = providerConfig.authConfigIds[catalogItem.id];
 
       if (!authConfigId) {
         if (input.connectorId) {
@@ -326,13 +333,15 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async executeTool(input: ConnectorExecuteToolInput): Promise<ConnectorToolResult> {
+    const providerConfig = this.getProviderConfig();
+
     const allowedTool = getCatalogItemForProviderTool(input.toolId);
 
     if (!allowedTool) {
       throw createConnectorProviderError("tool_not_found", { message: "Connector tool was not found or is not available." });
     }
 
-    if (!this.apiKey || !this.authConfigIds[allowedTool.catalogItem.id]) {
+    if (!providerConfig.apiKey || !providerConfig.authConfigIds[allowedTool.catalogItem.id]) {
       throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
 
@@ -488,16 +497,18 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   private async request(path: string, input: { method: string; body?: string; abortSignal?: AbortSignal }): Promise<Response> {
-    if (!this.apiKey) {
+    const providerConfig = this.getProviderConfig();
+
+    if (!providerConfig.apiKey) {
       throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
 
-    const signal = combineAbortSignal(input.abortSignal, this.timeoutMs);
-    const response = await fetch(`${this.baseUrl}${path}`, {
+    const signal = combineAbortSignal(input.abortSignal, providerConfig.timeoutMs);
+    const response = await fetch(`${providerConfig.baseUrl}${path}`, {
       method: input.method,
       headers: {
         "content-type": "application/json",
-        "x-api-key": this.apiKey
+        "x-api-key": providerConfig.apiKey
       },
       ...(input.body ? { body: input.body } : {}),
       ...(signal ? { signal } : {})

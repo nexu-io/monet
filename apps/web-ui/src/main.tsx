@@ -8,6 +8,7 @@ import ConnectorsPage from "./app/connectors/page";
 import HomePage from "./app/page";
 import { AppProviders } from "./app/providers";
 import SettingsLayout from "./app/settings/layout";
+import ConnectorsSettingsPage from "./app/settings/connectors/page";
 import GeneralSettingsPage from "./app/settings/general/page";
 import ModelSettingsPage from "./app/settings/models/page";
 
@@ -33,6 +34,7 @@ createRoot(rootElement).render(
             <Route path="/sessions" element={<Navigate to="/" replace />} />
             <Route path="/settings" element={<SettingsLayout />}>
               <Route index element={<Navigate to="general" replace />} />
+              <Route path="connectors" element={<ConnectorsSettingsPage />} />
               <Route path="general" element={<GeneralSettingsPage />} />
               <Route path="models" element={<ModelSettingsPage />} />
             </Route>

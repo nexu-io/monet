@@ -25,9 +25,6 @@ async function main() {
         authConfigIds: {}
       }
     },
-    features: {
-      connectors: false
-    },
     openai: {
       apiKey: null,
       baseUrl: null,

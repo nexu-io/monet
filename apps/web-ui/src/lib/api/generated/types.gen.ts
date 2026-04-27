@@ -45,6 +45,7 @@ export type SessionMessage = {
 };
 
 export type SessionDetail = Session & {
+    workspacePath: string | null;
     messages: Array<SessionMessage>;
 };
 
@@ -54,6 +55,11 @@ export type UpdateSessionRequest = {
 
 export type ArchiveSessionResponse = {
     session: Session;
+};
+
+export type OpenWorkspaceDirectoryResponse = {
+    ok: true;
+    workspacePath: string;
 };
 
 export type Provider = {
@@ -141,6 +147,29 @@ export type ReplaceAuthorizedDirectoriesRequest = {
     paths: Array<string>;
 };
 
+export type ConnectorProviderComposioSettingsAuthConfigIds = {
+    github?: string;
+    notion?: string;
+    google_drive?: string;
+};
+
+export type ConnectorProviderComposioSettings = {
+    key: string;
+    provider: 'composio';
+    apiKeyConfigured: boolean;
+    baseUrl: string;
+    timeoutMs: number | null;
+    authConfigIds: ConnectorProviderComposioSettingsAuthConfigIds;
+    updatedAt: string;
+};
+
+export type ConnectorProviderComposioSettingsRequest = {
+    apiKey?: string | null;
+    baseUrl?: string;
+    timeoutMs?: number | null;
+    authConfigIds?: ConnectorProviderComposioSettingsAuthConfigIds;
+};
+
 export type Tool = {
     name: string;
     description: string;
@@ -149,6 +178,87 @@ export type Tool = {
 
 export type ListToolsResponse = {
     tools: Array<Tool>;
+};
+
+export type ConnectorToolPolicy = {
+    sideEffect: 'read' | 'write' | 'destructive' | 'external_send';
+    approval: 'never' | 'first_use' | 'always';
+};
+
+export type ConnectorStatus = 'unavailable' | 'not_connected' | 'connected' | 'expired';
+
+export type ConnectorProviderErrorCode = 'connection_missing' | 'connection_expired' | 'rate_limited' | 'upstream_unavailable' | 'invalid_arguments' | 'forbidden' | 'tool_not_found' | 'provider_error';
+
+export type ConnectorCatalogCard = {
+    id: 'github' | 'notion' | 'google_drive';
+    displayName: string;
+    description: string;
+    category: 'developer' | 'productivity' | 'files';
+    icon: string;
+    featuredTools: Array<string>;
+    enabledByDefault: boolean;
+    minimumApprovalPolicy: ConnectorToolPolicy;
+    capabilitySummaries: Array<string>;
+    status: ConnectorStatus;
+    connectedAccountLabel?: string;
+    lastErrorCode?: ConnectorProviderErrorCode;
+    lastErrorMessage?: string;
+};
+
+export type ListConnectorsResponse = {
+    connectors: Array<ConnectorCatalogCard>;
+};
+
+export type ConnectorAccountMetadata = {
+    accountLabel?: string;
+    accountId?: string;
+    providerConnectionId?: string;
+    providerConnectorId?: string;
+    connectedAt?: string;
+    updatedAt?: string;
+};
+
+export type ConnectorServiceConnection = {
+    status: ConnectorStatus & unknown;
+    connected: boolean;
+    connectedAccountLabel?: string;
+    account?: ConnectorAccountMetadata;
+    lastErrorCode?: ConnectorProviderErrorCode & unknown;
+    lastErrorMessage?: string;
+};
+
+export type ConnectorAllowedTool = {
+    providerToolId: string;
+    displayName: string;
+    summary: string;
+    policy: ConnectorToolPolicy;
+};
+
+export type ConnectorDetail = ConnectorCatalogCard & {
+    providerConnectorId: string;
+    connection: ConnectorServiceConnection;
+    allowedTools: Array<ConnectorAllowedTool>;
+};
+
+export type GetConnectorResponse = {
+    connector: ConnectorDetail;
+};
+
+export type StartConnectorConnectionResponse = {
+    status: 'redirect_required' | 'connected' | 'pending';
+    connectorId: 'github' | 'notion' | 'google_drive';
+    providerConnectionId?: string;
+    redirectUrl?: string;
+    expiresAt?: string;
+};
+
+export type StartConnectorConnectionRequest = {
+    redirectUrl?: string;
+};
+
+export type DisconnectConnectorConnectionResponse = {
+    connectorId: 'github' | 'notion' | 'google_drive';
+    status: 'not_connected';
 };
 
 export type GetApiHealthData = {
@@ -374,6 +484,37 @@ export type PostApiSessionsBySessionIdArchiveResponses = {
 };
 
 export type PostApiSessionsBySessionIdArchiveResponse = PostApiSessionsBySessionIdArchiveResponses[keyof PostApiSessionsBySessionIdArchiveResponses];
+
+export type PostApiSessionsBySessionIdWorkspaceOpenData = {
+    body?: never;
+    path: {
+        sessionId: string;
+    };
+    query?: never;
+    url: '/api/sessions/{sessionId}/workspace/open';
+};
+
+export type PostApiSessionsBySessionIdWorkspaceOpenErrors = {
+    /**
+     * The requested session was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The session workspace directory could not be prepared.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiSessionsBySessionIdWorkspaceOpenError = PostApiSessionsBySessionIdWorkspaceOpenErrors[keyof PostApiSessionsBySessionIdWorkspaceOpenErrors];
+
+export type PostApiSessionsBySessionIdWorkspaceOpenResponses = {
+    /**
+     * Session workspace directory is ready to open.
+     */
+    200: OpenWorkspaceDirectoryResponse;
+};
+
+export type PostApiSessionsBySessionIdWorkspaceOpenResponse = PostApiSessionsBySessionIdWorkspaceOpenResponses[keyof PostApiSessionsBySessionIdWorkspaceOpenResponses];
 
 export type GetApiProvidersData = {
     body?: never;
@@ -807,6 +948,47 @@ export type PutApiSettingsAuthorizedDirectoriesResponses = {
 
 export type PutApiSettingsAuthorizedDirectoriesResponse = PutApiSettingsAuthorizedDirectoriesResponses[keyof PutApiSettingsAuthorizedDirectoriesResponses];
 
+export type GetApiSettingsConnectorsComposioData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/settings/connectors/composio';
+};
+
+export type GetApiSettingsConnectorsComposioResponses = {
+    /**
+     * Connector provider settings fetched successfully.
+     */
+    200: ConnectorProviderComposioSettings;
+};
+
+export type GetApiSettingsConnectorsComposioResponse = GetApiSettingsConnectorsComposioResponses[keyof GetApiSettingsConnectorsComposioResponses];
+
+export type PutApiSettingsConnectorsComposioData = {
+    body?: ConnectorProviderComposioSettingsRequest;
+    path?: never;
+    query?: never;
+    url: '/api/settings/connectors/composio';
+};
+
+export type PutApiSettingsConnectorsComposioErrors = {
+    /**
+     * The request body was invalid.
+     */
+    400: ErrorResponse;
+};
+
+export type PutApiSettingsConnectorsComposioError = PutApiSettingsConnectorsComposioErrors[keyof PutApiSettingsConnectorsComposioErrors];
+
+export type PutApiSettingsConnectorsComposioResponses = {
+    /**
+     * Connector provider settings updated successfully.
+     */
+    200: ConnectorProviderComposioSettings;
+};
+
+export type PutApiSettingsConnectorsComposioResponse = PutApiSettingsConnectorsComposioResponses[keyof PutApiSettingsConnectorsComposioResponses];
+
 export type GetApiToolsData = {
     body?: never;
     path?: never;
@@ -822,6 +1004,187 @@ export type GetApiToolsResponses = {
 };
 
 export type GetApiToolsResponse = GetApiToolsResponses[keyof GetApiToolsResponses];
+
+export type GetApiConnectorsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/connectors';
+};
+
+export type GetApiConnectorsResponses = {
+    /**
+     * Connectors fetched successfully.
+     */
+    200: ListConnectorsResponse;
+};
+
+export type GetApiConnectorsResponse = GetApiConnectorsResponses[keyof GetApiConnectorsResponses];
+
+export type GetApiConnectorsByConnectorIdData = {
+    body?: never;
+    path: {
+        connectorId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{connectorId}';
+};
+
+export type GetApiConnectorsByConnectorIdErrors = {
+    /**
+     * Invalid connector request.
+     */
+    400: ErrorResponse;
+    /**
+     * Connector credentials have expired.
+     */
+    401: ErrorResponse;
+    /**
+     * Connector provider denied access.
+     */
+    403: ErrorResponse;
+    /**
+     * Connector not found.
+     */
+    404: ErrorResponse;
+    /**
+     * Connector connection is required.
+     */
+    409: ErrorResponse;
+    /**
+     * Connector provider rate limit exceeded.
+     */
+    429: ErrorResponse;
+    /**
+     * Connector provider request failed.
+     */
+    502: ErrorResponse;
+    /**
+     * Connector provider is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type GetApiConnectorsByConnectorIdError = GetApiConnectorsByConnectorIdErrors[keyof GetApiConnectorsByConnectorIdErrors];
+
+export type GetApiConnectorsByConnectorIdResponses = {
+    /**
+     * Connector fetched successfully.
+     */
+    200: GetConnectorResponse;
+};
+
+export type GetApiConnectorsByConnectorIdResponse = GetApiConnectorsByConnectorIdResponses[keyof GetApiConnectorsByConnectorIdResponses];
+
+export type PostApiConnectorsByConnectorIdConnectData = {
+    body?: StartConnectorConnectionRequest;
+    path: {
+        connectorId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{connectorId}/connect';
+};
+
+export type PostApiConnectorsByConnectorIdConnectErrors = {
+    /**
+     * Invalid connector request.
+     */
+    400: ErrorResponse;
+    /**
+     * Connector credentials have expired.
+     */
+    401: ErrorResponse;
+    /**
+     * Connector provider denied access.
+     */
+    403: ErrorResponse;
+    /**
+     * Connector not found.
+     */
+    404: ErrorResponse;
+    /**
+     * Connector connection is required.
+     */
+    409: ErrorResponse;
+    /**
+     * Connector provider rate limit exceeded.
+     */
+    429: ErrorResponse;
+    /**
+     * Connector provider request failed.
+     */
+    502: ErrorResponse;
+    /**
+     * Connector provider is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type PostApiConnectorsByConnectorIdConnectError = PostApiConnectorsByConnectorIdConnectErrors[keyof PostApiConnectorsByConnectorIdConnectErrors];
+
+export type PostApiConnectorsByConnectorIdConnectResponses = {
+    /**
+     * Connector connection flow started successfully.
+     */
+    200: StartConnectorConnectionResponse;
+};
+
+export type PostApiConnectorsByConnectorIdConnectResponse = PostApiConnectorsByConnectorIdConnectResponses[keyof PostApiConnectorsByConnectorIdConnectResponses];
+
+export type DeleteApiConnectorsByConnectorIdConnectionData = {
+    body?: never;
+    path: {
+        connectorId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{connectorId}/connection';
+};
+
+export type DeleteApiConnectorsByConnectorIdConnectionErrors = {
+    /**
+     * Invalid connector request.
+     */
+    400: ErrorResponse;
+    /**
+     * Connector credentials have expired.
+     */
+    401: ErrorResponse;
+    /**
+     * Connector provider denied access.
+     */
+    403: ErrorResponse;
+    /**
+     * Connector not found.
+     */
+    404: ErrorResponse;
+    /**
+     * Connector connection conflict.
+     */
+    409: ErrorResponse;
+    /**
+     * Connector provider rate limit exceeded.
+     */
+    429: ErrorResponse;
+    /**
+     * Connector provider request failed.
+     */
+    502: ErrorResponse;
+    /**
+     * Connector provider is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteApiConnectorsByConnectorIdConnectionError = DeleteApiConnectorsByConnectorIdConnectionErrors[keyof DeleteApiConnectorsByConnectorIdConnectionErrors];
+
+export type DeleteApiConnectorsByConnectorIdConnectionResponses = {
+    /**
+     * Connector disconnected successfully.
+     */
+    200: DisconnectConnectorConnectionResponse;
+};
+
+export type DeleteApiConnectorsByConnectorIdConnectionResponse = DeleteApiConnectorsByConnectorIdConnectionResponses[keyof DeleteApiConnectorsByConnectorIdConnectionResponses];
 
 export type ClientOptions = {
     baseUrl: `${string}://apps` | (string & {});
