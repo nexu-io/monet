@@ -67,7 +67,7 @@ test("connector tool source resolves connected curated tools for active monet in
   assert.deepEqual(listToolInputs, [{ userId: "monet-install-id" }]);
   assert.equal(tools.length, 1);
   assert.deepEqual(tools[0]?.metadata, {
-    name: "GITHUB_LIST_PULL_REQUESTS",
+    name: "github_list_pull_requests",
     description: "List pull requests for a selected repository.",
     requiresConfirmation: true
   });
@@ -83,3 +83,106 @@ test("connector tool source resolves connected curated tools for active monet in
     additionalProperties: false
   });
 });
+
+test("connector tool source prefixes provider tool names with normalized connector ids", async () => {
+  const provider = createProviderWithTools([
+    {
+      connectorId: "github",
+      providerToolId: "GITHUB_SEARCH_REPOSITORIES",
+      name: "GITHUB_SEARCH_REPOSITORIES"
+    },
+    {
+      connectorId: "notion",
+      providerToolId: "NOTION_SEARCH_NOTION_PAGE",
+      name: "NOTION_SEARCH_NOTION_PAGE"
+    },
+    {
+      connectorId: "google_drive",
+      providerToolId: "GOOGLEDRIVE_FIND_FILE",
+      name: "GOOGLEDRIVE_FIND_FILE"
+    }
+  ]);
+  const source = createConnectorToolSource({ provider });
+
+  const tools = await source.resolveTools(createToolSourceContext());
+
+  assert.deepEqual(
+    tools.map((tool) => tool.metadata.name),
+    ["github_search_repositories", "notion_search_notion_page", "google_drive_find_file"]
+  );
+});
+
+test("connector tool source fails closed when prefixed connector names collide", async () => {
+  const provider = createProviderWithTools([
+    {
+      connectorId: "github",
+      providerToolId: "GITHUB_SEARCH_REPOSITORIES",
+      name: "GITHUB_SEARCH_REPOSITORIES"
+    },
+    {
+      connectorId: "github",
+      providerToolId: "CUSTOM_ACTION",
+      name: "search_repositories"
+    }
+  ]);
+  const source = createConnectorToolSource({ provider });
+
+  await assert.rejects(
+    async () => source.resolveTools(createToolSourceContext()),
+    /Connector tool name collision after prefixing: github_search_repositories/
+  );
+});
+
+function createProviderWithTools(
+  tools: ReadonlyArray<{ connectorId: "github" | "notion" | "google_drive"; providerToolId: string; name: string }>
+): ConnectorProvider {
+  return {
+    async listConnectors() {
+      return [];
+    },
+    getConnectionStatus() {
+      throw new Error("not used");
+    },
+    connect() {
+      throw new Error("not used");
+    },
+    completeConnection() {
+      throw new Error("not used");
+    },
+    disconnect() {
+      throw new Error("not used");
+    },
+    async listTools() {
+      return tools.map((tool) => ({
+        connectorId: tool.connectorId,
+        providerToolId: tool.providerToolId,
+        name: tool.name,
+        displayName: tool.name,
+        description: `${tool.name} description`,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false
+        },
+        policy: {
+          sideEffect: "read",
+          approval: "never"
+        }
+      }));
+    },
+    executeTool() {
+      throw new Error("not used");
+    }
+  };
+}
+
+function createToolSourceContext() {
+  return {
+    runId: "run_test",
+    chatStorage: {
+      getMonetInstallId() {
+        return "monet-install-id";
+      }
+    } as ChatStorage,
+    logger: createLogger("test")
+  };
+}

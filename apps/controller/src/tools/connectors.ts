@@ -25,15 +25,29 @@ class ConnectorToolSource implements ToolSource {
   async resolveTools(context: ToolSourceContext): Promise<ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>> {
     const userId = context.chatStorage.getMonetInstallId();
     const connectorTools = await this.provider.listTools({ userId });
+    const prefixedNames = new Set<string>();
 
-    return connectorTools.map((connectorTool) => toRegisteredToolDefinition(connectorTool));
+    return connectorTools.map((connectorTool) => {
+      const prefixedName = getPrefixedConnectorToolName(connectorTool);
+
+      if (prefixedNames.has(prefixedName)) {
+        throw new Error(`Connector tool name collision after prefixing: ${prefixedName}`);
+      }
+
+      prefixedNames.add(prefixedName);
+
+      return toRegisteredToolDefinition(connectorTool, prefixedName);
+    });
   }
 }
 
-function toRegisteredToolDefinition(connectorTool: ConnectorToolDefinition): RegisteredToolDefinition<unknown, unknown> {
+function toRegisteredToolDefinition(
+  connectorTool: ConnectorToolDefinition,
+  prefixedName: string
+): RegisteredToolDefinition<unknown, unknown> {
   return {
     metadata: {
-      name: connectorTool.name,
+      name: prefixedName,
       description: connectorTool.description,
       requiresConfirmation: connectorTool.policy.approval !== "never"
     },
@@ -42,4 +56,24 @@ function toRegisteredToolDefinition(connectorTool: ConnectorToolDefinition): Reg
       throw new Error("Connector tool execution bridge is not available yet.");
     }
   };
+}
+
+function getPrefixedConnectorToolName(connectorTool: ConnectorToolDefinition): string {
+  const connectorPrefix = normalizeToolNameSegment(connectorTool.connectorId);
+  const providerConnectorPrefix = normalizeToolNameSegment(connectorTool.providerToolId.split("_")[0] ?? "");
+  const normalizedToolName = normalizeToolNameSegment(connectorTool.name || connectorTool.providerToolId);
+  const unprefixedToolName = normalizedToolName.startsWith(`${providerConnectorPrefix}_`)
+    ? normalizedToolName.slice(providerConnectorPrefix.length + 1)
+    : normalizedToolName;
+
+  return `${connectorPrefix}_${unprefixedToolName}`;
+}
+
+function normalizeToolNameSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
 }
