@@ -513,6 +513,88 @@ test("relative file paths still use the session workspace with an empty authoriz
   }
 });
 
+test("file tools isolate session workspaces by default across relative and absolute paths", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const sessionAWorkspaceDir = join(fixture.fixtureDir, "session-a-workspace");
+    const sessionBWorkspaceDir = join(fixture.fixtureDir, "session-b-workspace");
+    mkdirSync(sessionAWorkspaceDir, { recursive: true });
+    mkdirSync(sessionBWorkspaceDir, { recursive: true });
+    mkdirSync(join(sessionAWorkspaceDir, "session-b-workspace"), { recursive: true });
+    writeFileSync(join(sessionAWorkspaceDir, "shared.txt"), "from session A", "utf8");
+    writeFileSync(join(sessionAWorkspaceDir, "session-b-workspace", "secret.txt"), "nested inside session A", "utf8");
+    writeFileSync(join(sessionBWorkspaceDir, "shared.txt"), "from session B", "utf8");
+    writeFileSync(join(sessionBWorkspaceDir, "secret.txt"), "session B secret", "utf8");
+
+    const sessionARuntimeTools = createRuntimeTools(sessionAWorkspaceDir, fixture.storage, {
+      allowedDirectories: []
+    });
+    const readFileTool = sessionARuntimeTools.read_file!;
+    const writeFileTool = sessionARuntimeTools.write_file!;
+    const realSessionAWorkspaceDir = realpathSync(sessionAWorkspaceDir);
+
+    const relativeSameNameRead = (await readFileTool.execute(
+      { path: "shared.txt" },
+      createExecutionContext()
+    )) as { content: string; resolvedPath: string; pathZone: string };
+    assert.equal(relativeSameNameRead.content, "from session A");
+    assert.equal(relativeSameNameRead.resolvedPath, join(realSessionAWorkspaceDir, "shared.txt"));
+    assert.equal(relativeSameNameRead.pathZone, "session_workspace");
+
+    const siblingNamedRelativeRead = (await readFileTool.execute(
+      { path: "session-b-workspace/secret.txt" },
+      createExecutionContext()
+    )) as { content: string; resolvedPath: string; pathZone: string };
+    assert.equal(siblingNamedRelativeRead.content, "nested inside session A");
+    assert.equal(siblingNamedRelativeRead.resolvedPath, join(realSessionAWorkspaceDir, "session-b-workspace", "secret.txt"));
+    assert.equal(siblingNamedRelativeRead.pathZone, "session_workspace");
+
+    await assert.rejects(
+      readFileTool.execute(
+        { path: join(sessionBWorkspaceDir, "secret.txt") },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+
+    await assert.rejects(
+      readFileTool.execute(
+        { path: join("..", "session-b-workspace", "secret.txt") },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: join(sessionBWorkspaceDir, "secret.txt"),
+          content: "session A overwrite attempt"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: join("..", "session-b-workspace", "created-by-a.txt"),
+          content: "session A escape attempt"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+
+    assert.equal(readFileSync(join(sessionBWorkspaceDir, "secret.txt"), "utf8"), "session B secret");
+    assert.throws(() => readFileSync(join(sessionBWorkspaceDir, "created-by-a.txt"), "utf8"), /ENOENT/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("read_file and write_file reject relative path traversal escapes", async () => {
   const fixture = createTestFixture();
 
