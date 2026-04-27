@@ -44,6 +44,30 @@ export interface ToolRegistry {
   createRuntimeTools(context: ToolExecutionContext): Record<string, unknown>;
 }
 
+function getFilesystemPathLogContext(output: unknown): Record<string, unknown> {
+  if (typeof output !== "object" || output === null) {
+    return {};
+  }
+
+  const candidate = output as Record<string, unknown>;
+
+  if (
+    typeof candidate.requestedPath !== "string"
+    || typeof candidate.resolvedPath !== "string"
+    || typeof candidate.pathZone !== "string"
+    || typeof candidate.requiresConfirmation !== "boolean"
+  ) {
+    return {};
+  }
+
+  return {
+    requestedPath: candidate.requestedPath,
+    resolvedPath: candidate.resolvedPath,
+    pathZone: candidate.pathZone,
+    requiresConfirmation: candidate.requiresConfirmation
+  };
+}
+
 export function createToolRegistry(
   initialDefinitions: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> = []
 ): ToolRegistry {
@@ -132,7 +156,8 @@ export function createToolRegistry(
                   toolName: definition.metadata.name,
                   durationMs: Date.now() - startedAt,
                   outputSizeBytes: completion.outputSizeBytes,
-                  outputTruncated: completion.outputTruncated
+                  outputTruncated: completion.outputTruncated,
+                  ...getFilesystemPathLogContext(output)
                 });
 
                 return output;

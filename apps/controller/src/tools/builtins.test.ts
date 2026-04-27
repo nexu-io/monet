@@ -162,6 +162,10 @@ test("read_file and write_file operate inside authorized directories", async () 
 
     assert.equal(readResult.content, "hello from disk");
     assert.equal(readResult.path, join(realWorkspaceDir, "input.txt"));
+    assert.equal((readResult as Record<string, unknown>).requestedPath, join(fixture.workspaceDir, "input.txt"));
+    assert.equal((readResult as Record<string, unknown>).resolvedPath, join(realWorkspaceDir, "input.txt"));
+    assert.equal((readResult as Record<string, unknown>).pathZone, "session_workspace");
+    assert.equal((readResult as Record<string, unknown>).requiresConfirmation, false);
     assert.equal(readResult.sizeBytes, Buffer.byteLength("hello from disk", "utf8"));
 
     const writeResult = (await writeFileTool.execute(
@@ -173,6 +177,10 @@ test("read_file and write_file operate inside authorized directories", async () 
     )) as { path: string; bytesWritten: number };
 
     assert.equal(writeResult.path, join(realWorkspaceDir, "nested", "output.txt"));
+    assert.equal((writeResult as Record<string, unknown>).requestedPath, join(fixture.workspaceDir, "nested", "output.txt"));
+    assert.equal((writeResult as Record<string, unknown>).resolvedPath, join(realWorkspaceDir, "nested", "output.txt"));
+    assert.equal((writeResult as Record<string, unknown>).pathZone, "session_workspace");
+    assert.equal((writeResult as Record<string, unknown>).requiresConfirmation, false);
     assert.equal(writeResult.bytesWritten, Buffer.byteLength("generated content", "utf8"));
     assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "output.txt"), "utf8"), "generated content");
 
@@ -183,6 +191,10 @@ test("read_file and write_file operate inside authorized directories", async () 
 
     assert.equal(readRelativeResult.content, "hello from disk");
     assert.equal(readRelativeResult.path, join(realWorkspaceDir, "input.txt"));
+    assert.equal((readRelativeResult as Record<string, unknown>).requestedPath, "input.txt");
+    assert.equal((readRelativeResult as Record<string, unknown>).resolvedPath, join(realWorkspaceDir, "input.txt"));
+    assert.equal((readRelativeResult as Record<string, unknown>).pathZone, "session_workspace");
+    assert.equal((readRelativeResult as Record<string, unknown>).requiresConfirmation, false);
 
     const writeRelativeResult = (await writeFileTool.execute(
       {
@@ -193,6 +205,10 @@ test("read_file and write_file operate inside authorized directories", async () 
     )) as { path: string; bytesWritten: number };
 
     assert.equal(writeRelativeResult.path, join(realWorkspaceDir, "nested", "relative-output.txt"));
+    assert.equal((writeRelativeResult as Record<string, unknown>).requestedPath, "nested/relative-output.txt");
+    assert.equal((writeRelativeResult as Record<string, unknown>).resolvedPath, join(realWorkspaceDir, "nested", "relative-output.txt"));
+    assert.equal((writeRelativeResult as Record<string, unknown>).pathZone, "session_workspace");
+    assert.equal((writeRelativeResult as Record<string, unknown>).requiresConfirmation, false);
     assert.equal(writeRelativeResult.bytesWritten, Buffer.byteLength("relative generated content", "utf8"));
     assert.equal(readFileSync(join(fixture.workspaceDir, "nested", "relative-output.txt"), "utf8"), "relative generated content");
   } finally {
@@ -343,16 +359,24 @@ test("runtime tools pick up authorized directory updates after creation", async 
     const firstResult = (await readFileTool.execute(
       { path: join(firstWorkspaceDir, "first.txt") },
       createExecutionContext()
-    )) as { content: string };
+    )) as { content: string; requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
     assert.equal(firstResult.content, "first");
+    assert.equal(firstResult.requestedPath, join(firstWorkspaceDir, "first.txt"));
+    assert.equal(firstResult.resolvedPath, join(realpathSync(firstWorkspaceDir), "first.txt"));
+    assert.equal(firstResult.pathZone, "authorized_directory");
+    assert.equal(firstResult.requiresConfirmation, false);
 
-    await writeFileTool.execute(
+    const firstWriteResult = (await writeFileTool.execute(
       {
         path: join(firstWorkspaceDir, "first-write.txt"),
         content: "first write"
       },
       createExecutionContext()
-    );
+    )) as { requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
+    assert.equal(firstWriteResult.requestedPath, join(firstWorkspaceDir, "first-write.txt"));
+    assert.equal(firstWriteResult.resolvedPath, join(realpathSync(firstWorkspaceDir), "first-write.txt"));
+    assert.equal(firstWriteResult.pathZone, "authorized_directory");
+    assert.equal(firstWriteResult.requiresConfirmation, true);
     assert.equal(readFileSync(join(firstWorkspaceDir, "first-write.txt"), "utf8"), "first write");
 
     allowedDirectories = [secondWorkspaceDir];

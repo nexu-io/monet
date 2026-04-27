@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { createChatStorage } from "../chat-storage";
-import { createLogger } from "../logger";
+import { createLogger, type Logger } from "../logger";
 import { createToolRegistry } from "./registry";
 
 interface ToolCallRow {
@@ -20,6 +20,32 @@ interface ToolCallRow {
   readonly error_message: string | null;
   readonly started_at: string;
   readonly ended_at: string | null;
+}
+
+interface CapturedLogEntry {
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly event: string;
+  readonly context: Record<string, unknown> | undefined;
+}
+
+function createCapturingLogger(entries: CapturedLogEntry[]): Logger {
+  return {
+    child() {
+      return createCapturingLogger(entries);
+    },
+    debug(event, context) {
+      entries.push({ level: "debug", event, context });
+    },
+    info(event, context) {
+      entries.push({ level: "info", event, context });
+    },
+    warn(event, context) {
+      entries.push({ level: "warn", event, context });
+    },
+    error(event, _error, context) {
+      entries.push({ level: "error", event, context });
+    }
+  };
 }
 
 function createTestStorage() {
@@ -177,6 +203,73 @@ test("tool registry persists completed executions", async () => {
     assert.equal(row?.error_message, null);
     assert.equal(Boolean(row?.started_at), true);
     assert.equal(Boolean(row?.ended_at), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool registry logs filesystem path metadata from tool output", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "hello" }] }]
+    });
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "path_tool",
+          description: "Returns filesystem path metadata.",
+          requiresConfirmation: true
+        },
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string" }
+          },
+          required: ["path"],
+          additionalProperties: false
+        } as never,
+        async execute(input: unknown) {
+          const normalizedInput = input as { path: string };
+
+          return {
+            path: "/tmp/session-workspace/output.txt",
+            requestedPath: normalizedInput.path,
+            resolvedPath: "/tmp/session-workspace/output.txt",
+            pathZone: "session_workspace",
+            requiresConfirmation: false,
+            bytesWritten: 5
+          };
+        }
+      }
+    ]);
+    const logEntries: CapturedLogEntry[] = [];
+    const runtimeTools = registry.createRuntimeTools({
+      runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
+      chatStorage: fixture.storage,
+      logger: createCapturingLogger(logEntries)
+    });
+    const execute = (runtimeTools.path_tool as { execute: (input: unknown, context: unknown) => Promise<unknown> }).execute;
+
+    await execute(
+      { path: "output.txt" },
+      {
+        toolCallId: "call_sdk_path",
+        messages: [],
+        abortSignal: new AbortController().signal,
+        experimental_context: undefined
+      }
+    );
+
+    const completedLog = logEntries.find((entry) => entry.event === "tool.execution_completed");
+
+    assert.equal(completedLog?.context?.requestedPath, "output.txt");
+    assert.equal(completedLog?.context?.resolvedPath, "/tmp/session-workspace/output.txt");
+    assert.equal(completedLog?.context?.pathZone, "session_workspace");
+    assert.equal(completedLog?.context?.requiresConfirmation, false);
   } finally {
     fixture.cleanup();
   }

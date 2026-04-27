@@ -36,9 +36,9 @@ interface FetchUrlRequestOptions {
 
 type FetchUrlRequestFn = (options: FetchUrlRequestOptions) => Promise<FetchUrlResponse>;
 type FilesystemAccessMode = "read" | "write";
-type FilesystemPathZone = "session_workspace" | "authorized_directory" | "denied";
+export type FilesystemPathZone = "session_workspace" | "authorized_directory" | "denied";
 
-interface ResolvedFilesystemPath {
+export interface ResolvedFilesystemPath {
   readonly requestedPath: string;
   readonly resolvedPath: string;
   readonly zone: FilesystemPathZone;
@@ -79,6 +79,13 @@ interface ReadFileInput {
 interface WriteFileInput {
   readonly path: string;
   readonly content: string;
+}
+
+interface FilesystemPathOutputMetadata {
+  readonly requestedPath: string;
+  readonly resolvedPath: string;
+  readonly pathZone: FilesystemPathZone;
+  readonly requiresConfirmation: boolean;
 }
 
 const fetchUrlMaxRedirects = 3;
@@ -542,6 +549,15 @@ async function assertFilesystemPathAllowed(options: ClassifyFilesystemPathOption
   return resolvedPath;
 }
 
+function createFilesystemPathOutputMetadata(resolvedPath: ResolvedFilesystemPath): FilesystemPathOutputMetadata {
+  return {
+    requestedPath: resolvedPath.requestedPath,
+    resolvedPath: resolvedPath.resolvedPath,
+    pathZone: resolvedPath.zone,
+    requiresConfirmation: resolvedPath.requiresConfirmation
+  };
+}
+
 export function createBuiltinToolDefinitions(
   options: BuiltinToolsOptions
 ): ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> {
@@ -608,6 +624,7 @@ export function createBuiltinToolDefinitions(
 
         return {
           path: resolvedPath.resolvedPath,
+          ...createFilesystemPathOutputMetadata(resolvedPath),
           content,
           sizeBytes: fileStat.size
         };
@@ -637,6 +654,7 @@ export function createBuiltinToolDefinitions(
 
         return {
           path: resolvedPath.resolvedPath,
+          ...createFilesystemPathOutputMetadata(resolvedPath),
           bytesWritten: Buffer.byteLength(normalizedInput.content, "utf8")
         };
       }
