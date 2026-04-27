@@ -47,6 +47,9 @@ test("connectors endpoint returns connector catalog with status", async () => {
     },
     completeConnection() {
       throw new Error("not used in connectors route test");
+    },
+    disconnect() {
+      throw new Error("not used in connectors route test");
     }
   };
 
@@ -153,6 +156,9 @@ test("connector detail endpoint returns connector status, tools, and approval po
     },
     completeConnection() {
       throw new Error("not used in connector detail route test");
+    },
+    disconnect() {
+      throw new Error("not used in connector detail route test");
     }
   };
 
@@ -194,6 +200,9 @@ test("connector detail endpoint returns normalized connector errors", async () =
       throw new Error("not used in connector detail error route test");
     },
     completeConnection() {
+      throw new Error("not used in connector detail error route test");
+    },
+    disconnect() {
       throw new Error("not used in connector detail error route test");
     }
   };
@@ -250,6 +259,9 @@ test("connector connect endpoint starts connection flow for Monet install", asyn
       };
     },
     completeConnection() {
+      throw new Error("not used in connector connect route test");
+    },
+    disconnect() {
       throw new Error("not used in connector connect route test");
     }
   };
@@ -380,6 +392,44 @@ test("connector OAuth callback validates state before redirecting back to connec
   assert.equal(replayResponse.headers.get("location"), "/connectors?connector_oauth=error");
 });
 
+test("connector disconnect endpoint revokes provider access and marks local connection disconnected", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  const monetInstallId = "monet-install-id-disconnect";
+  let requested: { userId: string; connectorId: string } | null = null;
+  let disconnected: { userId: string; connectorId: string; provider: string } | null = null;
+
+  registerConnectorRoutes(app, {
+    connectorService: {
+      ...createUnusedConnectorService(),
+      async disconnect(input) {
+        requested = { userId: input.userId, connectorId: input.connectorId };
+      }
+    },
+    getChatStorage: () =>
+      ({
+        getMonetInstallId() {
+          return monetInstallId;
+        },
+        markConnectorConnectionDisconnected(input: { userId: string; connectorId: string; provider: string }) {
+          disconnected = input;
+          return null;
+        }
+      }) as never
+  });
+
+  const response = await app.request("http://127.0.0.1:42831/api/connectors/github/connection", {
+    method: "DELETE"
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    connectorId: "github",
+    status: "not_connected"
+  });
+  assert.deepEqual(requested, { userId: monetInstallId, connectorId: "github" });
+  assert.deepEqual(disconnected, { userId: monetInstallId, connectorId: "github", provider: "composio" });
+});
+
 function createUnusedConnectorService(): ConnectorService {
   return {
     listConnectors() {
@@ -395,6 +445,9 @@ function createUnusedConnectorService(): ConnectorService {
       throw new Error("not used in connector OAuth callback route test");
     },
     completeConnection() {
+      throw new Error("not used in connector OAuth callback route test");
+    },
+    disconnect() {
       throw new Error("not used in connector OAuth callback route test");
     }
   };

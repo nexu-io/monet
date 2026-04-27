@@ -9,6 +9,7 @@ import { hashConnectorOAuthState } from "../connectors/oauth-state";
 import type { ConnectorService } from "../connectors/service";
 import {
   createErrorResponse,
+  DisconnectConnectorConnectionResponseSchema,
   ErrorResponseSchema,
   GetConnectorResponseSchema,
   ListConnectorsResponseSchema,
@@ -220,6 +221,91 @@ const startConnectorConnectionRoute = createRoute({
   }
 });
 
+const deleteConnectorConnectionRoute = createRoute({
+  method: "delete",
+  path: "/api/connectors/{connectorId}/connection",
+  tags: ["Connectors"],
+  summary: "Disconnect connector",
+  description: "Revokes provider access when supported and marks the local connector connection disconnected for this Monet install.",
+  request: {
+    params: connectorIdParamSchema
+  },
+  responses: {
+    200: {
+      description: "Connector disconnected successfully.",
+      content: {
+        "application/json": {
+          schema: DisconnectConnectorConnectionResponseSchema
+        }
+      }
+    },
+    400: {
+      description: "Invalid connector request.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    401: {
+      description: "Connector credentials have expired.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    403: {
+      description: "Connector provider denied access.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "Connector not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    409: {
+      description: "Connector connection conflict.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    429: {
+      description: "Connector provider rate limit exceeded.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    502: {
+      description: "Connector provider request failed.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    503: {
+      description: "Connector provider is unavailable.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
 export function registerConnectorRoutes(
   app: ControllerApp,
   options: { connectorService: ConnectorService; getChatStorage: () => ChatStorage }
@@ -350,6 +436,44 @@ export function registerConnectorRoutes(
           ...(connectionStart.providerConnectionId ? { providerConnectionId: connectionStart.providerConnectionId } : {}),
           ...(connectionStart.redirectUrl ? { redirectUrl: connectionStart.redirectUrl } : {}),
           ...(connectionStart.expiresAt ? { expiresAt: connectionStart.expiresAt } : {})
+        },
+        200
+      );
+    } catch (error) {
+      const normalized = normalizeConnectorProviderError(error);
+      const status = isConnectorRouteErrorStatus(normalized.statusCode) ? normalized.statusCode : 502;
+      return context.json(createErrorResponse(normalized.code, normalized.message), status);
+    }
+  });
+
+  app.openapi(deleteConnectorConnectionRoute, async (context) => {
+    const connectorId = context.req.valid("param").connectorId;
+    const catalogItem = getConnectorCatalogItem(connectorId);
+
+    if (!catalogItem) {
+      return context.json(createErrorResponse("tool_not_found", `Unknown connector: ${connectorId}`), 404);
+    }
+
+    const storage = options.getChatStorage();
+    const userId = storage.getMonetInstallId();
+
+    try {
+      await options.connectorService.disconnect({
+        userId,
+        connectorId,
+        abortSignal: context.req.raw.signal
+      });
+
+      storage.markConnectorConnectionDisconnected({
+        userId,
+        connectorId,
+        provider: CONNECTOR_OAUTH_PROVIDER
+      });
+
+      return context.json(
+        {
+          connectorId: catalogItem.id,
+          status: "not_connected" as const
         },
         200
       );

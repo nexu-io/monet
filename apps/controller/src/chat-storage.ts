@@ -379,6 +379,7 @@ export class ChatStorageResolutionError extends Error {
 export interface ChatStorage {
   getMonetInstallId(): string;
   getConnectorConnection(input: { userId: string; connectorId: string; provider: string }): StoredConnectorConnection | null;
+  markConnectorConnectionDisconnected(input: { userId: string; connectorId: string; provider: string }): StoredConnectorConnection | null;
   createConnectorOAuthState(input: CreateConnectorOAuthStateInput): StoredConnectorOAuthState;
   getConnectorOAuthStateByHash(stateHash: string): StoredConnectorOAuthState | null;
   completeConnectorOAuthConnection(input: CompleteConnectorOAuthConnectionInput): StoredConnectorConnection;
@@ -469,6 +470,35 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     },
 
     getConnectorConnection(input) {
+      const row = connection
+        .prepare(
+          `SELECT id, user_id, connector_id, provider, provider_connection_id, provider_metadata_json, account_label,
+                  status, created_at, updated_at, last_connected_at, last_error
+           FROM connector_connections
+           WHERE user_id = ? AND connector_id = ? AND provider = ?
+           LIMIT 1`
+        )
+        .get(input.userId, input.connectorId, input.provider) as ConnectorConnectionRow | undefined;
+
+      return row ? mapConnectorConnectionRow(row) : null;
+    },
+
+    markConnectorConnectionDisconnected(input) {
+      const now = new Date().toISOString();
+
+      connection
+        .prepare(
+          `UPDATE connector_connections
+           SET provider_connection_id = NULL,
+               provider_metadata_json = NULL,
+               account_label = NULL,
+               status = 'disconnected',
+               updated_at = ?,
+               last_error = NULL
+           WHERE user_id = ? AND connector_id = ? AND provider = ?`
+        )
+        .run(now, input.userId, input.connectorId, input.provider);
+
       const row = connection
         .prepare(
           `SELECT id, user_id, connector_id, provider, provider_connection_id, provider_metadata_json, account_label,

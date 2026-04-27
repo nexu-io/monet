@@ -60,6 +60,7 @@ export interface ConnectorService {
   getConnection(input: ConnectorServiceGetInput): Promise<ConnectorServiceConnection>;
   startConnection(input: ConnectorServiceStartConnectionInput): Promise<ConnectorConnectionStart>;
   completeConnection(input: ConnectorServiceCompleteConnectionInput): ReturnType<ConnectorProvider["completeConnection"]>;
+  disconnect(input: ConnectorServiceGetInput): Promise<void>;
 }
 
 export interface CreateConnectorServiceOptions {
@@ -146,6 +147,24 @@ class DefaultConnectorService implements ConnectorService {
       connectorId: catalogItem.id,
       providerConnectionId: input.providerConnectionId,
       ...(input.callbackStatus ? { callbackStatus: input.callbackStatus } : {}),
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+    });
+  }
+
+  async disconnect(input: ConnectorServiceGetInput): Promise<void> {
+    const catalogItem = getConnectorCatalogItem(input.connectorId);
+
+    if (!catalogItem) {
+      throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
+    }
+
+    if (!catalogItem.enabledByDefault) {
+      throw createConnectorProviderError("provider_error", { message: "Connector is not enabled.", statusCode: 503 });
+    }
+
+    await this.provider.disconnect({
+      userId: input.userId,
+      connectorId: catalogItem.id,
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
     });
   }

@@ -98,6 +98,13 @@ export const StartConnectorConnectionResponseSchema = z
   })
   .openapi("StartConnectorConnectionResponse");
 
+export const DisconnectConnectorConnectionResponseSchema = z
+  .object({
+    connectorId: z.enum(["github", "notion", "google_drive"]).openapi({ example: "github" }),
+    status: z.literal("not_connected").openapi({ example: "not_connected" })
+  })
+  .openapi("DisconnectConnectorConnectionResponse");
+
 export const ErrorResponseSchema = z
   .object({
     error: z.string().openapi({ example: "unauthorized" }),
