@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 
 import type { ChatStorage } from "../chat-storage";
 import type { ComposioProviderConfig } from "../config";
-import { getConnectorCatalogItem, listConnectorCatalog, type ConnectorCatalogItem, type ConnectorId } from "./catalog";
+import {
+  getConnectorCatalogItem,
+  listConnectorCatalog,
+  type ConnectorAllowedTool,
+  type ConnectorCatalogItem,
+  type ConnectorId
+} from "./catalog";
 import { createConnectorProviderError, normalizeConnectorProviderError, type ConnectorProviderErrorCode } from "./errors";
 import type {
   ConnectorCompleteConnectionInput,
@@ -15,6 +21,7 @@ import type {
   ConnectorProvider,
   ConnectorReconciledConnection,
   ConnectorToolDefinition,
+  ConnectorToolJsonSchema,
   ConnectorToolResult
 } from "./provider";
 
@@ -49,6 +56,24 @@ interface ComposioConnectedAccountResponse {
   };
   readonly data?: unknown;
   readonly metadata?: unknown;
+}
+
+interface ComposioToolResponse {
+  readonly slug?: unknown;
+  readonly name?: unknown;
+  readonly description?: unknown;
+  readonly human_description?: unknown;
+  readonly humanDescription?: unknown;
+  readonly input_parameters?: unknown;
+  readonly inputParameters?: unknown;
+  readonly toolkit?: {
+    readonly slug?: unknown;
+  };
+}
+
+interface ComposioToolListResponse {
+  readonly items?: unknown;
+  readonly data?: unknown;
 }
 
 export interface ComposioConnectorProviderOptions {
@@ -255,8 +280,40 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     }
   }
 
-  async listTools(_input: ConnectorListToolsInput): Promise<readonly ConnectorToolDefinition[]> {
-    return [];
+  async listTools(input: ConnectorListToolsInput): Promise<readonly ConnectorToolDefinition[]> {
+    const catalogItems = getCatalogItemsForToolListing(input.connectorId);
+
+    if (!this.apiKey) {
+      throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
+    }
+
+    const tools: ConnectorToolDefinition[] = [];
+
+    for (const catalogItem of catalogItems) {
+      const authConfigId = this.authConfigIds[catalogItem.id];
+
+      if (!authConfigId) {
+        if (input.connectorId) {
+          throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
+        }
+
+        continue;
+      }
+
+      const connection = this.storage.getConnectorConnection({
+        userId: input.userId,
+        connectorId: catalogItem.id,
+        provider: COMPOSIO_PROVIDER
+      });
+
+      if (!connection?.providerConnectionId || connection.status !== "connected") {
+        continue;
+      }
+
+      tools.push(...(await this.listCuratedToolsForConnector(catalogItem, input.abortSignal)));
+    }
+
+    return tools;
   }
 
   async executeTool(_input: ConnectorExecuteToolInput): Promise<ConnectorToolResult> {
@@ -293,7 +350,46 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     });
   }
 
-  private async requestJson(path: string, input: { method: string; body?: string; abortSignal?: AbortSignal }): Promise<ComposioConnectedAccountResponse> {
+  private async listCuratedToolsForConnector(
+    catalogItem: ConnectorCatalogItem,
+    abortSignal: AbortSignal | undefined
+  ): Promise<readonly ConnectorToolDefinition[]> {
+    const providerTools = await this.requestTools(catalogItem.providerConnectorId, abortSignal);
+    const providerToolsById = new Map<string, ComposioToolResponse>();
+
+    for (const providerTool of providerTools) {
+      const providerToolId = getString(providerTool.slug);
+
+      if (!providerToolId || providerToolsById.has(providerToolId)) {
+        continue;
+      }
+
+      providerToolsById.set(providerToolId, providerTool);
+    }
+
+    return catalogItem.allowedTools.flatMap((allowedTool) => {
+      const providerTool = providerToolsById.get(allowedTool.providerToolId);
+
+      if (!providerTool || !isToolFromToolkit(providerTool, catalogItem.providerConnectorId)) {
+        return [];
+      }
+
+      return [mapComposioToolDefinition(catalogItem, allowedTool, providerTool)];
+    });
+  }
+
+  private async requestTools(providerConnectorId: string, abortSignal: AbortSignal | undefined): Promise<readonly ComposioToolResponse[]> {
+    const searchParams = new URLSearchParams({ toolkit_slug: providerConnectorId, limit: "1000" });
+    const response = await this.requestJson<ComposioToolListResponse>(`/api/v3.1/tools?${searchParams.toString()}`, {
+      method: "GET",
+      ...(abortSignal ? { abortSignal } : {})
+    });
+    const items = Array.isArray(response.items) ? response.items : Array.isArray(response.data) ? response.data : [];
+
+    return items.filter(isComposioToolResponse);
+  }
+
+  private async requestJson<T extends object>(path: string, input: { method: string; body?: string; abortSignal?: AbortSignal }): Promise<T> {
     const response = await this.request(path, input);
     const value = (await response.json()) as unknown;
 
@@ -301,7 +397,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
       throw createConnectorProviderError("provider_error", { message: "Connector provider returned an invalid response." });
     }
 
-    return value as ComposioConnectedAccountResponse;
+    return value as T;
   }
 
   private async request(path: string, input: { method: string; body?: string; abortSignal?: AbortSignal }): Promise<Response> {
@@ -326,6 +422,63 @@ export class ComposioConnectorProvider implements ConnectorProvider {
 
     return response;
   }
+}
+
+function getCatalogItemsForToolListing(connectorId: ConnectorId | undefined): readonly ConnectorCatalogItem[] {
+  if (!connectorId) {
+    return listConnectorCatalog();
+  }
+
+  const catalogItem = getConnectorCatalogItem(connectorId);
+
+  if (!catalogItem) {
+    throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${connectorId}` });
+  }
+
+  return [catalogItem];
+}
+
+function mapComposioToolDefinition(
+  catalogItem: ConnectorCatalogItem,
+  allowedTool: ConnectorAllowedTool,
+  providerTool: ComposioToolResponse
+): ConnectorToolDefinition {
+  const providerToolId = getString(providerTool.slug) ?? allowedTool.providerToolId;
+  const providerDisplayName = getString(providerTool.name);
+  const providerDescription = getString(providerTool.description) ?? getString(providerTool.human_description) ?? getString(providerTool.humanDescription);
+
+  return {
+    connectorId: catalogItem.id,
+    providerToolId,
+    name: providerToolId,
+    displayName: providerDisplayName ?? allowedTool.displayName,
+    description: providerDescription ?? allowedTool.summary,
+    inputSchema: getComposioInputSchema(providerTool),
+    policy: allowedTool.policy
+  };
+}
+
+function getComposioInputSchema(providerTool: ComposioToolResponse): ConnectorToolJsonSchema {
+  const inputParameters = getRecord(providerTool.input_parameters) ?? getRecord(providerTool.inputParameters);
+
+  if (!inputParameters) {
+    return {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    };
+  }
+
+  return inputParameters as ConnectorToolJsonSchema;
+}
+
+function isToolFromToolkit(providerTool: ComposioToolResponse, providerConnectorId: string): boolean {
+  const toolkitSlug = getString(providerTool.toolkit?.slug);
+  return !toolkitSlug || toolkitSlug === providerConnectorId;
+}
+
+function isComposioToolResponse(value: unknown): value is ComposioToolResponse {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function mapPersistedConnectionStatus(
