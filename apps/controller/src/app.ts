@@ -19,7 +19,7 @@ import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createBuiltinToolSource } from "./tools/builtins";
 import { createConnectorToolSource } from "./tools/connectors";
-import { createToolRegistry } from "./tools/registry";
+import { createToolRegistry, type ToolRegistry } from "./tools/registry";
 import type {
   AgentRuntimeConfig,
   ConnectorProviderConfig,
@@ -51,6 +51,7 @@ export type ControllerApp = OpenAPIHono<{ Variables: ControllerAppVariables }>;
 export interface ControllerAppRuntime {
   readonly app: ControllerApp;
   readonly chatStorage: ReturnType<typeof createChatStorage>;
+  readonly toolRegistry: ToolRegistry;
   readonly setPort: (port: number) => void;
 }
 
@@ -304,6 +305,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   return {
     app,
     chatStorage,
+    toolRegistry,
     setPort(port) {
       controllerPort = port;
     }
