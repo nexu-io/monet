@@ -659,7 +659,7 @@ export function createBuiltinToolDefinitions(
     {
       metadata: {
         name: "read_file",
-        description: "Reads a UTF-8 text file from an authorized directory.",
+        description: "Reads a UTF-8 text file inside the session workspace or an authorized directory.",
         requiresConfirmation: false
       },
       inputSchema: z.object({
