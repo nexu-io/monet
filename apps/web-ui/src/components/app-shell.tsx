@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Button,
   NavigationMenu,
@@ -17,6 +17,20 @@ import {
 
 import { useControllerState } from "../lib/controller-state";
 import { useSessions } from "./session-provider";
+
+const CONNECTOR_DETAIL_QUERY_PARAM = "connector";
+
+function isConnectorsNavigationActive(pathname: string, search: string) {
+  if (pathname === "/connectors" || pathname.startsWith("/connectors/")) {
+    return true;
+  }
+
+  if (!search) {
+    return false;
+  }
+
+  return new URLSearchParams(search).has(CONNECTOR_DETAIL_QUERY_PARAM);
+}
 
 function formatSessionPreview(updatedAt: string) {
   const value = new Intl.DateTimeFormat(undefined, {
@@ -43,6 +57,7 @@ export function AppShell({
   onDesktopStopShortcut?: () => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     createSession,
     currentSessionId,
@@ -54,7 +69,7 @@ export function AppShell({
   const { config, isDesktop } = useControllerState();
   const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>();
   const isConnectorsEnabled = config?.features.connectors ?? false;
-  const isConnectorsOpen = pathname.startsWith("/connectors");
+  const isConnectorsOpen = isConnectorsNavigationActive(pathname, location.search);
   const isSettingsOpen = pathname.startsWith("/settings");
   const openSettingsHref = "/settings/general";
 
