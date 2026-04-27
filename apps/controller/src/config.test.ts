@@ -24,10 +24,11 @@ test("allows both loopback web dev origins by default", () => {
   assert.ok(config.allowedOrigins.includes("http://localhost:42832"));
 });
 
-test("authorizes the current working directory by default", () => {
+test("uses an empty tool allowed directory list by default", () => {
   const config = createControllerConfig(createEnv());
 
-  assert.deepEqual(config.allowedToolDirectories, [resolve(process.cwd())]);
+  assert.equal(config.allowedToolDirectories.length, 0);
+  assert.equal(config.allowedToolDirectories.includes(resolve(process.cwd())), false);
   assert.equal(config.allowedToolDirectoriesSource, "default");
 });
 
@@ -40,4 +41,31 @@ test("uses explicit tool allowed directories when configured", () => {
 
   assert.deepEqual(config.allowedToolDirectories, [resolve("./one"), resolve("./two")]);
   assert.equal(config.allowedToolDirectoriesSource, "env");
+});
+
+test("uses explicit session workspace base directory when configured", () => {
+  const config = createControllerConfig(
+    createEnv({
+      MONET_SESSION_WORKSPACE_DIR: "./custom-session-workspaces",
+      MONET_USER_DATA_DIR: "./user-data"
+    })
+  );
+
+  assert.equal(config.sessionWorkspaceBaseDirectory, resolve("./custom-session-workspaces"));
+});
+
+test("uses user data session-workspaces directory when explicit workspace base is not configured", () => {
+  const config = createControllerConfig(
+    createEnv({
+      MONET_USER_DATA_DIR: "./user-data"
+    })
+  );
+
+  assert.equal(config.sessionWorkspaceBaseDirectory, resolve("./user-data", "session-workspaces"));
+});
+
+test("uses current working directory session-workspaces fallback by default", () => {
+  const config = createControllerConfig(createEnv());
+
+  assert.equal(config.sessionWorkspaceBaseDirectory, resolve(process.cwd(), "session-workspaces"));
 });

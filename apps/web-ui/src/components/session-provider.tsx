@@ -155,6 +155,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSessions((current) => upsertSession(current, session));
     setCurrentSessionDetail({
       ...session,
+      workspacePath: null,
       messages: []
     });
     setSessionsError(null);

@@ -13,6 +13,7 @@ import {
 } from "../openapi";
 import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
 import type { RunRegistry } from "../run-registry";
+import type { SessionWorkspaceService } from "../session-workspace-service";
 import type { ToolRegistry } from "../tools/registry";
 import type { AgentRuntimeConfig } from "../config";
 import { getRequestId } from "../request-context";
@@ -72,6 +73,7 @@ export function registerRunRoutes(
     getChatStorage: () => ChatStorage;
     runRegistry: RunRegistry;
     providerRuntime: ProviderRuntime;
+    sessionWorkspaceService: SessionWorkspaceService;
     toolRegistry: ToolRegistry;
     runtime: AgentRuntimeConfig;
   }
@@ -181,6 +183,7 @@ export function registerRunRoutes(
         chatStorage: options.getChatStorage(),
         providerRuntime: options.providerRuntime,
         runRegistry: options.runRegistry,
+        sessionWorkspaceService: options.sessionWorkspaceService,
         toolRegistry: options.toolRegistry,
         runtime: options.runtime,
         logger: runsLogger.child({ requestId }),

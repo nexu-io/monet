@@ -6,6 +6,12 @@ out/
 .next/
 coverage/
 *.tsbuildinfo
+
+# Monet local development runtime state
+apps/controller/.monet-dev/
+apps/controller/session-workspaces/
+session-workspaces/
+
 apps/controller/sqlite/*.db
 apps/controller/sqlite/*.db-shm
 apps/controller/sqlite/*.db-wal

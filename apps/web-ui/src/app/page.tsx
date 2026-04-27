@@ -300,10 +300,9 @@ function SessionChatSurface({
       header={(
         <ConversationHeader
           sessionTitle={session.title}
+          sessionId={session.id}
           messageCount={messages.length}
           activeTarget={activeProviderTarget}
-          isTargetOverridden={overrideProviderTarget !== null}
-          onChangeTarget={handleChangeProviderTarget}
         />
       )}
       composer={(
@@ -387,8 +386,6 @@ function EmptyChatConversation({
           sessionTitle={DEFAULT_SESSION_TITLE}
           messageCount={0}
           activeTarget={selectedProviderTarget}
-          isTargetOverridden={overrideProviderTarget !== null}
-          onChangeTarget={handleChangeProviderTarget}
         />
       )}
       composer={(

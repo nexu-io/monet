@@ -10,6 +10,7 @@ import { createLogger } from "../logger";
 import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
 import { getRequestId } from "../request-context";
 import type { RunRegistry } from "../run-registry";
+import type { SessionWorkspaceService } from "../session-workspace-service";
 import type { ToolRegistry } from "../tools/registry";
 import { sanitizeUiMessages } from "../ui-message-sanitize";
 
@@ -47,6 +48,7 @@ export function registerChatRoutes(
     getChatStorage: () => ChatStorage;
     providerRuntime: ProviderRuntime;
     runRegistry: RunRegistry;
+    sessionWorkspaceService: SessionWorkspaceService;
     toolRegistry: ToolRegistry;
     runtime: AgentRuntimeConfig;
   }
@@ -195,6 +197,7 @@ export function registerChatRoutes(
         chatStorage: options.getChatStorage(),
         providerRuntime: options.providerRuntime,
         runRegistry: options.runRegistry,
+        sessionWorkspaceService: options.sessionWorkspaceService,
         toolRegistry: options.toolRegistry,
         runtime: options.runtime,
         logger: chatLogger.child({ requestId }),

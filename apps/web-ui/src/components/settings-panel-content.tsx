@@ -462,7 +462,8 @@ function GeneralSettingsPanel() {
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Filesystem access</span>
             <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Authorized directories</CardTitle>
             <CardDescription className="m-0 leading-[1.5] text-text-muted">
-              File tools can only read and write inside directories you explicitly authorize here.
+              Session files use each session workspace automatically. Authorize directories only for external files; writes outside the workspace still require
+              confirmation.
             </CardDescription>
           </div>
         </CardHeader>
@@ -503,8 +504,8 @@ function GeneralSettingsPanel() {
 
           {!authorizedDirectoriesState.loading && !authorizedDirectoriesState.error && authorizedDirectories.length === 0 ? (
             <div className={settingsEmptyStateClassName}>
-              <p className="m-0 leading-[1.5] text-text-muted">No directories are authorized yet.</p>
-              <p className="m-0 leading-[1.5] text-text-muted">Add one before using read_file or write_file in agent runs.</p>
+              <p className="m-0 leading-[1.5] text-text-muted">No external directories are authorized yet.</p>
+              <p className="m-0 leading-[1.5] text-text-muted">Agents can still use relative paths in the current session workspace without setup.</p>
             </div>
           ) : null}
 

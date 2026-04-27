@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 const defaultControllerPort = 42831;
 const defaultControllerHost = "127.0.0.1";
 const defaultAllowedOrigins = ["null", "app://monet", "http://127.0.0.1:42832", "http://localhost:42832"] as const;
-const defaultAllowedToolDirectories = [process.cwd()] as const;
+const defaultAllowedToolDirectories: readonly string[] = [];
 const defaultAgentMaxStepsPerRun = 8;
 const defaultAgentMaxTokensPerRun = 32_768;
 const defaultAgentWallClockBudgetMs = 60_000;
@@ -18,6 +18,7 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
+  readonly sessionWorkspaceBaseDirectory: string;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
 }
@@ -68,6 +69,7 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
     databasePath: resolveDatabasePath(env),
+    sessionWorkspaceBaseDirectory: resolveSessionWorkspaceBaseDirectory(env),
     openai: {
       apiKey: parseOptionalString(env.MONET_OPENAI_API_KEY) ?? parseOptionalString(env.OPENAI_API_KEY),
       baseUrl: parseUrl(env.MONET_OPENAI_BASE_URL) ?? parseUrl(env.OPENAI_BASE_URL),
@@ -81,6 +83,22 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
     }
   };
+}
+
+function resolveSessionWorkspaceBaseDirectory(env: NodeJS.ProcessEnv): string {
+  const explicitDirectory = env.MONET_SESSION_WORKSPACE_DIR?.trim();
+
+  if (explicitDirectory) {
+    return resolve(explicitDirectory);
+  }
+
+  const userDataDirectory = env.MONET_USER_DATA_DIR?.trim();
+
+  if (userDataDirectory) {
+    return resolve(userDataDirectory, "session-workspaces");
+  }
+
+  return resolve(process.cwd(), "session-workspaces");
 }
 
 function resolveDatabasePath(env: NodeJS.ProcessEnv): string {

@@ -12,6 +12,14 @@ export interface RegisteredToolExecuteContext {
   readonly experimental_context?: unknown;
 }
 
+export interface RegisteredToolApprovalContext {
+  readonly toolCallId: string;
+  readonly messages: readonly unknown[];
+  readonly experimental_context?: unknown;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
+}
+
 export interface ToolMetadata {
   readonly name: string;
   readonly description: string;
@@ -20,17 +28,22 @@ export interface ToolMetadata {
 
 export interface ToolExecutionContext {
   readonly runId: string;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
   readonly chatStorage: ChatStorage;
   readonly logger: Logger;
 }
 
 export interface ToolExecutionHelpers {
   readonly persistedToolCallId: string;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
 }
 
 export interface RegisteredToolDefinition<TInput = unknown, TOutput = unknown> {
   readonly metadata: ToolMetadata;
   readonly inputSchema: unknown;
+  readonly needsApproval?: (input: TInput, context: RegisteredToolApprovalContext) => boolean | PromiseLike<boolean>;
   readonly execute: (input: TInput, context: RegisteredToolExecuteContext & ToolExecutionHelpers) => TOutput | Promise<TOutput>;
 }
 
@@ -38,6 +51,30 @@ export interface ToolRegistry {
   register<TInput, TOutput>(definition: RegisteredToolDefinition<TInput, TOutput>): void;
   listTools(): readonly ToolMetadata[];
   createRuntimeTools(context: ToolExecutionContext): Record<string, unknown>;
+}
+
+function getFilesystemPathLogContext(output: unknown): Record<string, unknown> {
+  if (typeof output !== "object" || output === null) {
+    return {};
+  }
+
+  const candidate = output as Record<string, unknown>;
+
+  if (
+    typeof candidate.requestedPath !== "string"
+    || typeof candidate.resolvedPath !== "string"
+    || typeof candidate.pathZone !== "string"
+    || typeof candidate.requiresConfirmation !== "boolean"
+  ) {
+    return {};
+  }
+
+  return {
+    requestedPath: candidate.requestedPath,
+    resolvedPath: candidate.resolvedPath,
+    pathZone: candidate.pathZone,
+    requiresConfirmation: candidate.requiresConfirmation
+  };
 }
 
 export function createToolRegistry(
@@ -72,7 +109,15 @@ export function createToolRegistry(
           const runtimeTool = tool({
             description: definition.metadata.description,
             inputSchema: definition.inputSchema as ToolFactoryOptions["inputSchema"],
-            needsApproval: definition.metadata.requiresConfirmation,
+            needsApproval: definition.needsApproval
+              ? async (input, approvalContext) => definition.needsApproval?.(input, {
+                toolCallId: approvalContext.toolCallId,
+                messages: approvalContext.messages,
+                experimental_context: approvalContext.experimental_context,
+                sessionId: context.sessionId,
+                sessionWorkspacePath: context.sessionWorkspacePath
+              }) ?? definition.metadata.requiresConfirmation
+              : definition.metadata.requiresConfirmation,
             onInputAvailable: ({ input, toolCallId }) => {
               const persistedToolCallId = context.chatStorage.startToolCall({
                 toolCallId,
@@ -113,7 +158,9 @@ export function createToolRegistry(
                   messages: executionContext.messages,
                   abortSignal: executionContext.abortSignal ?? new AbortController().signal,
                   experimental_context: executionContext.experimental_context,
-                  persistedToolCallId
+                  persistedToolCallId,
+                  sessionId: context.sessionId,
+                  sessionWorkspacePath: context.sessionWorkspacePath
                 });
                 const completion = context.chatStorage.completeToolCall({
                   toolCallId: persistedToolCallId,
@@ -126,7 +173,8 @@ export function createToolRegistry(
                   toolName: definition.metadata.name,
                   durationMs: Date.now() - startedAt,
                   outputSizeBytes: completion.outputSizeBytes,
-                  outputTruncated: completion.outputTruncated
+                  outputTruncated: completion.outputTruncated,
+                  ...getFilesystemPathLogContext(output)
                 });
 
                 return output;
