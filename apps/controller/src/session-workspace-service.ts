@@ -1,7 +1,8 @@
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 const safeWorkspaceSessionIdPattern = /^ses_[a-z0-9]+$/;
+const workspaceDirectoryMode = 0o700;
 
 export interface CreateSessionWorkspaceServiceOptions {
   readonly baseDirectory: string;
@@ -46,7 +47,8 @@ export function createSessionWorkspaceService(
 
     async ensureWorkspace(sessionId) {
       const workspacePath = getWorkspacePath(sessionId);
-      await mkdir(workspacePath, { recursive: true, mode: 0o700 });
+      await mkdir(workspacePath, { recursive: true, mode: workspaceDirectoryMode });
+      await applyRestrictiveDirectoryPermissions(workspacePath);
       return workspacePath;
     },
 
@@ -67,6 +69,18 @@ export function createSessionWorkspaceService(
       };
     }
   };
+}
+
+async function applyRestrictiveDirectoryPermissions(workspacePath: string): Promise<void> {
+  try {
+    await chmod(workspacePath, workspaceDirectoryMode);
+  } catch (error) {
+    if (isUnsupportedChmodError(error)) {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export function assertValidWorkspaceSessionId(sessionId: string): void {
@@ -156,4 +170,12 @@ function assertPathInsideBase(targetPath: string, baseDirectory: string): void {
 
 function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function isUnsupportedChmodError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+
+  return error.code === "ENOSYS" || error.code === "ENOTSUP" || error.code === "EOPNOTSUPP";
 }
