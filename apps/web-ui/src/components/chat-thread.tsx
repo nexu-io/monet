@@ -195,6 +195,14 @@ function getStringField(value: unknown, key: string) {
   return typeof fieldValue === "string" && fieldValue.trim().length > 0 ? fieldValue : null;
 }
 
+function getSuccessfulWriteFileOutputPath(part: ToolPart) {
+  if (part.state !== "output-available") {
+    return null;
+  }
+
+  return getStringField(part.output, "resolvedPath") ?? getStringField(part.output, "path");
+}
+
 function getInternalToolIcon(toolName: string): LucideIcon {
   switch (toolName) {
     case "fetch_url":
@@ -374,6 +382,9 @@ function renderPart(
       confirmationToken: string;
       decision: "approved" | "rejected";
     }) => void | Promise<void>;
+    readonly openPathLabel: string;
+    readonly openingPath: string | null;
+    readonly onOpenPath?: (path: string) => void;
   }
 ) {
   if (isTextPart(part)) {
@@ -462,6 +473,7 @@ function renderPart(
     const isPendingApproval = typeof part.toolCallId === "string" && options.pendingToolApprovalIds.has(part.toolCallId);
     const isWriteFileCall = toolName === "write_file" && isWriteFileInput(part.input);
     const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
+    const successfulWriteFilePath = toolName === "write_file" ? getSuccessfulWriteFileOutputPath(part) : null;
 
     if (isInternalToolName(toolName)) {
       const Icon = getInternalToolIcon(toolName);
@@ -472,6 +484,17 @@ function renderPart(
         <div key={`${part.type}-${index}`} className={internalToolLineClassName} data-tool-phase={toolStateMeta.phase}>
           <Icon aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
           <span className={`${isExecuting ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={message}>{message}</span>
+          {successfulWriteFilePath && options.onOpenPath ? (
+            <button
+              type="button"
+              className="mono min-w-0 truncate rounded-md border border-border-subtle bg-surface-1 px-2 py-1 text-xs font-semibold text-accent transition hover:border-[hsl(var(--accent)/0.45)] hover:bg-[hsl(var(--accent)/0.08)] disabled:cursor-not-allowed disabled:opacity-60"
+              title={`${options.openPathLabel}: ${successfulWriteFilePath}`}
+              disabled={options.openingPath === successfulWriteFilePath}
+              onClick={() => options.onOpenPath?.(successfulWriteFilePath)}
+            >
+              {options.openingPath === successfulWriteFilePath ? "Opening…" : successfulWriteFilePath}
+            </button>
+          ) : null}
           {part.errorText ? <span className="min-w-0 truncate text-error" title={part.errorText}>{part.errorText}</span> : null}
           {part.state === "approval-requested" && canApprove ? (
             <span className="ml-1 inline-flex shrink-0 gap-2">
@@ -643,6 +666,11 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
   const lastLocatedUserMessageIdRef = useRef<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [pendingToolApprovalIds, setPendingToolApprovalIds] = useState<Set<string>>(new Set());
+  const [openingPath, setOpeningPath] = useState<string | null>(null);
+  const [openPathFeedback, setOpenPathFeedback] = useState<string | null>(null);
+  const desktopApi = typeof window === "undefined" ? undefined : window.monetDesktop;
+  const canOpenPaths = typeof desktopApi?.openPath === "function";
+  const openPathLabel = desktopApi?.platform === "darwin" ? "Open" : "Open file";
 
   function getScrollContainer() {
     return rootRef.current?.closest('[data-chat-scroll-container="true"]') ?? null;
@@ -792,6 +820,24 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
     }
   }
 
+  async function handleOpenPath(targetPath: string) {
+    if (!desktopApi?.openPath) {
+      return;
+    }
+
+    setOpeningPath(targetPath);
+    setOpenPathFeedback(null);
+
+    try {
+      const result = await desktopApi.openPath({ path: targetPath });
+      setOpenPathFeedback(result.opened ? `Opened ${targetPath}` : result.error ?? `Unable to open ${targetPath}.`);
+    } catch (error) {
+      setOpenPathFeedback(error instanceof Error ? error.message : "Unable to open the written file.");
+    } finally {
+      setOpeningPath((currentPath) => (currentPath === targetPath ? null : currentPath));
+    }
+  }
+
   return (
     <section ref={rootRef} className="relative flex flex-col gap-4" aria-label="Conversation transcript">
       {messages.map((message, messageIndex) => {
@@ -803,7 +849,10 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
             isStreamingPart: isStreamingAssistant && index === streamingTextPartIndex,
             isArchived,
             pendingToolApprovalIds,
-            onToolApproval: handleToolApproval
+            onToolApproval: handleToolApproval,
+            openPathLabel,
+            openingPath,
+            onOpenPath: canOpenPaths ? handleOpenPath : undefined
           })
         );
 
@@ -842,6 +891,12 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
             <p className="m-0 leading-[1.5] text-text-muted">{errorText}</p>
           </div>
         </Card>
+      ) : null}
+
+      {openPathFeedback ? (
+        <p className="m-0 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-2 text-sm leading-[1.5] text-text-muted mono" role="status">
+          {openPathFeedback}
+        </p>
       ) : null}
 
       {showScrollToBottom && messages.length > 0 ? (
