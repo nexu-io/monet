@@ -5,6 +5,7 @@ import {
   CONNECTOR_CATALOG,
   CONNECTOR_TOOL_APPROVAL_DEFAULTS,
   CONNECTOR_V1_TOOL_POLICIES,
+  classifyConnectorToolSafety,
   createConnectorToolPolicy,
   getConnectorCatalogItem,
   isConnectorId,
@@ -107,4 +108,24 @@ test("connector tool approval requirement is derived from structured policy appr
   assert.equal(requiresConnectorToolApproval({ sideEffect: "read", approval: "first_use" }), false);
   assert.equal(requiresConnectorToolApproval({ sideEffect: "write", approval: "never" }), true);
   assert.equal(requiresConnectorToolApproval({ sideEffect: "write", approval: "always" }), true);
+});
+
+test("connector tool safety classification follows Composio hint and scope rules", () => {
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: ["readOnlyHint"] }), { sideEffect: "read", approval: "never" });
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: ["readOnlyHint", "idempotentHint"] }), { sideEffect: "read", approval: "never" });
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: ["destructiveHint", "readOnlyHint"] }), {
+    sideEffect: "destructive",
+    approval: "always"
+  });
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: ["idempotentHint"] }), { sideEffect: "write", approval: "always" });
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: [] }), { sideEffect: "write", approval: "always" });
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: ["read_only"] }), { sideEffect: "write", approval: "always" });
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: ["readOnlyHint"], oauthScopes: ["repo:write"] }), {
+    sideEffect: "write",
+    approval: "always"
+  });
+  assert.deepEqual(classifyConnectorToolSafety({ safetyHints: ["readOnlyHint"], oauthScopes: ["gmail.send"] }), {
+    sideEffect: "write",
+    approval: "always"
+  });
 });

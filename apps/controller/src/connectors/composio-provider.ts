@@ -1,6 +1,7 @@
 import type { ChatStorage } from "../chat-storage";
 import type { ComposioProviderConfig } from "../config";
 import {
+  classifyConnectorToolSafety,
   getConnectorCatalogItem,
   listConnectorCatalog,
   type ConnectorAllowedTool,
@@ -67,6 +68,13 @@ interface ComposioToolResponse {
   readonly humanDescription?: unknown;
   readonly input_parameters?: unknown;
   readonly inputParameters?: unknown;
+  readonly tags?: unknown;
+  readonly scopes?: unknown;
+  readonly oauth_scopes?: unknown;
+  readonly oauthScopes?: unknown;
+  readonly auth_scopes?: unknown;
+  readonly authScopes?: unknown;
+  readonly metadata?: unknown;
   readonly toolkit?: {
     readonly slug?: unknown;
   };
@@ -701,7 +709,34 @@ function mapComposioToolDefinition(
     displayName: providerDisplayName ?? allowedTool.displayName,
     description: providerDescription ?? allowedTool.summary,
     inputSchema: getComposioInputSchema(providerTool),
-    policy: allowedTool.policy
+    policy: classifyConnectorToolSafety(getComposioToolSafetyClassificationInput(providerTool))
+  };
+}
+
+function getComposioToolSafetyClassificationInput(providerTool: ComposioToolResponse): {
+  safetyHints: readonly string[];
+  oauthScopes: readonly string[];
+} {
+  const metadata = getRecord(providerTool.metadata);
+  return {
+    safetyHints: uniqueStrings([
+      ...getStringArray(providerTool.tags),
+      ...getStringArray(metadata?.tags),
+      ...getStringArray(metadata?.safety_tags),
+      ...getStringArray(metadata?.safetyTags)
+    ]),
+    oauthScopes: uniqueStrings([
+      ...getStringArray(providerTool.scopes),
+      ...getStringArray(providerTool.oauth_scopes),
+      ...getStringArray(providerTool.oauthScopes),
+      ...getStringArray(providerTool.auth_scopes),
+      ...getStringArray(providerTool.authScopes),
+      ...getStringArray(metadata?.scopes),
+      ...getStringArray(metadata?.oauth_scopes),
+      ...getStringArray(metadata?.oauthScopes),
+      ...getStringArray(metadata?.auth_scopes),
+      ...getStringArray(metadata?.authScopes)
+    ])
   };
 }
 
@@ -969,6 +1004,22 @@ function getComposioAccountLabel(response: ComposioConnectedAccountResponse): st
 
 function getRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function getStringArray(value: unknown): readonly string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const stringValue = getString(item);
+      return stringValue ? [stringValue] : [];
+    });
+  }
+
+  const stringValue = getString(value);
+  return stringValue ? [stringValue] : [];
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }
 
 function getString(value: unknown): string | undefined {

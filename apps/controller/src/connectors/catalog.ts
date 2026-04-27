@@ -6,9 +6,16 @@ export type ConnectorToolSideEffect = "read" | "write" | "destructive" | "extern
 
 export type ConnectorToolApproval = "never" | "first_use" | "always";
 
+export type ConnectorToolSafetyHint = "readOnlyHint" | "destructiveHint" | "idempotentHint";
+
 export interface ConnectorToolPolicy {
   readonly sideEffect: ConnectorToolSideEffect;
   readonly approval: ConnectorToolApproval;
+}
+
+export interface ConnectorToolSafetyClassificationInput {
+  readonly safetyHints?: readonly string[];
+  readonly oauthScopes?: readonly string[];
 }
 
 export type ConnectorToolApprovalDefaults = Readonly<Record<ConnectorToolSideEffect, ConnectorToolApproval>>;
@@ -45,6 +52,38 @@ export function requiresConnectorToolApproval(policy: ConnectorToolPolicy): bool
     default:
       return true;
   }
+}
+
+const KNOWN_CONNECTOR_TOOL_SAFETY_HINTS = new Set<ConnectorToolSafetyHint>(["readOnlyHint", "destructiveHint", "idempotentHint"]);
+const WRITE_LIKE_OAUTH_SCOPE_MARKERS = ["write", "create", "update", "delete", "admin", "send", "post", "manage"];
+
+export function classifyConnectorToolSafety(input: ConnectorToolSafetyClassificationInput): ConnectorToolPolicy {
+  const safetyHints = input.safetyHints?.map((hint) => hint.trim()).filter(Boolean) ?? [];
+  const oauthScopes = input.oauthScopes?.map((scope) => scope.trim()).filter(Boolean) ?? [];
+  const uniqueSafetyHints = new Set(safetyHints);
+
+  if (oauthScopes.some(isWriteLikeOAuthScope)) {
+    return createConnectorToolPolicy("write");
+  }
+
+  if (uniqueSafetyHints.has("destructiveHint")) {
+    return createConnectorToolPolicy("destructive");
+  }
+
+  if (safetyHints.length === 0 || safetyHints.some((hint) => !KNOWN_CONNECTOR_TOOL_SAFETY_HINTS.has(hint as ConnectorToolSafetyHint))) {
+    return createConnectorToolPolicy("write");
+  }
+
+  if (uniqueSafetyHints.has("readOnlyHint")) {
+    return createConnectorToolPolicy("read");
+  }
+
+  return createConnectorToolPolicy("write");
+}
+
+function isWriteLikeOAuthScope(scope: string): boolean {
+  const normalizedScope = scope.toLowerCase();
+  return WRITE_LIKE_OAUTH_SCOPE_MARKERS.some((marker) => normalizedScope.includes(marker));
 }
 
 export interface ConnectorAllowedTool {

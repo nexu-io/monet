@@ -17,6 +17,7 @@ test("Composio connector provider returns only connected allowlisted tools for a
           name: "Provider search repositories",
           description: "Provider repository search description.",
           toolkit: { slug: "github" },
+          tags: ["readOnlyHint"],
           input_parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
         },
         {
@@ -24,6 +25,7 @@ test("Composio connector provider returns only connected allowlisted tools for a
           name: "Create issue",
           description: "This write-capable tool is not in the curated v1 allowlist.",
           toolkit: { slug: "GITHUB" },
+          tags: ["destructiveHint"],
           input_parameters: { type: "object" }
         },
         {
@@ -31,6 +33,7 @@ test("Composio connector provider returns only connected allowlisted tools for a
           name: "List pull requests",
           description: "Wrong toolkit should be ignored.",
           toolkit: { slug: "NOTION" },
+          tags: ["readOnlyHint"],
           input_parameters: { type: "object" }
         }
       ]
@@ -75,6 +78,78 @@ test("Composio connector provider returns only connected allowlisted tools for a
       }
     ]
   );
+});
+
+test("Composio connector provider classifies allowlisted tools from safety hints and OAuth scopes", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      items: [
+        {
+          slug: "GITHUB_SEARCH_REPOSITORIES",
+          name: "Search repositories",
+          description: "Read-only by tag.",
+          toolkit: { slug: "github" },
+          tags: ["readOnlyHint"],
+          scopes: ["repo:read"],
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_LIST_PULL_REQUESTS",
+          name: "List pull requests",
+          description: "Write-like scope must force confirmation.",
+          toolkit: { slug: "github" },
+          tags: ["readOnlyHint"],
+          oauth_scopes: ["pull_request:write"],
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_LIST_COMMITS",
+          name: "List commits",
+          description: "Idempotent is retry-only, not read-only.",
+          toolkit: { slug: "github" },
+          tags: ["idempotentHint"],
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_LIST_RELEASES",
+          name: "List releases",
+          description: "read_only alone is ignored.",
+          toolkit: { slug: "github" },
+          read_only: true,
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_GET_A_REPOSITORY",
+          name: "Get repository",
+          description: "Destructive hint requires confirmation.",
+          toolkit: { slug: "github" },
+          metadata: { safetyTags: ["destructiveHint"] },
+          input_parameters: { type: "object" }
+        }
+      ]
+    })
+  );
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test/",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  const tools = await provider.listTools({ userId: "monet-install-id", connectorId: "github" });
+  const policiesByToolId = Object.fromEntries(tools.map((tool) => [tool.providerToolId, tool.policy]));
+
+  assert.deepEqual(policiesByToolId.GITHUB_SEARCH_REPOSITORIES, { sideEffect: "read", approval: "never" });
+  assert.deepEqual(policiesByToolId.GITHUB_LIST_PULL_REQUESTS, { sideEffect: "write", approval: "always" });
+  assert.deepEqual(policiesByToolId.GITHUB_LIST_COMMITS, { sideEffect: "write", approval: "always" });
+  assert.deepEqual(policiesByToolId.GITHUB_LIST_RELEASES, { sideEffect: "write", approval: "always" });
+  assert.deepEqual(policiesByToolId.GITHUB_GET_A_REPOSITORY, { sideEffect: "destructive", approval: "always" });
 });
 
 test("Composio connector provider skips disconnected connectors when listing all tools", async (t) => {
