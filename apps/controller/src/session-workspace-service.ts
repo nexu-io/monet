@@ -28,7 +28,8 @@ export interface CleanupOrphanWorkspacesResult {
 }
 
 export interface CleanupOrphanWorkspacesOptions {
-  readonly activeSessionIds: readonly string[];
+  readonly activeSessionIds?: readonly string[];
+  readonly isSessionActive?: (sessionId: string) => boolean | Promise<boolean>;
   readonly logger?: Pick<Logger, "debug" | "info" | "warn">;
 }
 
@@ -64,6 +65,11 @@ export function createSessionWorkspaceService(
       const workspacePath = getWorkspacePath(sessionId);
       await mkdir(workspacePath, { recursive: true, mode: workspaceDirectoryMode });
       await applyRestrictiveDirectoryPermissions(workspacePath);
+
+      const canonicalWorkspacePath = await realpath(workspacePath);
+      const canonicalBaseDirectory = await realpath(baseDirectory);
+      assertPathInsideBase(canonicalWorkspacePath, canonicalBaseDirectory);
+
       return workspacePath;
     },
 
@@ -77,7 +83,7 @@ export function createSessionWorkspaceService(
       await rm(workspacePath, { recursive: true, force: true });
     },
 
-    async cleanupOrphanWorkspaces({ activeSessionIds, logger }) {
+    async cleanupOrphanWorkspaces({ activeSessionIds = [], isSessionActive, logger }) {
       const activeSessionIdSet = new Set(activeSessionIds);
       let scannedCount = 0;
       let deletedCount = 0;
@@ -122,6 +128,16 @@ export function createSessionWorkspaceService(
         }
 
         if (activeSessionIdSet.has(sessionId)) {
+          skippedCount += 1;
+          logger?.debug("session_workspaces.orphan_cleanup_skipped_entry", {
+            sessionId,
+            sessionDirectory,
+            reason: "active_session"
+          });
+          continue;
+        }
+
+        if (isSessionActive && (await isSessionActive(sessionId))) {
           skippedCount += 1;
           logger?.debug("session_workspaces.orphan_cleanup_skipped_entry", {
             sessionId,

@@ -54,6 +54,23 @@ test("creates workspace directories lazily with restrictive permissions", async 
   assert.equal(workspaceStats.mode & 0o777, 0o700);
 });
 
+test("ensureWorkspace refuses symlinked session directories escaping the base", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  const outsideDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+    await rm(outsideDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  await mkdir(join(outsideDirectory, "workspace"), { recursive: true });
+  await writeFile(join(outsideDirectory, "workspace", "keep.txt"), "keep");
+  await symlink(outsideDirectory, join(baseDirectory, "ses_escape1"), "dir");
+
+  await assert.rejects(service.ensureWorkspace("ses_escape1"), /Refusing to use session workspace path outside configured base/);
+  await access(join(outsideDirectory, "workspace", "keep.txt"));
+});
+
 test("reports metadata for absent and existing workspaces", async (t) => {
   const baseDirectory = await createTempDirectory();
   t.after(async () => {
@@ -141,6 +158,31 @@ test("cleanupOrphanWorkspaces deletes inactive workspaces while preserving activ
   });
   await access(join(activeWorkspacePath, "keep.txt"));
   await assert.rejects(access(orphanWorkspacePath), /ENOENT/);
+});
+
+test("cleanupOrphanWorkspaces re-checks active sessions before deletion", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const activeWorkspacePath = await service.ensureWorkspace("ses_activenew");
+  await writeFile(join(activeWorkspacePath, "keep.txt"), "keep");
+
+  const result = await service.cleanupOrphanWorkspaces({
+    activeSessionIds: [],
+    isSessionActive(sessionId) {
+      return sessionId === "ses_activenew";
+    }
+  });
+
+  assert.deepEqual(result, {
+    scannedCount: 1,
+    deletedCount: 0,
+    skippedCount: 1
+  });
+  await access(join(activeWorkspacePath, "keep.txt"));
 });
 
 test("cleanupOrphanWorkspaces conservatively skips unsafe or incomplete workspace entries", async (t) => {

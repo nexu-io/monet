@@ -95,6 +95,9 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   void sessionWorkspaceService
     .cleanupOrphanWorkspaces({
       activeSessionIds: chatStorage.listSessions().map((session) => session.id),
+      isSessionActive: (sessionId) => {
+        return chatStorage.listSessions().some((session) => session.id === sessionId);
+      },
       logger: controllerLogger.child({ component: "session_workspaces" })
     })
     .catch((error) => {
