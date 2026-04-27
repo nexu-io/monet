@@ -16,6 +16,13 @@ interface ToolCallRow {
   readonly output_json: string | null;
   readonly output_truncated: number;
   readonly output_size_bytes: number | null;
+  readonly connector_id: string | null;
+  readonly connector_name: string | null;
+  readonly connector_account_label: string | null;
+  readonly connector_tool_name: string | null;
+  readonly connector_provider_tool_id: string | null;
+  readonly connector_arguments_summary: string | null;
+  readonly connector_approval_policy_json: string | null;
   readonly status: string;
   readonly error_message: string | null;
   readonly started_at: string;
@@ -83,7 +90,7 @@ function getToolCalls(databasePath: string) {
   try {
     return connection
       .prepare(
-        `SELECT run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, status, error_message, started_at, ended_at
+        `SELECT run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, status, error_message, started_at, ended_at
          FROM tool_calls
          ORDER BY started_at ASC`
       )
@@ -308,6 +315,78 @@ test("tool registry composes static and dynamic tool sources at runtime", async 
 
     assert.equal(typeof (runtimeTools.static_tool as { execute?: unknown }).execute, "function");
     assert.equal(typeof (runtimeTools.dynamic_tool as { execute?: unknown }).execute, "function");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool registry persists connector approval metadata for connector tools", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "connector" }] }]
+    });
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "github_list_pull_requests",
+          description: "List pull requests.",
+          requiresConfirmation: true,
+          connector: {
+            connectorId: "github",
+            connectorName: "GitHub",
+            accountLabel: "octocat",
+            toolName: "List pull requests",
+            providerToolId: "GITHUB_LIST_PULL_REQUESTS",
+            approvalPolicy: {
+              sideEffect: "read",
+              approval: "first_use"
+            }
+          }
+        },
+        inputSchema: {
+          type: "object",
+          properties: {
+            owner: { type: "string" },
+            repo: { type: "string" },
+            limit: { type: "number" }
+          },
+          additionalProperties: false
+        } as never,
+        execute() {
+          return { ok: true };
+        }
+      }
+    ]);
+
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      chatStorage: fixture.storage,
+      logger: createLogger("test")
+    });
+    const execute = (runtimeTools.github_list_pull_requests as { execute: (input: unknown, context: unknown) => Promise<unknown> })
+      .execute;
+
+    await execute(
+      { owner: "monet", repo: "connectors", limit: 10 },
+      {
+        toolCallId: "call_sdk_connector_1",
+        messages: [],
+        abortSignal: new AbortController().signal,
+        experimental_context: undefined
+      }
+    );
+
+    const [row] = getToolCalls(fixture.databasePath);
+
+    assert.equal(row?.connector_id, "github");
+    assert.equal(row?.connector_name, "GitHub");
+    assert.equal(row?.connector_account_label, "octocat");
+    assert.equal(row?.connector_tool_name, "List pull requests");
+    assert.equal(row?.connector_provider_tool_id, "GITHUB_LIST_PULL_REQUESTS");
+    assert.equal(row?.connector_arguments_summary, "object(owner:string(length:5),repo:string(length:10),limit:number)");
+    assert.equal(row?.connector_approval_policy_json, '{"sideEffect":"read","approval":"first_use"}');
   } finally {
     fixture.cleanup();
   }

@@ -159,6 +159,13 @@ interface ToolCallRow {
   readonly approval_decision: "approved" | "rejected" | null;
   readonly approval_decided_at: string | null;
   readonly confirmation_token_hash: string | null;
+  readonly connector_id: string | null;
+  readonly connector_name: string | null;
+  readonly connector_account_label: string | null;
+  readonly connector_tool_name: string | null;
+  readonly connector_provider_tool_id: string | null;
+  readonly connector_arguments_summary: string | null;
+  readonly connector_approval_policy_json: string | null;
   readonly status: string;
   readonly error_message: string | null;
   readonly started_at: string;
@@ -235,6 +242,16 @@ export interface ConfirmToolCallInput {
 }
 
 export type ConfirmToolCallResult = "confirmed" | "already_confirmed";
+
+export interface ToolCallConnectorMetadataInput {
+  readonly connectorId: string;
+  readonly connectorName: string;
+  readonly connectorAccountLabel: string | null;
+  readonly connectorToolName: string;
+  readonly connectorProviderToolId: string;
+  readonly connectorArgumentsSummary: string;
+  readonly connectorApprovalPolicy: unknown;
+}
 
 export interface StoredAuthorizedDirectory {
   readonly path: string;
@@ -416,7 +433,13 @@ export interface ChatStorage {
   persistRunMessages(options: { sessionId: string; runId: string; messages: UIMessage[] }): void;
   recoverUnfinishedRuns(): RecoverUnfinishedRunsResult;
   interruptActiveRuns(options: { finishReason: string }): RecoverUnfinishedRunsResult;
-  startToolCall(options: { toolCallId?: string; runId: string; toolName: string; input: unknown }): string;
+  startToolCall(options: {
+    toolCallId?: string;
+    runId: string;
+    toolName: string;
+    input: unknown;
+    metadata?: ToolCallConnectorMetadataInput;
+  }): string;
   markToolCallRunning(toolCallId: string): void;
   recordToolApprovalRequest(options: { toolCallId: string; confirmationToken: string }): void;
   confirmToolCall(input: ConfirmToolCallInput): ConfirmToolCallResult;
@@ -1472,9 +1495,10 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       };
     },
 
-    startToolCall({ toolCallId, runId, toolName, input }) {
+    startToolCall({ toolCallId, runId, toolName, input, metadata }) {
       const startedAt = new Date().toISOString();
       const persistedToolCallId = toolCallId?.trim() || createPrefixedId("tcl");
+      const connectorApprovalPolicyJson = metadata ? serializeToolCallPayload(metadata.connectorApprovalPolicy) : null;
 
       connection
         .prepare(
@@ -1489,17 +1513,44 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
              approval_decision,
              approval_decided_at,
              confirmation_token_hash,
+             connector_id,
+             connector_name,
+             connector_account_label,
+             connector_tool_name,
+             connector_provider_tool_id,
+             connector_arguments_summary,
+             connector_approval_policy_json,
              status,
              error_message,
              started_at,
              ended_at
-           ) VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, 'pending', NULL, ?, NULL)
-           ON CONFLICT(id) DO UPDATE SET
-             run_id = excluded.run_id,
-             tool_name = excluded.tool_name,
-             input_json = excluded.input_json`
+           ) VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL)
+            ON CONFLICT(id) DO UPDATE SET
+              run_id = excluded.run_id,
+              tool_name = excluded.tool_name,
+              input_json = excluded.input_json,
+              connector_id = excluded.connector_id,
+              connector_name = excluded.connector_name,
+              connector_account_label = excluded.connector_account_label,
+              connector_tool_name = excluded.connector_tool_name,
+              connector_provider_tool_id = excluded.connector_provider_tool_id,
+              connector_arguments_summary = excluded.connector_arguments_summary,
+              connector_approval_policy_json = excluded.connector_approval_policy_json`
         )
-        .run(persistedToolCallId, runId, toolName, serializeToolCallPayload(input), startedAt);
+        .run(
+          persistedToolCallId,
+          runId,
+          toolName,
+          serializeToolCallPayload(input),
+          metadata?.connectorId ?? null,
+          metadata?.connectorName ?? null,
+          metadata?.connectorAccountLabel ?? null,
+          metadata?.connectorToolName ?? null,
+          metadata?.connectorProviderToolId ?? null,
+          metadata?.connectorArgumentsSummary ?? null,
+          connectorApprovalPolicyJson,
+          startedAt
+        );
 
       return persistedToolCallId;
     },
@@ -1809,7 +1860,7 @@ function getRunRow(connection: DatabaseSync, runId: string) {
 function getToolCallRow(connection: DatabaseSync, toolCallId: string) {
   return connection
     .prepare(
-      `SELECT id, run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, approval_decision, approval_decided_at, confirmation_token_hash, status, error_message, started_at, ended_at
+      `SELECT id, run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, approval_decision, approval_decided_at, confirmation_token_hash, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, status, error_message, started_at, ended_at
        FROM tool_calls
        WHERE id = ?
        LIMIT 1`

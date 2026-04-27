@@ -108,6 +108,13 @@ export interface ToolCallRecord {
   approvalDecision: ToolApprovalDecision | null;
   approvalDecidedAt: string | null;
   confirmationTokenHash: string | null;
+  connectorId: string | null;
+  connectorName: string | null;
+  connectorAccountLabel: string | null;
+  connectorToolName: string | null;
+  connectorProviderToolId: string | null;
+  connectorArgumentsSummary: string | null;
+  connectorApprovalPolicyJson: string | null;
   status: ToolCallStatus;
   errorMessage: string | null;
   startedAt: string;

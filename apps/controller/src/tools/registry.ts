@@ -18,6 +18,19 @@ export interface ToolMetadata {
   readonly name: string;
   readonly description: string;
   readonly requiresConfirmation: boolean;
+  readonly connector?: ConnectorToolMetadata;
+}
+
+export interface ConnectorToolMetadata {
+  readonly connectorId: string;
+  readonly connectorName: string;
+  readonly accountLabel: string | null;
+  readonly toolName: string;
+  readonly providerToolId: string;
+  readonly approvalPolicy: {
+    readonly sideEffect: string;
+    readonly approval: string;
+  };
 }
 
 export interface ToolExecutionContext {
@@ -178,29 +191,36 @@ export function createToolRegistry(
             inputSchema: definition.inputSchema as ToolFactoryOptions["inputSchema"],
             needsApproval: definition.metadata.requiresConfirmation,
             onInputAvailable: ({ input, toolCallId }) => {
+              const toolCallMetadata = createToolCallMetadata(definition.metadata, input);
               const persistedToolCallId = context.chatStorage.startToolCall({
                 toolCallId,
                 runId: context.runId,
                 toolName: definition.metadata.name,
-                input
+                input,
+                ...(toolCallMetadata ? { metadata: toolCallMetadata } : {})
               });
 
               context.logger.info("tool.input_available", {
                 toolCallId: persistedToolCallId,
                 sdkToolCallId: toolCallId,
                 toolName: definition.metadata.name,
-                requiresConfirmation: definition.metadata.requiresConfirmation
+                requiresConfirmation: definition.metadata.requiresConfirmation,
+                connectorId: definition.metadata.connector?.connectorId,
+                connectorToolName: definition.metadata.connector?.toolName,
+                connectorApprovalPolicy: definition.metadata.connector?.approvalPolicy
               });
             },
             execute: async (input, executionContext) => {
               const startedAt = Date.now();
               const persistedToolCallId = executionContext.toolCallId;
+              const toolCallMetadata = createToolCallMetadata(definition.metadata, input);
 
               context.chatStorage.startToolCall({
                 toolCallId: persistedToolCallId,
                 runId: context.runId,
                 toolName: definition.metadata.name,
-                input
+                input,
+                ...(toolCallMetadata ? { metadata: toolCallMetadata } : {})
               });
               context.chatStorage.markToolCallRunning(persistedToolCallId);
 
@@ -208,7 +228,10 @@ export function createToolRegistry(
                 toolCallId: persistedToolCallId,
                 sdkToolCallId: executionContext.toolCallId,
                 toolName: definition.metadata.name,
-                requiresConfirmation: definition.metadata.requiresConfirmation
+                requiresConfirmation: definition.metadata.requiresConfirmation,
+                connectorId: definition.metadata.connector?.connectorId,
+                connectorToolName: definition.metadata.connector?.toolName,
+                connectorApprovalPolicy: definition.metadata.connector?.approvalPolicy
               });
 
               try {
@@ -257,4 +280,55 @@ export function createToolRegistry(
       );
     }
   };
+}
+
+function createToolCallMetadata(metadata: ToolMetadata, input: unknown) {
+  if (!metadata.connector) {
+    return undefined;
+  }
+
+  return {
+    connectorId: metadata.connector.connectorId,
+    connectorName: metadata.connector.connectorName,
+    connectorAccountLabel: metadata.connector.accountLabel,
+    connectorToolName: metadata.connector.toolName,
+    connectorProviderToolId: metadata.connector.providerToolId,
+    connectorArgumentsSummary: summarizeToolArguments(input),
+    connectorApprovalPolicy: metadata.connector.approvalPolicy
+  };
+}
+
+function summarizeToolArguments(value: unknown): string {
+  return summarizeValue(value, 0);
+}
+
+function summarizeValue(value: unknown, depth: number): string {
+  if (value === null) {
+    return "null";
+  }
+
+  if (Array.isArray(value)) {
+    if (depth >= 2) {
+      return `array(length:${value.length})`;
+    }
+
+    const itemSummaries = value.slice(0, 3).map((item) => summarizeValue(item, depth + 1));
+    const suffix = value.length > itemSummaries.length ? ",…" : "";
+
+    return `array(length:${value.length}${itemSummaries.length > 0 ? `,items:[${itemSummaries.join(",")}${suffix}]` : ""})`;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const visibleEntries = entries.slice(0, 8).map(([key, child]) => `${key}:${summarizeValue(child, depth + 1)}`);
+    const suffix = entries.length > visibleEntries.length ? ",…" : "";
+
+    return `object(${visibleEntries.join(",")}${suffix})`;
+  }
+
+  if (typeof value === "string") {
+    return `string(length:${value.length})`;
+  }
+
+  return typeof value;
 }

@@ -12,8 +12,13 @@ test("connector tool source resolves connected curated tools for active monet in
     async listConnectors() {
       return [];
     },
-    getConnectionStatus() {
-      throw new Error("not used");
+    async getConnectionStatus() {
+      return {
+        connectorId: "github",
+        state: "connected",
+        connected: true,
+        account: { accountLabel: "octocat" }
+      };
     },
     connect() {
       throw new Error("not used");
@@ -69,7 +74,18 @@ test("connector tool source resolves connected curated tools for active monet in
   assert.deepEqual(tools[0]?.metadata, {
     name: "github_list_pull_requests",
     description: "List pull requests for a selected repository.",
-    requiresConfirmation: true
+    requiresConfirmation: true,
+    connector: {
+      connectorId: "github",
+      connectorName: "GitHub",
+      accountLabel: "octocat",
+      toolName: "List pull requests",
+      providerToolId: "GITHUB_LIST_PULL_REQUESTS",
+      approvalPolicy: {
+        sideEffect: "read",
+        approval: "first_use"
+      }
+    }
   });
   const aiSdkInputSchema = tools[0]?.inputSchema as { jsonSchema?: unknown };
 
@@ -139,8 +155,13 @@ test("connector tool execution dispatches prefixed tools through the provider", 
     async listConnectors() {
       return [];
     },
-    getConnectionStatus() {
-      throw new Error("not used");
+    async getConnectionStatus() {
+      return {
+        connectorId: "github",
+        state: "connected",
+        connected: true,
+        account: { accountLabel: "monet-bot" }
+      };
     },
     connect() {
       throw new Error("not used");
@@ -216,8 +237,13 @@ function createProviderWithTools(
     async listConnectors() {
       return [];
     },
-    getConnectionStatus() {
-      throw new Error("not used");
+    async getConnectionStatus(input) {
+      return {
+        connectorId: input.connectorId,
+        state: "connected",
+        connected: true,
+        account: { accountLabel: `${input.connectorId}-account` }
+      };
     },
     connect() {
       throw new Error("not used");
