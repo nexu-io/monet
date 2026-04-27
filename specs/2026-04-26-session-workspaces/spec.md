@@ -265,6 +265,17 @@ Keep “Authorized directories” in settings, but clarify its purpose:
 
 > Session files are stored in the session workspace. Add authorized directories only when you want the agent to read or modify real files outside the session workspace. Writes outside the session workspace still require confirmation.
 
+### 8.5 Post-MVP file browser and export behavior
+
+Resolved post-MVP decision:
+
+- The MVP UI should keep the existing explicit “Open workspace folder” and “Copy workspace path” controls rather than adding an in-app file browser.
+- A future in-app file browser, if added, must be scoped to the current session workspace only. It must not browse authorized external directories, other session workspaces, repo roots, home directories, or the global workspace base by default.
+- The browser should derive the workspace path server-side from the session ID, use the same canonical containment checks as file tools, and treat actions that mutate files as session-workspace-only actions.
+- Exported chats must not include workspace files by default. Export should include conversation data by default and expose an explicit opt-in checkbox such as “Include session workspace files.”
+- When workspace files are included, the export should preserve relative workspace paths and include a manifest. Large exports should show size/count details before confirmation.
+- External authorized-directory files are never bundled into chat exports unless a separate, explicit future feature is designed for that purpose.
+
 ## 9. API and Data Model Changes
 
 ### 9.1 Controller config
@@ -491,8 +502,8 @@ Temporary compatibility path:
 
 1. Resolved: workspace directories should use raw session IDs after strict filesystem-safe validation (`^ses_[a-z0-9]+$`), not hashed directory names.
 2. Resolved: default per-session workspace quota is 100 MB, and max single `write_file` content size is 1,000,000 bytes.
-3. Should the UI expose a file browser, or only “Open folder” for MVP?
-4. Should exported chats include workspace files by default or behind an explicit checkbox?
+3. Resolved: keep only “Open workspace folder” and “Copy workspace path” for MVP. Any future in-app file browser must be scoped to the current session workspace only and must not browse authorized external directories or other sessions by default.
+4. Resolved: exported chats should not include workspace files by default. Add an explicit opt-in checkbox for including session workspace files, with size/count details and relative-path preservation when enabled.
 5. Resolved: current AI SDK `ai@6.0.168` supports dynamic `needsApproval` based on resolved input and execution context; use the preferred dynamic `write_file` approval path.
 
 ## 14. Acceptance Criteria
