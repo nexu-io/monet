@@ -52,7 +52,7 @@ export function AppShell({
   } = useSessions();
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 20);
   const { isDesktop } = useControllerState();
-  const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>();
+  const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>(() => window.monetDesktop?.platform);
   const isSettingsOpen = pathname.startsWith("/settings");
   const openSettingsHref = "/settings/general";
 
@@ -133,7 +133,7 @@ export function AppShell({
       data-desktop-platform={desktopPlatform}
     >
       <Sidebar className={`sticky top-0 flex h-screen min-h-0 flex-col gap-5 overflow-hidden border-r border-border-subtle bg-app-sidebar px-4 pb-5 max-app:static max-app:h-auto max-app:overflow-visible max-app:border-r-0 max-app:border-b ${isDesktop ? "pt-3" : "pt-5"}`}>
-        {isDesktop ? <div className="mb-2 block min-h-[28px] [-webkit-app-region:drag]" aria-hidden="true" /> : null}
+        <div className={isDesktop ? "mb-2 block min-h-[28px] [-webkit-app-region:drag]" : "hidden"} aria-hidden="true" />
 
         <SidebarHeader className="flex flex-col gap-4">
           <div className="flex items-center gap-2.5 p-1">
