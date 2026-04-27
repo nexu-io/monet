@@ -409,26 +409,40 @@ async function getNearestExistingRealPath(targetPath: string) {
   }
 }
 
-async function getAuthorizedDirectoriesRealPaths(allowedDirectories: readonly string[]) {
+interface CanonicalDirectoryRoot {
+  readonly originalPath: string;
+  readonly realPath: string;
+}
+
+async function getAuthorizedDirectoryRoots(allowedDirectories: readonly string[]): Promise<CanonicalDirectoryRoot[]> {
   const settledDirectories = await Promise.allSettled(
     allowedDirectories.map(async (directory) => ({
-      directory,
+      originalPath: resolve(directory),
       realPath: await realpath(directory)
     }))
   );
 
-  return settledDirectories.flatMap((result) => (result.status === "fulfilled" ? [result.value.realPath] : []));
+  return settledDirectories.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
 }
 
 async function getCanonicalPathForAccess(targetPath: string, accessMode: FilesystemAccessMode) {
   const resolvedPath = resolve(targetPath);
+
+  if (accessMode === "read") {
+    return realpath(resolvedPath);
+  }
+
   const existingPath = await getNearestExistingRealPath(resolvedPath);
 
-  if (accessMode === "read" || existingPath.existingPath === resolvedPath) {
+  if (existingPath.existingPath === resolvedPath) {
     return existingPath.realPath;
   }
 
   return resolve(existingPath.realPath, relative(existingPath.existingPath, resolvedPath));
+}
+
+function isRequestedThroughRoot(root: CanonicalDirectoryRoot, resolvedPath: string) {
+  return isWithinDirectory(root.originalPath, resolvedPath) || isWithinDirectory(root.realPath, resolvedPath);
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
@@ -442,17 +456,42 @@ async function classifyFilesystemPath(options: ClassifyFilesystemPathOptions): P
     throw new Error("Path is required.");
   }
 
-  const [sessionWorkspacePath, authorizedDirectories] = await Promise.all([
+  const [sessionWorkspaceRealPath, authorizedDirectoryRoots] = await Promise.all([
     realpath(options.sessionWorkspacePath),
-    getAuthorizedDirectoriesRealPaths(options.authorizedDirectories)
+    getAuthorizedDirectoryRoots(options.authorizedDirectories)
   ]);
+  const sessionWorkspaceRoot: CanonicalDirectoryRoot = {
+    originalPath: resolve(options.sessionWorkspacePath),
+    realPath: sessionWorkspaceRealPath
+  };
 
   const resolvedPath = isAbsolute(normalizedInputPath)
     ? resolve(normalizedInputPath)
-    : resolve(sessionWorkspacePath, normalizedInputPath);
-  const candidatePath = await getCanonicalPathForAccess(resolvedPath, options.accessMode);
+    : resolve(sessionWorkspaceRealPath, normalizedInputPath);
 
-  if (isWithinDirectory(sessionWorkspacePath, candidatePath)) {
+  if (!isAbsolute(normalizedInputPath) && !isWithinDirectory(sessionWorkspaceRealPath, resolvedPath)) {
+    return {
+      requestedPath: options.requestedPath,
+      resolvedPath,
+      zone: "denied",
+      requiresConfirmation: false
+    };
+  }
+
+  const candidatePath = await getCanonicalPathForAccess(resolvedPath, options.accessMode);
+  const requestedThroughSessionWorkspace = !isAbsolute(normalizedInputPath)
+    || isRequestedThroughRoot(sessionWorkspaceRoot, resolvedPath);
+
+  if (requestedThroughSessionWorkspace && !isWithinDirectory(sessionWorkspaceRealPath, candidatePath)) {
+    return {
+      requestedPath: options.requestedPath,
+      resolvedPath: candidatePath,
+      zone: "denied",
+      requiresConfirmation: false
+    };
+  }
+
+  if (isWithinDirectory(sessionWorkspaceRealPath, candidatePath)) {
     return {
       requestedPath: options.requestedPath,
       resolvedPath: candidatePath,
@@ -461,7 +500,20 @@ async function classifyFilesystemPath(options: ClassifyFilesystemPathOptions): P
     };
   }
 
-  const matchingAuthorizedDirectory = authorizedDirectories.find((directory) => isWithinDirectory(directory, candidatePath));
+  const escapedAuthorizedDirectory = authorizedDirectoryRoots.find(
+    (directory) => isRequestedThroughRoot(directory, resolvedPath) && !isWithinDirectory(directory.realPath, candidatePath)
+  );
+
+  if (escapedAuthorizedDirectory) {
+    return {
+      requestedPath: options.requestedPath,
+      resolvedPath: candidatePath,
+      zone: "denied",
+      requiresConfirmation: false
+    };
+  }
+
+  const matchingAuthorizedDirectory = authorizedDirectoryRoots.find((directory) => isWithinDirectory(directory.realPath, candidatePath));
 
   if (matchingAuthorizedDirectory) {
     return {
