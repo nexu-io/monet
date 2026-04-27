@@ -42,7 +42,7 @@ test("connectors endpoint returns connector catalog with status", async () => {
     enabledByDefault: true,
     minimumApprovalPolicy: {
       sideEffect: "read",
-      approval: "first_use"
+      approval: "never"
     },
     capabilitySummaries: ["Read repository data."],
     status: "connected",
@@ -104,7 +104,7 @@ test("connectors endpoint returns connector catalog with status", async () => {
         enabledByDefault: true,
         minimumApprovalPolicy: {
           sideEffect: "read",
-          approval: "first_use"
+          approval: "never"
         },
         capabilitySummaries: ["Read repository data."],
         status: "connected",
@@ -130,7 +130,7 @@ test("connector detail endpoint returns connector status, tools, and approval po
     enabledByDefault: true,
     minimumApprovalPolicy: {
       sideEffect: "read",
-      approval: "first_use"
+      approval: "never"
     },
     capabilitySummaries: ["Read repository data."],
     status: "connected",
@@ -152,7 +152,7 @@ test("connector detail endpoint returns connector status, tools, and approval po
         summary: "Search issues and pull requests across accessible repositories.",
         policy: {
           sideEffect: "read",
-          approval: "first_use"
+          approval: "never"
         }
       }
     ]

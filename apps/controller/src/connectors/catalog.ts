@@ -14,7 +14,7 @@ export interface ConnectorToolPolicy {
 export type ConnectorToolApprovalDefaults = Readonly<Record<ConnectorToolSideEffect, ConnectorToolApproval>>;
 
 export const CONNECTOR_TOOL_APPROVAL_DEFAULTS: ConnectorToolApprovalDefaults = {
-  read: "first_use",
+  read: "never",
   write: "always",
   destructive: "always",
   external_send: "always"
@@ -35,7 +35,16 @@ export function createConnectorToolPolicy(sideEffect: ConnectorToolSideEffect): 
 }
 
 export function requiresConnectorToolApproval(policy: ConnectorToolPolicy): boolean {
-  return policy.approval !== "never";
+  switch (policy.sideEffect) {
+    case "read":
+      return policy.approval === "always";
+    case "write":
+    case "destructive":
+    case "external_send":
+      return true;
+    default:
+      return true;
+  }
 }
 
 export interface ConnectorAllowedTool {

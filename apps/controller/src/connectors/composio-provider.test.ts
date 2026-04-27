@@ -71,7 +71,7 @@ test("Composio connector provider returns only connected allowlisted tools for a
         displayName: "Provider search repositories",
         description: "Provider repository search description.",
         inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-        policy: { sideEffect: "read", approval: "first_use" }
+        policy: { sideEffect: "read", approval: "never" }
       }
     ]
   );

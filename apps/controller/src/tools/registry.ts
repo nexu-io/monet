@@ -217,7 +217,7 @@ export function createToolRegistry(
             throw new Error(`Tool name collision: ${metadata.name}`);
           }
 
-          tools.set(metadata.name, metadata);
+          tools.set(metadata.name, normalizeToolMetadata(metadata));
         }
       }
 
@@ -229,6 +229,7 @@ export function createToolRegistry(
 
       return Object.fromEntries(
         definitions.map((definition) => {
+          const requiresConfirmation = getDefaultToolRequiresConfirmation(definition.metadata);
           const runtimeTool = tool({
             description: definition.metadata.description,
             inputSchema: definition.inputSchema as ToolFactoryOptions["inputSchema"],
@@ -239,8 +240,8 @@ export function createToolRegistry(
                 experimental_context: approvalContext.experimental_context,
                 sessionId: context.sessionId,
                 sessionWorkspacePath: context.sessionWorkspacePath
-              }) ?? definition.metadata.requiresConfirmation
-              : definition.metadata.requiresConfirmation,
+              }) ?? requiresConfirmation
+              : requiresConfirmation,
             onInputAvailable: ({ input, toolCallId }) => {
               const toolCallMetadata = createToolCallMetadata(definition.metadata, input);
               const persistedToolCallId = context.chatStorage.startToolCall({
@@ -258,7 +259,7 @@ export function createToolRegistry(
                   toolCallId: persistedToolCallId,
                   sdkToolCallId: toolCallId,
                   toolName: definition.metadata.name,
-                  requiresConfirmation: definition.metadata.requiresConfirmation
+                  requiresConfirmation
                 });
               }
             },
@@ -288,7 +289,7 @@ export function createToolRegistry(
                   toolCallId: persistedToolCallId,
                   sdkToolCallId: executionContext.toolCallId,
                   toolName: definition.metadata.name,
-                  requiresConfirmation: definition.metadata.requiresConfirmation
+                  requiresConfirmation
                 });
               }
 
@@ -359,6 +360,17 @@ export function createToolRegistry(
       );
     }
   };
+}
+
+function normalizeToolMetadata(metadata: ToolMetadata): ToolMetadata {
+  return {
+    ...metadata,
+    requiresConfirmation: getDefaultToolRequiresConfirmation(metadata)
+  };
+}
+
+function getDefaultToolRequiresConfirmation(metadata: ToolMetadata): boolean {
+  return metadata.requiresConfirmation !== false;
 }
 
 function resolveToolAbortSignal(runAbortSignal: AbortSignal | undefined, executionAbortSignal: AbortSignal | undefined): AbortSignal {

@@ -843,7 +843,7 @@
               "first_use",
               "always"
             ],
-            "example": "first_use"
+            "example": "never"
           }
         },
         "required": [

@@ -29,7 +29,7 @@ test("static connector catalog exposes the curated v1 providers and metadata", (
         category: "developer",
         icon: "github",
         enabledByDefault: true,
-        minimumApprovalPolicy: { sideEffect: "read", approval: "first_use" }
+        minimumApprovalPolicy: { sideEffect: "read", approval: "never" }
       },
       {
         id: "notion",
@@ -37,7 +37,7 @@ test("static connector catalog exposes the curated v1 providers and metadata", (
         category: "productivity",
         icon: "notion",
         enabledByDefault: true,
-        minimumApprovalPolicy: { sideEffect: "read", approval: "first_use" }
+        minimumApprovalPolicy: { sideEffect: "read", approval: "never" }
       },
       {
         id: "google_drive",
@@ -45,7 +45,7 @@ test("static connector catalog exposes the curated v1 providers and metadata", (
         category: "files",
         icon: "google-drive",
         enabledByDefault: true,
-        minimumApprovalPolicy: { sideEffect: "read", approval: "first_use" }
+        minimumApprovalPolicy: { sideEffect: "read", approval: "never" }
       }
     ]
   );
@@ -65,7 +65,7 @@ test("static connector catalog exposes the curated v1 providers and metadata", (
     }
 
     for (const tool of connector.allowedTools) {
-      assert.deepEqual(tool.policy, { sideEffect: "read", approval: "first_use" });
+      assert.deepEqual(tool.policy, { sideEffect: "read", approval: "never" });
       assert.ok(tool.displayName.length > 0);
       assert.ok(tool.summary.length > 0);
     }
@@ -81,14 +81,14 @@ test("connector catalog lookup helpers only accept known connector ids", () => {
 
 test("connector tool approval defaults cover all v1 side effects", () => {
   assert.deepEqual(CONNECTOR_TOOL_APPROVAL_DEFAULTS, {
-    read: "first_use",
+    read: "never",
     write: "always",
     destructive: "always",
     external_send: "always"
   });
 
   assert.deepEqual(CONNECTOR_V1_TOOL_POLICIES, {
-    read: { sideEffect: "read", approval: "first_use" },
+    read: { sideEffect: "read", approval: "never" },
     write: { sideEffect: "write", approval: "always" },
     destructive: { sideEffect: "destructive", approval: "always" },
     external_send: { sideEffect: "external_send", approval: "always" }
@@ -104,6 +104,7 @@ test("connector tool policies retain structured side effect and approval metadat
 
 test("connector tool approval requirement is derived from structured policy approval", () => {
   assert.equal(requiresConnectorToolApproval({ sideEffect: "read", approval: "never" }), false);
-  assert.equal(requiresConnectorToolApproval({ sideEffect: "read", approval: "first_use" }), true);
+  assert.equal(requiresConnectorToolApproval({ sideEffect: "read", approval: "first_use" }), false);
+  assert.equal(requiresConnectorToolApproval({ sideEffect: "write", approval: "never" }), true);
   assert.equal(requiresConnectorToolApproval({ sideEffect: "write", approval: "always" }), true);
 });

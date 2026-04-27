@@ -921,6 +921,57 @@ test("tool registry fails closed when tool sources collide", async () => {
   }
 });
 
+test("tool registry treats unclassified tools as confirmation-required", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "unknown tool" }] }]
+    });
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "unknown_safety_tool",
+          description: "Tool without explicit safety classification."
+        },
+        inputSchema: { type: "object", additionalProperties: false } as never,
+        needsApproval() {
+          return undefined as never;
+        },
+        execute() {
+          return { ok: true };
+        }
+      } as never
+    ]);
+
+    assert.deepEqual(await registry.listTools(), [
+      {
+        name: "unknown_safety_tool",
+        description: "Tool without explicit safety classification.",
+        requiresConfirmation: true
+      }
+    ]);
+
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
+      chatStorage: fixture.storage,
+      logger: createLogger("test")
+    }) as Record<string, { needsApproval?: (input: unknown, context: unknown) => Promise<boolean> | boolean }>;
+
+    assert.equal(
+      await runtimeTools.unknown_safety_tool?.needsApproval?.(
+        {},
+        { toolCallId: "call_unknown", messages: [], experimental_context: undefined }
+      ),
+      true
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("disconnect cancellation rejects only pending approvals for the disconnected connector", async () => {
   const fixture = createTestStorage();
 

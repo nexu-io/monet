@@ -7,7 +7,7 @@ export const ConnectorProviderErrorCodeSchema = z.enum(CONNECTOR_PROVIDER_ERROR_
 export const ConnectorToolPolicySchema = z
   .object({
     sideEffect: z.enum(["read", "write", "destructive", "external_send"]).openapi({ example: "read" }),
-    approval: z.enum(["never", "first_use", "always"]).openapi({ example: "first_use" })
+    approval: z.enum(["never", "first_use", "always"]).openapi({ example: "never" })
   })
   .openapi("ConnectorToolPolicy");
 

@@ -83,7 +83,7 @@ test("connector tool source resolves connected curated tools for active monet in
   assert.deepEqual(tools[0]?.metadata, {
     name: "github_list_pull_requests",
     description: "List pull requests for a selected repository.",
-    requiresConfirmation: true,
+    requiresConfirmation: false,
     connector: {
       connectorId: "github",
       connectorName: "GitHub",
