@@ -3,6 +3,7 @@ import { z } from "@hono/zod-openapi";
 import {
   LIVE_ARTIFACT_LIMITS,
   LiveArtifactCreateInputSchema,
+  LiveArtifactCreateTileInputSchema,
   LiveArtifactSafeTextSchema
 } from "../live-artifacts/schema";
 import { type RegisteredToolDefinition, type ToolSource } from "./registry";
@@ -22,9 +23,10 @@ const ListLiveArtifactsInputSchema = z.object({
 const UpdateLiveArtifactInputSchema = z.object({
   artifactId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.id),
   title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1).optional(),
-  description: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.description).nullable().optional()
+  description: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.description).nullable().optional(),
+  tiles: z.array(LiveArtifactCreateTileInputSchema).min(1).max(50).optional()
 }).strict().refine(
-  (value) => value.title !== undefined || value.description !== undefined,
+  (value) => value.title !== undefined || value.description !== undefined || value.tiles !== undefined,
   "At least one update field is required"
 );
 
@@ -50,7 +52,7 @@ const liveArtifactToolMetadata = [
   },
   {
     name: "update_live_artifact",
-    description: "Updates a Live Artifact title or description. Tile source and refresh permission changes are not supported by this tool yet.",
+    description: "Updates a Live Artifact title, description, or tile definitions. Title and description edits do not require confirmation; tile/source or refresh permission changes require confirmation.",
     requiresConfirmation: false
   }
 ] satisfies readonly [ToolMetadata, ToolMetadata, ToolMetadata];
@@ -84,6 +86,10 @@ function summarizeArtifactWithTiles(artifact: LiveArtifactWithTiles) {
       lastError: tile.lastError
     }))
   };
+}
+
+function updateLiveArtifactNeedsApproval(input: UpdateLiveArtifactInput): boolean {
+  return input.tiles !== undefined;
 }
 
 export function createLiveArtifactToolDefinitions(
@@ -132,6 +138,10 @@ export function createLiveArtifactToolDefinitions(
         ...updateLiveArtifactMetadata
       },
       inputSchema: UpdateLiveArtifactInputSchema,
+      needsApproval(input) {
+        const parsed = UpdateLiveArtifactInputSchema.parse(input) as UpdateLiveArtifactInput;
+        return updateLiveArtifactNeedsApproval(parsed);
+      },
       execute(input) {
         const parsed = UpdateLiveArtifactInputSchema.parse(input) as UpdateLiveArtifactInput;
         const artifact = options.chatStorage.updateLiveArtifact(parsed.artifactId, {
@@ -139,8 +149,15 @@ export function createLiveArtifactToolDefinitions(
           ...(parsed.description !== undefined ? { description: parsed.description } : {})
         });
 
+        const updatedArtifact = parsed.tiles
+          ? options.chatStorage.replaceLiveArtifactTiles({
+            artifactId: parsed.artifactId,
+            tiles: parsed.tiles
+          })
+          : artifact;
+
         return {
-          artifact: summarizeArtifactWithTiles(artifact)
+          artifact: summarizeArtifactWithTiles(updatedArtifact)
         };
       }
     }
