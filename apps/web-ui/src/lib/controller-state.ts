@@ -15,9 +15,9 @@ function getDesktopApi() {
 }
 
 export function useControllerState() {
-  const [config, setConfig] = useState<MonetClientConfig | null>(null);
-  const [controllerState, setControllerState] = useState<ControllerStatePayload | null>(null);
-  const [isDesktop, setIsDesktop] = useState(false);
+  const [config, setConfig] = useState<MonetClientConfig | null>(() => getMonetClientConfig());
+  const [controllerState, setControllerState] = useState<ControllerStatePayload | null>(() => getDesktopApi()?.getControllerState?.() ?? null);
+  const [isDesktop, setIsDesktop] = useState(() => Boolean(getDesktopApi()));
   const [updateState, setUpdateState] = useState<UpdateStatePayload | null>(null);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [restartPending, setRestartPending] = useState(false);

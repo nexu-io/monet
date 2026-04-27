@@ -259,6 +259,14 @@ textarea {
   border: 0;
 }
 
+/* Disable hover-only elevation/motion from app and imported UI primitives. */
+:where(*:hover) {
+  --tw-translate-y: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+  translate: none !important;
+}
+
 @keyframes thinking-shimmer {
   0% {
     background-position: 200% 50%;
