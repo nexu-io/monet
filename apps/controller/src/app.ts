@@ -11,6 +11,7 @@ import { getRequestId, requestIdKey } from "./request-context";
 import { registerChatRoutes } from "./routes/chat";
 import { registerConnectorRoutes } from "./routes/connectors";
 import { registerHealthRoutes } from "./routes/health";
+import { registerLiveArtifactRoutes } from "./routes/live-artifacts";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerRunRoutes } from "./routes/runs";
 import { registerSettingsRoutes } from "./routes/settings";
@@ -231,6 +232,10 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       {
         name: "Connectors",
         description: "External account connectors and connection status endpoints."
+      },
+      {
+        name: "Live Artifacts",
+        description: "Persisted artifact dashboards created from chat output and connector data."
       }
     ]
   });
@@ -298,6 +303,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });
   registerConnectorRoutes(app, { connectorService, getChatStorage });
+  registerLiveArtifactRoutes(app, { getChatStorage });
 
   return {
     app,
