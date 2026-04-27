@@ -27,6 +27,7 @@ export interface ControllerServerRuntime {
 export * from "./app";
 export * from "./config";
 export * from "./openapi";
+export * from "./session-workspace-service";
 
 const controllerStartupLogger = createLogger("controller", {
   component: "startup"
