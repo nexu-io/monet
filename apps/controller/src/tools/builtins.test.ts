@@ -301,6 +301,43 @@ test("read_file and write_file reject relative path traversal escapes", async ()
   }
 });
 
+test("read_file and write_file reject absolute traversal escapes from the workspace", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage);
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+    const outsidePath = join(fixture.workspaceDir, "..", "absolute-outside-attempt.txt");
+    writeFileSync(outsidePath, "should remain unchanged", "utf8");
+
+    await assert.rejects(
+      readFileTool.execute(
+        {
+          path: outsidePath
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: outsidePath,
+          content: "blocked"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+
+    assert.equal(readFileSync(outsidePath, "utf8"), "should remain unchanged");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("read_file rejects paths outside authorized directories", async () => {
   const fixture = createTestFixture();
 
@@ -320,6 +357,88 @@ test("read_file rejects paths outside authorized directories", async () => {
       ),
       /outside the authorized directories/
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("write_file rejects denied absolute paths outside workspace and authorized directories", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      allowedDirectories: []
+    });
+    const writeFileTool = runtimeTools.write_file!;
+    const outsidePath = join(fixture.fixtureDir, "outside-write.txt");
+
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: outsidePath,
+          content: "blocked"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories/
+    );
+
+    assert.throws(() => readFileSync(outsidePath, "utf8"), /ENOENT/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("file tools classify authorized directory paths separately from session workspace paths", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const authorizedDir = join(fixture.fixtureDir, "authorized-external");
+    mkdirSync(authorizedDir, { recursive: true });
+    writeFileSync(join(authorizedDir, "authorized-input.txt"), "from authorized", "utf8");
+    writeFileSync(join(fixture.workspaceDir, "workspace-input.txt"), "from workspace", "utf8");
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      allowedDirectories: [authorizedDir]
+    });
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+    const realWorkspaceDir = realpathSync(fixture.workspaceDir);
+    const realAuthorizedDir = realpathSync(authorizedDir);
+
+    const relativeWorkspaceRead = (await readFileTool.execute(
+      { path: "workspace-input.txt" },
+      createExecutionContext()
+    )) as { path: string; requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
+    assert.equal(relativeWorkspaceRead.path, join(realWorkspaceDir, "workspace-input.txt"));
+    assert.equal(relativeWorkspaceRead.requestedPath, "workspace-input.txt");
+    assert.equal(relativeWorkspaceRead.resolvedPath, join(realWorkspaceDir, "workspace-input.txt"));
+    assert.equal(relativeWorkspaceRead.pathZone, "session_workspace");
+    assert.equal(relativeWorkspaceRead.requiresConfirmation, false);
+
+    const authorizedRead = (await readFileTool.execute(
+      { path: join(authorizedDir, "authorized-input.txt") },
+      createExecutionContext()
+    )) as { path: string; requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
+    assert.equal(authorizedRead.path, join(realAuthorizedDir, "authorized-input.txt"));
+    assert.equal(authorizedRead.requestedPath, join(authorizedDir, "authorized-input.txt"));
+    assert.equal(authorizedRead.resolvedPath, join(realAuthorizedDir, "authorized-input.txt"));
+    assert.equal(authorizedRead.pathZone, "authorized_directory");
+    assert.equal(authorizedRead.requiresConfirmation, false);
+
+    const authorizedWrite = (await writeFileTool.execute(
+      {
+        path: join(authorizedDir, "authorized-output.txt"),
+        content: "to authorized"
+      },
+      createExecutionContext()
+    )) as { path: string; requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
+    assert.equal(authorizedWrite.path, join(realAuthorizedDir, "authorized-output.txt"));
+    assert.equal(authorizedWrite.requestedPath, join(authorizedDir, "authorized-output.txt"));
+    assert.equal(authorizedWrite.resolvedPath, join(realAuthorizedDir, "authorized-output.txt"));
+    assert.equal(authorizedWrite.pathZone, "authorized_directory");
+    assert.equal(authorizedWrite.requiresConfirmation, true);
+    assert.equal(readFileSync(join(authorizedDir, "authorized-output.txt"), "utf8"), "to authorized");
   } finally {
     fixture.cleanup();
   }
