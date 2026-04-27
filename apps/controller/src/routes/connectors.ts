@@ -458,6 +458,8 @@ export function registerConnectorRoutes(
     const userId = storage.getMonetInstallId();
 
     try {
+      storage.cancelPendingConnectorApprovals({ connectorId });
+
       await options.connectorService.disconnect({
         userId,
         connectorId,

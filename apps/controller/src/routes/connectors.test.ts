@@ -396,6 +396,7 @@ test("connector disconnect endpoint revokes provider access and marks local conn
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
   const monetInstallId = "monet-install-id-disconnect";
   let requested: { userId: string; connectorId: string } | null = null;
+  let canceledConnectorId: string | null = null;
   let disconnected: { userId: string; connectorId: string; provider: string } | null = null;
 
   registerConnectorRoutes(app, {
@@ -409,6 +410,10 @@ test("connector disconnect endpoint revokes provider access and marks local conn
       ({
         getMonetInstallId() {
           return monetInstallId;
+        },
+        cancelPendingConnectorApprovals(input: { connectorId: string }) {
+          canceledConnectorId = input.connectorId;
+          return 0;
         },
         markConnectorConnectionDisconnected(input: { userId: string; connectorId: string; provider: string }) {
           disconnected = input;
@@ -426,6 +431,7 @@ test("connector disconnect endpoint revokes provider access and marks local conn
     connectorId: "github",
     status: "not_connected"
   });
+  assert.equal(canceledConnectorId, "github");
   assert.deepEqual(requested, { userId: monetInstallId, connectorId: "github" });
   assert.deepEqual(disconnected, { userId: monetInstallId, connectorId: "github", provider: "composio" });
 });

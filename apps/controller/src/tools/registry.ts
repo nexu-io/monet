@@ -230,7 +230,11 @@ export function createToolRegistry(
                 input,
                 ...(toolCallMetadata ? { metadata: toolCallMetadata } : {})
               });
-              context.chatStorage.markToolCallRunning(persistedToolCallId);
+              const canRunToolCall = context.chatStorage.markToolCallRunning(persistedToolCallId);
+
+              if (!canRunToolCall) {
+                throw new Error("Tool execution was cancelled before it could start.");
+              }
 
               context.logger.info("tool.execution_started", {
                 toolCallId: persistedToolCallId,

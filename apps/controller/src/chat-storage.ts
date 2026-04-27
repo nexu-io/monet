@@ -403,6 +403,7 @@ export class ChatStorageResolutionError extends Error {
 export interface ChatStorage {
   getMonetInstallId(): string;
   getConnectorConnection(input: { userId: string; connectorId: string; provider: string }): StoredConnectorConnection | null;
+  cancelPendingConnectorApprovals(input: { connectorId: string }): number;
   markConnectorConnectionDisconnected(input: { userId: string; connectorId: string; provider: string }): StoredConnectorConnection | null;
   createConnectorOAuthState(input: CreateConnectorOAuthStateInput): StoredConnectorOAuthState;
   getConnectorOAuthStateByHash(stateHash: string): StoredConnectorOAuthState | null;
@@ -447,7 +448,7 @@ export interface ChatStorage {
     input: unknown;
     metadata?: ToolCallConnectorMetadataInput;
   }): string;
-  markToolCallRunning(toolCallId: string): void;
+  markToolCallRunning(toolCallId: string): boolean;
   recordToolApprovalRequest(options: { toolCallId: string; confirmationToken: string }): void;
   confirmToolCall(input: ConfirmToolCallInput): ConfirmToolCallResult;
   completeToolCall(options: {
@@ -514,6 +515,10 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       return row ? mapConnectorConnectionRow(row) : null;
     },
 
+    cancelPendingConnectorApprovals(input) {
+      return cancelPendingConnectorApprovals(connection, input.connectorId, new Date().toISOString());
+    },
+
     markConnectorConnectionDisconnected(input) {
       const now = new Date().toISOString();
 
@@ -529,6 +534,8 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
            WHERE user_id = ? AND connector_id = ? AND provider = ?`
         )
         .run(now, input.userId, input.connectorId, input.provider);
+
+      cancelPendingConnectorApprovals(connection, input.connectorId, now);
 
       const row = connection
         .prepare(
@@ -1574,9 +1581,14 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
            SET status = 'running',
                error_message = NULL,
                ended_at = NULL
-           WHERE id = ? AND status != 'completed'`
+           WHERE id = ?
+             AND status != 'completed'
+             AND NOT (status = 'failed' AND approval_decision = 'rejected')`
         )
         .run(toolCallId);
+
+      const row = getToolCallRow(connection, toolCallId);
+      return !(row?.status === "failed" && row.approval_decision === "rejected");
     },
 
     recordToolApprovalRequest({ toolCallId, confirmationToken }) {
@@ -1885,6 +1897,26 @@ function getToolCallRow(connection: DatabaseSync, toolCallId: string) {
        LIMIT 1`
     )
     .get(toolCallId) as ToolCallRow | undefined;
+}
+
+function cancelPendingConnectorApprovals(connection: DatabaseSync, connectorId: string, now: string): number {
+  const result = connection
+    .prepare(
+      `UPDATE tool_calls
+       SET approval_decision = 'rejected',
+           approval_decided_at = COALESCE(approval_decided_at, ?),
+           confirmation_token_hash = NULL,
+           status = 'failed',
+           error_message = 'Connector disconnected before tool approval was confirmed.',
+           ended_at = COALESCE(ended_at, ?)
+       WHERE connector_id = ?
+         AND confirmation_token_hash IS NOT NULL
+         AND approval_decision IS NULL
+         AND status = 'pending'`
+    )
+    .run(now, now, connectorId);
+
+  return Number(result.changes);
 }
 
 function ensureMonetInstallId(connection: DatabaseSync): string {

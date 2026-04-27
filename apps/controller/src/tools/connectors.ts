@@ -29,7 +29,7 @@ class ConnectorToolSource implements ToolSource {
       userId,
       ...(context.abortSignal ? { abortSignal: context.abortSignal } : {})
     });
-    const connectorAccountLabels = await this.resolveConnectorAccountLabels(userId, connectorTools, context.abortSignal);
+    const connectorConnections = await this.resolveConnectorConnections(userId, connectorTools, context.abortSignal);
     const prefixedNames = new Set<string>();
 
     return connectorTools.map((connectorTool) => {
@@ -44,20 +44,20 @@ class ConnectorToolSource implements ToolSource {
       return toRegisteredToolDefinition({
         connectorTool,
         prefixedName,
-        accountLabel: connectorAccountLabels.get(connectorTool.connectorId) ?? null,
+        connection: connectorConnections.get(connectorTool.connectorId) ?? null,
         provider: this.provider,
         userId
       });
     });
   }
 
-  private async resolveConnectorAccountLabels(
+  private async resolveConnectorConnections(
     userId: string,
     connectorTools: readonly ConnectorToolDefinition[],
     abortSignal: AbortSignal | undefined
   ) {
     const connectorIds = Array.from(new Set(connectorTools.map((tool) => tool.connectorId)));
-    const accountLabels = new Map<string, string | null>();
+    const connections = new Map<string, { accountLabel: string | null; providerConnectionId: string | null }>();
 
     await Promise.all(
       connectorIds.map(async (connectorId) => {
@@ -67,24 +67,27 @@ class ConnectorToolSource implements ToolSource {
           ...(abortSignal ? { abortSignal } : {})
         });
 
-        accountLabels.set(connectorId, status.account?.accountLabel ?? null);
+        connections.set(connectorId, {
+          accountLabel: status.account?.accountLabel ?? null,
+          providerConnectionId: status.account?.providerConnectionId ?? null
+        });
       })
     );
 
-    return accountLabels;
+    return connections;
   }
 }
 
 interface ConnectorRegisteredToolOptions {
   readonly connectorTool: ConnectorToolDefinition;
   readonly prefixedName: string;
-  readonly accountLabel: string | null;
+  readonly connection: { accountLabel: string | null; providerConnectionId: string | null } | null;
   readonly provider: ConnectorProvider;
   readonly userId: string;
 }
 
 function toRegisteredToolDefinition(options: ConnectorRegisteredToolOptions): RegisteredToolDefinition<unknown, unknown> {
-  const { connectorTool, prefixedName, accountLabel, provider, userId } = options;
+  const { connectorTool, prefixedName, connection, provider, userId } = options;
   const connectorCatalogItem = CONNECTOR_CATALOG.find((item) => item.id === connectorTool.connectorId);
 
   return {
@@ -95,7 +98,7 @@ function toRegisteredToolDefinition(options: ConnectorRegisteredToolOptions): Re
       connector: {
         connectorId: connectorTool.connectorId,
         connectorName: connectorCatalogItem?.displayName ?? connectorTool.connectorId,
-        accountLabel,
+        accountLabel: connection?.accountLabel ?? null,
         toolName: connectorTool.displayName,
         providerToolId: connectorTool.providerToolId,
         approvalPolicy: connectorTool.policy
@@ -107,6 +110,7 @@ function toRegisteredToolDefinition(options: ConnectorRegisteredToolOptions): Re
         userId,
         toolId: connectorTool.providerToolId,
         args: input,
+        ...(connection?.providerConnectionId ? { connectionId: connection.providerConnectionId } : {}),
         abortSignal: context.abortSignal
       });
 
