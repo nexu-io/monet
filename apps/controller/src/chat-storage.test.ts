@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, hostname, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -143,14 +143,16 @@ test("storage has no runtime provider/model bootstrap by default", () => {
   }
 });
 
-test("monet install id is generated once and persisted as an opaque UUID", () => {
+test("monet install id is generated once, persisted, and reused as an opaque UUID", () => {
   const fixture = createStorageFixture();
 
   try {
     const storage = createStorage(fixture.databasePath);
     const installId = storage.getMonetInstallId();
+    const repeatedInstallId = storage.getMonetInstallId();
 
     assert.match(installId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.equal(repeatedInstallId, installId);
 
     const reopenedStorage = createStorage(fixture.databasePath);
     assert.equal(reopenedStorage.getMonetInstallId(), installId);
@@ -164,8 +166,43 @@ test("monet install id is generated once and persisted as an opaque UUID", () =>
         rows.map((row) => ({ key: row.key, value: row.value })),
         [{ key: "monet_install_id", value: installId }]
       );
+
+      assert.equal(rows.length, 1);
     } finally {
       connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("monet install id does not contain personally identifying machine or account data", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const installId = storage.getMonetInstallId();
+    const normalizedInstallId = installId.toLowerCase();
+    const potentiallyIdentifyingValues = [
+      userInfo().username,
+      hostname(),
+      homedir(),
+      fixture.fixtureDir,
+      fixture.workspaceDir,
+      fixture.secondaryDir
+    ]
+      .flatMap((value) => value.split(/[\\/]/))
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => value.length >= 4 && !/^[a-z]:$/i.test(value));
+
+    assert.match(installId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+
+    for (const value of new Set(potentiallyIdentifyingValues)) {
+      assert.equal(
+        normalizedInstallId.includes(value),
+        false,
+        `monet_install_id should not include personally identifying value: ${value}`
+      );
     }
   } finally {
     fixture.cleanup();
