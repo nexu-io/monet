@@ -22,8 +22,8 @@ type ConnectorDetailLoadState =
 type ConnectorActionState =
   | { readonly status: "idle" }
   | { readonly status: "starting"; readonly connectorId: ConnectorId }
-  | { readonly status: "success"; readonly connectorId: ConnectorId; readonly message: string }
-  | { readonly status: "error"; readonly connectorId: ConnectorId; readonly message: string };
+  | { readonly status: "success"; readonly connectorId?: ConnectorId; readonly message: string }
+  | { readonly status: "error"; readonly connectorId?: ConnectorId; readonly message: string };
 
 type ConnectorDisconnectState =
   | { readonly status: "idle" }
@@ -53,6 +53,8 @@ const dangerButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-error/30 bg-error-subtle px-3.5 text-sm font-semibold text-error transition-colors hover:border-error/50 hover:bg-error-subtle/80 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
 const connectorGridClassName = "grid gap-4 lg:grid-cols-3";
 const connectorDetailQueryParam = "connector";
+const connectorOAuthStatusQueryParam = "connector_oauth";
+const connectorOAuthIdQueryParam = "connector_id";
 
 const connectorIconMeta: Record<ConnectorCatalogCard["icon"], { readonly label: string; readonly glyph: string; readonly className: string }> = {
   github: {
@@ -111,6 +113,10 @@ function formatToolId(toolId: string) {
 
 function isConnectorId(value: string | null): value is ConnectorId {
   return value === "github" || value === "notion" || value === "google_drive";
+}
+
+function isConnectorOAuthReturnStatus(value: string | null): value is "connected" | "pending" | "error" {
+  return value === "connected" || value === "pending" || value === "error";
 }
 
 function formatPolicyLabel(policy: ConnectorDetail["allowedTools"][number]["policy"]) {
@@ -625,6 +631,53 @@ export default function ConnectorsPage() {
 
     void refreshConnectors();
   }, [config, refreshConnectors]);
+
+  useEffect(() => {
+    const oauthReturnStatus = searchParams.get(connectorOAuthStatusQueryParam);
+
+    if (!isConnectorOAuthReturnStatus(oauthReturnStatus) || !connectorsEnabled || controllerStarting || controllerOffline) {
+      return;
+    }
+
+    const returnedConnectorId = searchParams.get(connectorOAuthIdQueryParam);
+    const connectorId = isConnectorId(returnedConnectorId) ? returnedConnectorId : undefined;
+
+    setPendingExternalReturnConnectorId(null);
+
+    if (oauthReturnStatus === "error") {
+      setActionState({
+        status: "error",
+        ...(connectorId ? { connectorId } : {}),
+        message: "Connector authorization could not be completed. Try reconnecting the connector."
+      });
+    } else if (oauthReturnStatus === "pending") {
+      setActionState({
+        status: "success",
+        ...(connectorId ? { connectorId } : {}),
+        message: "Connector authorization is still pending. Monet refreshed connector status; try again shortly if it does not connect."
+      });
+    } else {
+      setActionState({
+        status: "success",
+        ...(connectorId ? { connectorId } : {}),
+        message: "Connector authorization completed. Monet refreshed connector status."
+      });
+    }
+
+    void refreshConnectors().finally(() => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete(connectorOAuthStatusQueryParam);
+        next.delete(connectorOAuthIdQueryParam);
+
+        if (connectorId) {
+          next.set(connectorDetailQueryParam, connectorId);
+        }
+
+        return next;
+      });
+    });
+  }, [connectorsEnabled, controllerOffline, controllerStarting, refreshConnectors, searchParams, setSearchParams]);
 
   const openConnectorDetail = useCallback(
     (connectorId: ConnectorId) => {
