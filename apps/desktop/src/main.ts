@@ -7,7 +7,12 @@ import { pathToFileURL } from "node:url";
 import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen, shell, utilityProcess } from "electron";
 
 import { waitForControllerReady } from "./controller-readiness";
-import { clearRuntimeChildOnExit, sendUtilityProcessSignal, waitForUtilityProcessExit } from "./controller-process";
+import {
+  buildManagedControllerEnv,
+  clearRuntimeChildOnExit,
+  sendUtilityProcessSignal,
+  waitForUtilityProcessExit
+} from "./controller-process";
 import { createLogger } from "./logger";
 import { isAllowedMainWindowNavigation, shouldOpenNavigationExternally } from "./navigation";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
@@ -707,16 +712,16 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   });
 
   const child = utilityProcess.fork(controllerEntrypoint, [], {
-    env: {
-      ...process.env,
-      ...buildProviderSecretEnv(process.env),
-      MONET_CONTROLLER_HOST: controllerHost,
-      MONET_CONTROLLER_PORT: "0",
-      MONET_CONTROLLER_BEARER_TOKEN: bearerToken,
-      MONET_USER_DATA_DIR: userDataPath,
-      MONET_DATABASE_PATH: sqliteDatabasePath,
-      MONET_MIGRATIONS_DIR: getMigrationsDirectory()
-    }
+    env: buildManagedControllerEnv({
+      baseEnv: process.env,
+      providerSecretEnv: buildProviderSecretEnv(process.env),
+      host: controllerHost,
+      port: "0",
+      bearerToken,
+      userDataPath,
+      databasePath: sqliteDatabasePath,
+      migrationsDirectory: getMigrationsDirectory()
+    })
   });
 
   child.once("exit", () => {
