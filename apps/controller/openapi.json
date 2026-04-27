@@ -990,6 +990,57 @@
         "required": [
           "connector"
         ]
+      },
+      "StartConnectorConnectionResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "redirect_required",
+              "connected",
+              "pending"
+            ],
+            "example": "redirect_required"
+          },
+          "connectorId": {
+            "type": "string",
+            "enum": [
+              "github",
+              "notion",
+              "google_drive"
+            ],
+            "example": "github"
+          },
+          "providerConnectionId": {
+            "type": "string",
+            "example": "conn_123"
+          },
+          "redirectUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://accounts.provider.example/oauth/authorize?..."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-27T10:05:00.000Z"
+          }
+        },
+        "required": [
+          "status",
+          "connectorId"
+        ]
+      },
+      "StartConnectorConnectionRequest": {
+        "type": "object",
+        "properties": {
+          "redirectUrl": {
+            "type": "string",
+            "format": "uri",
+            "example": "monet://connectors/callback"
+          }
+        }
       }
     },
     "parameters": {}
@@ -2209,6 +2260,129 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GetConnectorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid connector request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Connector credentials have expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Connector provider denied access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connector not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Connector connection is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Connector provider rate limit exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Connector provider request failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Connector provider is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connectors/{connectorId}/connect": {
+      "post": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "Start connector connection flow",
+        "description": "Starts the provider OAuth flow using a cryptographically random single-use state bound to this Monet install.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "github"
+            },
+            "required": true,
+            "name": "connectorId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartConnectorConnectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connector connection flow started successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartConnectorConnectionResponse"
                 }
               }
             }

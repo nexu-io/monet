@@ -40,6 +40,9 @@ test("connectors endpoint returns connector catalog with status", async () => {
     },
     getConnection() {
       throw new Error("not used in connectors route test");
+    },
+    startConnection() {
+      throw new Error("not used in connectors route test");
     }
   };
 
@@ -140,6 +143,9 @@ test("connector detail endpoint returns connector status, tools, and approval po
     },
     getConnection() {
       throw new Error("not used in connector detail route test");
+    },
+    startConnection() {
+      throw new Error("not used in connector detail route test");
     }
   };
 
@@ -176,6 +182,9 @@ test("connector detail endpoint returns normalized connector errors", async () =
     },
     getConnection() {
       throw new Error("not used in connector detail error route test");
+    },
+    startConnection() {
+      throw new Error("not used in connector detail error route test");
     }
   };
 
@@ -197,5 +206,70 @@ test("connector detail endpoint returns normalized connector errors", async () =
   assert.deepEqual(await response.json(), {
     error: "tool_not_found",
     message: "Unknown connector: missing"
+  });
+});
+
+test("connector connect endpoint starts connection flow for Monet install", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  const monetInstallId = "monet-install-id-connect";
+  let requested: { userId: string; connectorId: string; redirectUrl?: string } | null = null;
+
+  const connectorService: ConnectorService = {
+    listConnectors() {
+      throw new Error("not used in connector connect route test");
+    },
+    getConnector() {
+      throw new Error("not used in connector connect route test");
+    },
+    getConnection() {
+      throw new Error("not used in connector connect route test");
+    },
+    async startConnection(input) {
+      requested = {
+        userId: input.userId,
+        connectorId: input.connectorId,
+        ...(input.redirectUrl ? { redirectUrl: input.redirectUrl } : {})
+      };
+
+      return {
+        connectorId: "github",
+        kind: "redirect_required",
+        providerConnectionId: "conn_123",
+        redirectUrl: "https://provider.example/oauth/start",
+        expiresAt: "2026-04-27T10:05:00.000Z"
+      };
+    }
+  };
+
+  registerConnectorRoutes(app, {
+    connectorService,
+    getChatStorage: () =>
+      ({
+        getMonetInstallId() {
+          return monetInstallId;
+        }
+      }) as never
+  });
+
+  const response = await app.request("http://127.0.0.1:42831/api/connectors/github/connect", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ redirectUrl: "monet://connectors/callback" })
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    connectorId: "github",
+    status: "redirect_required",
+    providerConnectionId: "conn_123",
+    redirectUrl: "https://provider.example/oauth/start",
+    expiresAt: "2026-04-27T10:05:00.000Z"
+  });
+  assert.deepEqual(requested, {
+    userId: monetInstallId,
+    connectorId: "github",
+    redirectUrl: "monet://connectors/callback"
   });
 });

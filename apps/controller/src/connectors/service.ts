@@ -1,6 +1,8 @@
+import { randomBytes } from "node:crypto";
+
 import { getConnectorCatalogItem, listConnectorCatalog, type ConnectorAllowedTool, type ConnectorCatalogItem, type ConnectorId } from "./catalog";
 import { createConnectorProviderError, normalizeConnectorProviderError, type ConnectorProviderErrorCode } from "./errors";
-import type { ConnectorConnectionStatus, ConnectorConnectionState, ConnectorProvider } from "./provider";
+import type { ConnectorConnectionStart, ConnectorConnectionStatus, ConnectorConnectionState, ConnectorProvider } from "./provider";
 
 export type ConnectorServiceStatus = "unavailable" | "not_connected" | "connected" | "expired";
 
@@ -44,10 +46,15 @@ export interface ConnectorServiceGetInput extends ConnectorServiceInput {
   readonly connectorId: string;
 }
 
+export interface ConnectorServiceStartConnectionInput extends ConnectorServiceGetInput {
+  readonly redirectUrl?: string;
+}
+
 export interface ConnectorService {
   listConnectors(input: ConnectorServiceInput): Promise<readonly ConnectorCatalogCard[]>;
   getConnector(input: ConnectorServiceGetInput): Promise<ConnectorDetail>;
   getConnection(input: ConnectorServiceGetInput): Promise<ConnectorServiceConnection>;
+  startConnection(input: ConnectorServiceStartConnectionInput): Promise<ConnectorConnectionStart>;
 }
 
 export interface CreateConnectorServiceOptions {
@@ -98,6 +105,26 @@ class DefaultConnectorService implements ConnectorService {
     return this.getCatalogConnection(catalogItem, input);
   }
 
+  async startConnection(input: ConnectorServiceStartConnectionInput): Promise<ConnectorConnectionStart> {
+    const catalogItem = getConnectorCatalogItem(input.connectorId);
+
+    if (!catalogItem) {
+      throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
+    }
+
+    if (!catalogItem.enabledByDefault) {
+      throw createConnectorProviderError("provider_error", { message: "Connector is not enabled.", statusCode: 503 });
+    }
+
+    return this.provider.connect({
+      userId: input.userId,
+      connectorId: catalogItem.id,
+      state: createConnectorOAuthStateSecret(),
+      ...(input.redirectUrl ? { redirectUrl: input.redirectUrl } : {}),
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+    });
+  }
+
   private async getCatalogConnection(
     catalogItem: ConnectorCatalogItem,
     input: ConnectorServiceInput
@@ -128,6 +155,10 @@ class DefaultConnectorService implements ConnectorService {
       return normalizeProviderError(normalized.code, normalized.message);
     }
   }
+}
+
+export function createConnectorOAuthStateSecret(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 function toCatalogCard(catalogItem: ConnectorCatalogItem, connection: ConnectorServiceConnection): ConnectorCatalogCard {

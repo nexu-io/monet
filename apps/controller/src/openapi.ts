@@ -82,6 +82,22 @@ export const GetConnectorResponseSchema = z
   })
   .openapi("GetConnectorResponse");
 
+export const StartConnectorConnectionRequestSchema = z
+  .object({
+    redirectUrl: z.string().url().optional().openapi({ example: "monet://connectors/callback" })
+  })
+  .openapi("StartConnectorConnectionRequest");
+
+export const StartConnectorConnectionResponseSchema = z
+  .object({
+    status: z.enum(["redirect_required", "connected", "pending"]).openapi({ example: "redirect_required" }),
+    connectorId: z.enum(["github", "notion", "google_drive"]).openapi({ example: "github" }),
+    providerConnectionId: z.string().optional().openapi({ example: "conn_123" }),
+    redirectUrl: z.string().url().optional().openapi({ example: "https://accounts.provider.example/oauth/authorize?..." }),
+    expiresAt: z.string().datetime().optional().openapi({ example: "2026-04-27T10:05:00.000Z" })
+  })
+  .openapi("StartConnectorConnectionResponse");
+
 export const ErrorResponseSchema = z
   .object({
     error: z.string().openapi({ example: "unauthorized" }),

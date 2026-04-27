@@ -8,7 +8,9 @@ import {
   createErrorResponse,
   ErrorResponseSchema,
   GetConnectorResponseSchema,
-  ListConnectorsResponseSchema
+  ListConnectorsResponseSchema,
+  StartConnectorConnectionRequestSchema,
+  StartConnectorConnectionResponseSchema
 } from "../openapi";
 
 type ConnectorRouteErrorStatus = 400 | 401 | 403 | 404 | 409 | 429 | 502 | 503;
@@ -50,6 +52,99 @@ const getConnectorRoute = createRoute({
       content: {
         "application/json": {
           schema: GetConnectorResponseSchema
+        }
+      }
+    },
+    400: {
+      description: "Invalid connector request.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    401: {
+      description: "Connector credentials have expired.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    403: {
+      description: "Connector provider denied access.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "Connector not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    409: {
+      description: "Connector connection is required.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    429: {
+      description: "Connector provider rate limit exceeded.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    502: {
+      description: "Connector provider request failed.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    503: {
+      description: "Connector provider is unavailable.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const startConnectorConnectionRoute = createRoute({
+  method: "post",
+  path: "/api/connectors/{connectorId}/connect",
+  tags: ["Connectors"],
+  summary: "Start connector connection flow",
+  description: "Starts the provider OAuth flow using a cryptographically random single-use state bound to this Monet install.",
+  request: {
+    params: connectorIdParamSchema,
+    body: {
+      required: false,
+      content: {
+        "application/json": {
+          schema: StartConnectorConnectionRequestSchema
+        }
+      }
+    }
+  },
+  responses: {
+    200: {
+      description: "Connector connection flow started successfully.",
+      content: {
+        "application/json": {
+          schema: StartConnectorConnectionResponseSchema
         }
       }
     },
@@ -167,6 +262,56 @@ export function registerConnectorRoutes(
       return context.json(createErrorResponse(normalized.code, normalized.message), status);
     }
   });
+
+  app.openapi(startConnectorConnectionRoute, async (context) => {
+    let payload: unknown = {};
+
+    try {
+      payload = await parseOptionalJsonBody(context.req);
+    } catch {
+      return context.json(createErrorResponse("invalid_arguments", "Malformed JSON request body."), 400);
+    }
+
+    const parsedBody = StartConnectorConnectionRequestSchema.safeParse(payload);
+
+    if (!parsedBody.success) {
+      return context.json(createErrorResponse("invalid_arguments", "Request validation failed."), 400);
+    }
+
+    try {
+      const connectionStart = await options.connectorService.startConnection({
+        userId: options.getChatStorage().getMonetInstallId(),
+        connectorId: context.req.valid("param").connectorId,
+        ...(parsedBody.data.redirectUrl ? { redirectUrl: parsedBody.data.redirectUrl } : {}),
+        abortSignal: context.req.raw.signal
+      });
+
+      return context.json(
+        {
+          connectorId: connectionStart.connectorId,
+          status: connectionStart.kind,
+          ...(connectionStart.providerConnectionId ? { providerConnectionId: connectionStart.providerConnectionId } : {}),
+          ...(connectionStart.redirectUrl ? { redirectUrl: connectionStart.redirectUrl } : {}),
+          ...(connectionStart.expiresAt ? { expiresAt: connectionStart.expiresAt } : {})
+        },
+        200
+      );
+    } catch (error) {
+      const normalized = normalizeConnectorProviderError(error);
+      const status = isConnectorRouteErrorStatus(normalized.statusCode) ? normalized.statusCode : 502;
+      return context.json(createErrorResponse(normalized.code, normalized.message), status);
+    }
+  });
+}
+
+async function parseOptionalJsonBody(request: { text: () => Promise<string> }) {
+  const rawBody = await request.text();
+
+  if (!rawBody.trim()) {
+    return {};
+  }
+
+  return JSON.parse(rawBody) as unknown;
 }
 
 function isConnectorRouteErrorStatus(statusCode: number): statusCode is ConnectorRouteErrorStatus {
