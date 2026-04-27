@@ -345,7 +345,53 @@ CREATE TABLE live_artifact_tiles (
 
 CREATE INDEX live_artifact_tiles_artifact_position_idx
   ON live_artifact_tiles(artifact_id, position);
+
+CREATE TABLE live_artifact_refreshes (
+  id TEXT PRIMARY KEY NOT NULL,
+  artifact_id TEXT NOT NULL REFERENCES live_artifacts(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL CHECK (scope IN ('artifact', 'tile')),
+  requested_tile_id TEXT REFERENCES live_artifact_tiles(id) ON DELETE SET NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'partial_failed', 'failed')),
+  trigger TEXT NOT NULL DEFAULT 'manual' CHECK (trigger IN ('manual')),
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  error_message TEXT
+);
+
+CREATE INDEX live_artifact_refreshes_artifact_started_idx
+  ON live_artifact_refreshes(artifact_id, started_at);
+
+CREATE TABLE live_artifact_refresh_steps (
+  id TEXT PRIMARY KEY NOT NULL,
+  refresh_id TEXT NOT NULL REFERENCES live_artifact_refreshes(id) ON DELETE CASCADE,
+  tile_id TEXT REFERENCES live_artifact_tiles(id) ON DELETE SET NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('tool', 'connector_tool')),
+  tool_name TEXT NOT NULL,
+  input_json TEXT NOT NULL,
+  connector_id TEXT,
+  connector_name TEXT,
+  connector_account_label TEXT,
+  connector_tool_name TEXT,
+  connector_provider_tool_id TEXT,
+  connector_arguments_summary TEXT,
+  connector_approval_policy_json TEXT,
+  approval_basis TEXT,
+  connector_provider_execution_id TEXT,
+  connector_provider_execution_metadata_json TEXT,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'skipped')),
+  error_message TEXT,
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+
+CREATE INDEX live_artifact_refresh_steps_refresh_started_idx
+  ON live_artifact_refresh_steps(refresh_id, started_at);
+
+CREATE INDEX live_artifact_refresh_steps_tile_started_idx
+  ON live_artifact_refresh_steps(tile_id, started_at);
 ```
+
+Refresh audit decision (2026-04-28): use artifact-specific refresh audit records (`live_artifact_refreshes` and `live_artifact_refresh_steps`) rather than synthetic refresh-scoped `runs`/`tool_calls`. Existing `runs` require chat session, provider, and model records and drive chat-specific lifecycle behavior, while Live Artifact refresh is deterministic controller-side connector execution. The artifact-specific tables still mirror the connector audit fields added to `tool_calls` by migrations `0006` and `0007`, so refresh cannot call connector provider APIs without first persisting refresh and per-tile step audit metadata.
 
 Storage constraints that must be enforced in application code because SQLite cannot express them cleanly:
 
@@ -394,10 +440,11 @@ Read-only, no confirmation.
 
 ### 6.5 Refresh engine
 
-Manual refresh must not execute through an untracked hidden path. Engineering must choose and implement one audited execution model before invoking connector tools:
+Manual refresh must not execute through an untracked hidden path. v0.1 uses artifact-specific refresh audit records instead of synthetic refresh-scoped `runs`/`tool_calls`:
 
-1. **Preferred:** create a refresh-scoped run/tool-call audit record and execute through the existing tool/connector runtime where practical.
-2. **Acceptable fallback:** add equivalent artifact-refresh audit records before invoking connector provider tools directly.
+1. Create a `live_artifact_refreshes` record before a whole-artifact or tile refresh starts.
+2. Create one `live_artifact_refresh_steps` record before each tile source execution, including redacted input, connector metadata, current approval/classification basis, and provider execution metadata when available.
+3. Update the step and parent refresh status after execution; partial failures must preserve previous tile render JSON and record the tile-level error.
 
 Do not call connector provider APIs directly from refresh without persisted audit metadata.
 
