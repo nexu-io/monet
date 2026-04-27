@@ -1,6 +1,6 @@
 import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
-import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import { BlockList, isIP } from "node:net";
@@ -92,6 +92,8 @@ const fetchUrlMaxRedirects = 3;
 const fetchUrlMaxResponseBytes = 1_000_000;
 const fetchUrlMaxReturnedContentBytes = 64 * 1024;
 const readFileMaxBytes = 1_000_000;
+const writeFileMaxContentBytes = 1_000_000;
+const sessionWorkspaceQuotaBytes = 100 * 1024 * 1024;
 const blockedIpAddresses = createBlockedIpAddresses();
 
 function truncateUtf8Text(value: string, maxBytes: number) {
@@ -121,6 +123,59 @@ function truncateUtf8Text(value: string, maxBytes: number) {
 function assertReadFileWithinLimit(sizeBytes: number, maxBytes: number) {
   if (sizeBytes > maxBytes) {
     throw new Error(`read_file exceeded the size limit of ${maxBytes} bytes.`);
+  }
+}
+
+function assertWriteFileContentWithinLimit(sizeBytes: number, maxBytes: number) {
+  if (sizeBytes > maxBytes) {
+    throw new Error(`write_file content exceeded the size limit of ${maxBytes} bytes.`);
+  }
+}
+
+async function getDirectorySizeBytes(directoryPath: string): Promise<number> {
+  let totalSizeBytes = 0;
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const entryPath = resolve(directoryPath, entry.name);
+
+    if (entry.isDirectory()) {
+      totalSizeBytes += await getDirectorySizeBytes(entryPath);
+      continue;
+    }
+
+    const entryStat = await lstat(entryPath);
+    totalSizeBytes += entryStat.size;
+  }
+
+  return totalSizeBytes;
+}
+
+async function getExistingFileSizeBytes(filePath: string) {
+  try {
+    const fileStat = await stat(filePath);
+    return fileStat.isFile() ? fileStat.size : 0;
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "ENOENT")) {
+      return 0;
+    }
+
+    throw error;
+  }
+}
+
+async function assertSessionWorkspaceQuotaAllowsWrite(options: {
+  readonly sessionWorkspacePath: string;
+  readonly resolvedPath: string;
+  readonly contentSizeBytes: number;
+}) {
+  const [workspaceSizeBytes, existingTargetSizeBytes] = await Promise.all([
+    getDirectorySizeBytes(options.sessionWorkspacePath),
+    getExistingFileSizeBytes(options.resolvedPath)
+  ]);
+
+  if (workspaceSizeBytes - existingTargetSizeBytes + options.contentSizeBytes > sessionWorkspaceQuotaBytes) {
+    throw new Error("Session workspace quota exceeded.");
   }
 }
 
@@ -642,6 +697,8 @@ export function createBuiltinToolDefinitions(
       }).strict(),
       async execute(input, context) {
         const normalizedInput = input as WriteFileInput;
+        const contentSizeBytes = Buffer.byteLength(normalizedInput.content, "utf8");
+        assertWriteFileContentWithinLimit(contentSizeBytes, writeFileMaxContentBytes);
         const resolvedPath = await assertFilesystemPathAllowed({
           requestedPath: normalizedInput.path,
           accessMode: "write",
@@ -649,13 +706,21 @@ export function createBuiltinToolDefinitions(
           authorizedDirectories: getAllowedDirectories()
         });
 
+        if (resolvedPath.zone === "session_workspace") {
+          await assertSessionWorkspaceQuotaAllowsWrite({
+            sessionWorkspacePath: context.sessionWorkspacePath,
+            resolvedPath: resolvedPath.resolvedPath,
+            contentSizeBytes
+          });
+        }
+
         await mkdir(dirname(resolvedPath.resolvedPath), { recursive: true });
         await writeFile(resolvedPath.resolvedPath, normalizedInput.content, "utf8");
 
         return {
           path: resolvedPath.resolvedPath,
           ...createFilesystemPathOutputMetadata(resolvedPath),
-          bytesWritten: Buffer.byteLength(normalizedInput.content, "utf8")
+          bytesWritten: contentSizeBytes
         };
       }
     }
