@@ -674,6 +674,8 @@ Functions:
 
 ### 12.3 Manual QA
 
+Use `specs/2026-04-27-external-connectors/manual-qa-runbook.md` for the executable live-provider QA pass. At minimum, cover:
+
 1. Open app and verify sidebar contains `Connectors`.
 2. Click `Connectors` and verify connector cards display.
 3. Connect GitHub through provider OAuth.
