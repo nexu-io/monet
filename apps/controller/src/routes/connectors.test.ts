@@ -392,6 +392,98 @@ test("connector OAuth callback validates state before redirecting back to connec
   assert.equal(replayResponse.headers.get("location"), "/connectors?connector_oauth=error");
 });
 
+test("connector OAuth callback rejects consumed, expired, mismatched, and oversized state", async () => {
+  const cases = [
+    {
+      name: "consumed",
+      state: "consumed-state",
+      oauthState: { consumedAt: "2026-04-27T10:00:00.000Z", expiresAt: new Date(Date.now() + 60_000).toISOString(), userId: "monet-install-id" }
+    },
+    {
+      name: "expired",
+      state: "expired-state",
+      oauthState: { consumedAt: null, expiresAt: new Date(Date.now() - 60_000).toISOString(), userId: "monet-install-id" }
+    },
+    {
+      name: "wrong-user",
+      state: "wrong-user-state",
+      oauthState: { consumedAt: null, expiresAt: new Date(Date.now() + 60_000).toISOString(), userId: "other-install-id" }
+    }
+  ] as const;
+
+  for (const scenario of cases) {
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    let completed = false;
+
+    registerConnectorRoutes(app, {
+      connectorService: {
+        ...createUnusedConnectorService(),
+        async completeConnection() {
+          completed = true;
+          throw new Error("OAuth callback should reject invalid state before provider completion");
+        }
+      },
+      getChatStorage: () =>
+        ({
+          getMonetInstallId() {
+            return "monet-install-id";
+          },
+          getConnectorOAuthStateByHash(stateHash: string) {
+            if (stateHash !== hashConnectorOAuthState(scenario.state)) {
+              return null;
+            }
+
+            return {
+              id: `cos_${scenario.name}`,
+              stateHash,
+              userId: scenario.oauthState.userId,
+              connectorId: "github",
+              provider: "composio",
+              redirectUrl: null,
+              expiresAt: scenario.oauthState.expiresAt,
+              consumedAt: scenario.oauthState.consumedAt,
+              createdAt: new Date().toISOString()
+            };
+          },
+          completeConnectorOAuthConnection() {
+            throw new Error("OAuth callback should not persist invalid state");
+          }
+        }) as never
+    });
+
+    const response = await app.request(
+      `http://127.0.0.1:42831/connectors/oauth/callback/github?state=${scenario.state}&connected_account_id=conn_123`,
+      { method: "GET", redirect: "manual" }
+    );
+
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get("location"), "/connectors?connector_oauth=error");
+    assert.equal(completed, false);
+  }
+
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  registerConnectorRoutes(app, {
+    connectorService: createUnusedConnectorService(),
+    getChatStorage: () =>
+      ({
+        getMonetInstallId() {
+          return "monet-install-id";
+        },
+        getConnectorOAuthStateByHash() {
+          throw new Error("Oversized states must be rejected before hashing lookup");
+        }
+      }) as never
+  });
+
+  const oversizedResponse = await app.request(
+    `http://127.0.0.1:42831/connectors/oauth/callback/github?state=${"a".repeat(513)}&connected_account_id=conn_123`,
+    { method: "GET", redirect: "manual" }
+  );
+
+  assert.equal(oversizedResponse.status, 302);
+  assert.equal(oversizedResponse.headers.get("location"), "/connectors?connector_oauth=error");
+});
+
 test("connector disconnect endpoint revokes provider access and marks local connection disconnected", async () => {
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
   const monetInstallId = "monet-install-id-disconnect";

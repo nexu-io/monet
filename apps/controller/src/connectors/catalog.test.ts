@@ -2,11 +2,82 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  CONNECTOR_CATALOG,
   CONNECTOR_TOOL_APPROVAL_DEFAULTS,
   CONNECTOR_V1_TOOL_POLICIES,
   createConnectorToolPolicy,
+  getConnectorCatalogItem,
+  isConnectorId,
+  listConnectorCatalog,
   requiresConnectorToolApproval
 } from "./catalog";
+
+test("static connector catalog exposes the curated v1 providers and metadata", () => {
+  assert.deepEqual(
+    listConnectorCatalog().map((connector) => ({
+      id: connector.id,
+      providerConnectorId: connector.providerConnectorId,
+      category: connector.category,
+      icon: connector.icon,
+      enabledByDefault: connector.enabledByDefault,
+      minimumApprovalPolicy: connector.minimumApprovalPolicy
+    })),
+    [
+      {
+        id: "github",
+        providerConnectorId: "GITHUB",
+        category: "developer",
+        icon: "github",
+        enabledByDefault: true,
+        minimumApprovalPolicy: { sideEffect: "read", approval: "first_use" }
+      },
+      {
+        id: "notion",
+        providerConnectorId: "NOTION",
+        category: "productivity",
+        icon: "notion",
+        enabledByDefault: true,
+        minimumApprovalPolicy: { sideEffect: "read", approval: "first_use" }
+      },
+      {
+        id: "google_drive",
+        providerConnectorId: "GOOGLEDRIVE",
+        category: "files",
+        icon: "google-drive",
+        enabledByDefault: true,
+        minimumApprovalPolicy: { sideEffect: "read", approval: "first_use" }
+      }
+    ]
+  );
+
+  for (const connector of CONNECTOR_CATALOG) {
+    assert.ok(connector.description.length > 0);
+    assert.ok(connector.featuredTools.length > 0);
+    assert.ok(connector.capabilitySummaries.length > 0);
+    assert.ok(connector.allowedTools.length > 0);
+    assert.equal(new Set(connector.allowedTools.map((tool) => tool.providerToolId)).size, connector.allowedTools.length);
+
+    for (const featuredTool of connector.featuredTools) {
+      assert.ok(
+        connector.allowedTools.some((tool) => tool.providerToolId === featuredTool),
+        `${connector.id} featured tool ${featuredTool} must be allowlisted`
+      );
+    }
+
+    for (const tool of connector.allowedTools) {
+      assert.deepEqual(tool.policy, { sideEffect: "read", approval: "first_use" });
+      assert.ok(tool.displayName.length > 0);
+      assert.ok(tool.summary.length > 0);
+    }
+  }
+});
+
+test("connector catalog lookup helpers only accept known connector ids", () => {
+  assert.equal(getConnectorCatalogItem("github")?.displayName, "GitHub");
+  assert.equal(getConnectorCatalogItem("dropbox"), undefined);
+  assert.equal(isConnectorId("google_drive"), true);
+  assert.equal(isConnectorId("dropbox"), false);
+});
 
 test("connector tool approval defaults cover all v1 side effects", () => {
   assert.deepEqual(CONNECTOR_TOOL_APPROVAL_DEFAULTS, {

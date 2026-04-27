@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createConnectorService } from "./service";
+import { createConnectorProviderError } from "./errors";
+import { createConnectorService, normalizeConnectionState, normalizeProviderStatus } from "./service";
 import type { ConnectorProvider, ConnectorCreateConnectionInput } from "./provider";
 
 test("connector service starts OAuth with cryptographically random single-use state", async () => {
@@ -45,4 +46,69 @@ test("connector service starts OAuth with cryptographically random single-use st
   assert.notEqual(states[0], states[1]);
   assert.match(states[0] ?? "", /^[A-Za-z0-9_-]{43}$/);
   assert.match(states[1] ?? "", /^[A-Za-z0-9_-]{43}$/);
+});
+
+test("connector service normalizes provider connection states for catalog status", () => {
+  assert.equal(normalizeConnectionState("connected", false), "connected");
+  assert.equal(normalizeConnectionState("not_connected", false), "not_connected");
+  assert.equal(normalizeConnectionState("disconnected", false), "not_connected");
+  assert.equal(normalizeConnectionState("expired", false), "expired");
+  assert.equal(normalizeConnectionState("not_connected", false, "connection_expired"), "expired");
+  assert.equal(normalizeConnectionState("unavailable", false), "unavailable");
+
+  assert.deepEqual(
+    normalizeProviderStatus({
+      connectorId: "github",
+      state: "connected",
+      connected: true,
+      account: {
+        accountLabel: "octocat",
+        providerConnectionId: "conn_123"
+      }
+    }),
+    {
+      status: "connected",
+      connected: true,
+      connectedAccountLabel: "octocat",
+      account: {
+        accountLabel: "octocat",
+        providerConnectionId: "conn_123"
+      }
+    }
+  );
+});
+
+test("connector service maps provider status errors to safe service statuses", async () => {
+  const service = createConnectorService({
+    provider: {
+      async listConnectors() {
+        return [];
+      },
+      async getConnectionStatus() {
+        throw createConnectorProviderError("connection_missing", { message: "missing" });
+      },
+      connect() {
+        throw new Error("not used");
+      },
+      completeConnection() {
+        throw new Error("not used");
+      },
+      disconnect() {
+        throw new Error("not used");
+      },
+      listTools() {
+        throw new Error("not used");
+      },
+      executeTool() {
+        throw new Error("not used");
+      }
+    }
+  });
+
+  assert.deepEqual(await service.getConnection({ userId: "monet-install-id", connectorId: "github" }), {
+    status: "not_connected",
+    connected: false,
+    lastErrorCode: "connection_missing",
+    lastErrorMessage: "missing"
+  });
 });
