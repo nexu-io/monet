@@ -218,8 +218,41 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     return mapComposioReconciledConnection(input.connectorId, providerConnectionId, providerConnection);
   }
 
-  async disconnect(_input: ConnectorConnectionInput): Promise<void> {
-    throw createConnectorProviderError("provider_error", { message: "Composio connector disconnect is not implemented yet." });
+  async disconnect(input: ConnectorConnectionInput): Promise<void> {
+    const catalogItem = getConnectorCatalogItem(input.connectorId);
+
+    if (!catalogItem) {
+      throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
+    }
+
+    if (!this.apiKey || !this.authConfigIds[input.connectorId]) {
+      throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
+    }
+
+    const connection = this.storage.getConnectorConnection({
+      userId: input.userId,
+      connectorId: input.connectorId,
+      provider: COMPOSIO_PROVIDER
+    });
+
+    if (!connection || connection.status === "disconnected" || !connection.providerConnectionId) {
+      return;
+    }
+
+    try {
+      await this.deleteConnectedAccount(connection.providerConnectionId, input.abortSignal);
+    } catch (error) {
+      const normalized = normalizeConnectorProviderError(error, {
+        fallbackCode: "provider_error",
+        message: "Unable to revoke connector account credentials."
+      });
+
+      if (normalized.code === "connection_missing" || normalized.statusCode === 404) {
+        return;
+      }
+
+      throw normalized;
+    }
   }
 
   async listTools(_input: ConnectorListToolsInput): Promise<readonly ConnectorToolDefinition[]> {
@@ -253,7 +286,25 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     });
   }
 
+  private async deleteConnectedAccount(connectionId: string, abortSignal: AbortSignal | undefined): Promise<void> {
+    await this.request(`/api/v3/connected_accounts/${encodeURIComponent(connectionId)}`, {
+      method: "DELETE",
+      ...(abortSignal ? { abortSignal } : {})
+    });
+  }
+
   private async requestJson(path: string, input: { method: string; body?: string; abortSignal?: AbortSignal }): Promise<ComposioConnectedAccountResponse> {
+    const response = await this.request(path, input);
+    const value = (await response.json()) as unknown;
+
+    if (!value || typeof value !== "object") {
+      throw createConnectorProviderError("provider_error", { message: "Connector provider returned an invalid response." });
+    }
+
+    return value as ComposioConnectedAccountResponse;
+  }
+
+  private async request(path: string, input: { method: string; body?: string; abortSignal?: AbortSignal }): Promise<Response> {
     if (!this.apiKey) {
       throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
@@ -273,13 +324,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
       throw createConnectorProviderError(mapComposioHttpStatus(response.status), { statusCode: response.status });
     }
 
-    const value = (await response.json()) as unknown;
-
-    if (!value || typeof value !== "object") {
-      throw createConnectorProviderError("provider_error", { message: "Connector provider returned an invalid response." });
-    }
-
-    return value as ComposioConnectedAccountResponse;
+    return response;
   }
 }
 
@@ -326,7 +371,15 @@ function mapComposioConnectionStatus(
     };
   }
 
-  if (providerStatus === "EXPIRED" || providerStatus === "FAILED" || providerStatus === "DISABLED") {
+  if (isDisconnectedComposioStatus(providerStatus)) {
+    return {
+      ...localStatus,
+      state: "disconnected",
+      connected: false
+    };
+  }
+
+  if (isExpiredComposioStatus(providerStatus)) {
     return {
       ...localStatus,
       state: "expired",
@@ -386,15 +439,18 @@ function mapComposioReconciledConnection(
     };
   }
 
-  const expired = providerStatus === "EXPIRED" || providerStatus === "FAILED" || providerStatus === "DISABLED" || providerStatus === "INACTIVE";
-  const lastErrorCode: ConnectorProviderErrorCode = expired ? "connection_expired" : "provider_error";
+  const disconnected = isDisconnectedComposioStatus(providerStatus);
+  const expired = isExpiredComposioStatus(providerStatus);
+  const lastErrorCode: ConnectorProviderErrorCode | undefined = disconnected ? undefined : expired ? "connection_expired" : "provider_error";
   const lastErrorMessage = expired
     ? "Connector account credentials have expired. Reconnect to continue."
-    : "Connector account authorization has not completed yet.";
+    : disconnected
+      ? "Connector account has been disconnected."
+      : "Connector account authorization has not completed yet.";
 
   return {
     connectorId,
-    state: expired ? "expired" : "not_connected",
+    state: disconnected ? "disconnected" : expired ? "expired" : "not_connected",
     connected: false,
     providerConnectionId,
     account: {
@@ -405,16 +461,24 @@ function mapComposioReconciledConnection(
       updatedAt: now
     },
     persistence: {
-      status: expired ? "expired" : "disconnected",
+      status: disconnected ? "disconnected" : expired ? "expired" : "disconnected",
       providerConnectionId,
       providerMetadataJson,
       accountLabel: accountLabel ?? null,
       lastConnectedAt: null,
-      lastError: JSON.stringify({ code: lastErrorCode, message: lastErrorMessage })
+      lastError: lastErrorCode ? JSON.stringify({ code: lastErrorCode, message: lastErrorMessage }) : null
     },
-    lastErrorCode,
+    ...(lastErrorCode ? { lastErrorCode } : {}),
     lastErrorMessage
   };
+}
+
+function isExpiredComposioStatus(status: string | undefined): boolean {
+  return status === "EXPIRED" || status === "FAILED" || status === "DISABLED" || status === "INACTIVE";
+}
+
+function isDisconnectedComposioStatus(status: string | undefined): boolean {
+  return status === "REVOKED" || status === "DELETED" || status === "DISCONNECTED";
 }
 
 function parseProviderMetadata(value: string | null): Record<string, unknown> {
