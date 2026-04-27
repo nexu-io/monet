@@ -1301,15 +1301,19 @@ function ModelSettingsPanel() {
   }, [modelCatalog, selectedModelIds.length, updateCachedModel]);
 
   const addModelFromInput = useCallback(async (providerId: string) => {
+    const normalizedInput = modelSearch.trim().toLowerCase();
     const highlightedModel = modelSearchResults[highlightedModelResultIndex] ?? modelSearchResults[0];
+    const highlightedModelMatchesInput = highlightedModel
+      ? highlightedModel.modelName.toLowerCase() === normalizedInput || highlightedModel.displayName.toLowerCase() === normalizedInput
+      : false;
 
-    if (highlightedModel) {
+    if (highlightedModel && highlightedModelMatchesInput) {
       await addSelectedModel(providerId, highlightedModel.id);
       return;
     }
 
     await addManualModel(providerId);
-  }, [addManualModel, addSelectedModel, highlightedModelResultIndex, modelSearchResults]);
+  }, [addManualModel, addSelectedModel, highlightedModelResultIndex, modelSearch, modelSearchResults]);
 
   const removeSelectedModel = useCallback(async (providerId: string, modelId: string) => {
     setModelSelectionBusyId(modelId);
@@ -1745,6 +1749,7 @@ function ModelSettingsPanel() {
                         aria-label="Add model"
                         aria-expanded={isModelSearchOpen && modelSearchResults.length > 0}
                         aria-controls="model-search-results"
+                        aria-describedby={manualModelError ? "model-add-error" : undefined}
                         placeholder={modelCatalog.length > 0 ? "Search or enter model ID" : selectedProvider.type === "openai" ? "gpt-4.1-mini" : "openai/gpt-4.1-mini"}
                         className={`h-8 w-full rounded-md border border-border-subtle bg-surface-0 py-1 pr-2.5 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 ${modelCatalog.length > 0 ? "pl-7" : "pl-2.5"}`}
                         disabled={modelSelectionBusyId != null}
@@ -1786,6 +1791,7 @@ function ModelSettingsPanel() {
                       {modelSelectionBusyId != null ? "Adding…" : "Add"}
                     </Button>
                   </div>
+                  {manualModelError ? <p id="model-add-error" className="m-0 text-xs text-error mono" role="alert">{manualModelError}</p> : null}
                 </div>
               </div>
             ) : null}
