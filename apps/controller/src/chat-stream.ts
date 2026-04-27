@@ -16,6 +16,7 @@ import type { AgentRuntimeConfig } from "./config";
 import type { Logger } from "./logger";
 import type { ProviderRuntime } from "./provider-runtime";
 import type { RunRegistry } from "./run-registry";
+import type { SessionWorkspaceService } from "./session-workspace-service";
 import type { ToolRegistry } from "./tools/registry";
 import { sanitizeUiMessage } from "./ui-message-sanitize";
 
@@ -75,6 +76,7 @@ export async function createChatStreamResponse(options: {
   readonly chatStorage: ChatStorage;
   readonly providerRuntime: ProviderRuntime;
   readonly runRegistry: RunRegistry;
+  readonly sessionWorkspaceService: SessionWorkspaceService;
   readonly toolRegistry: ToolRegistry;
   readonly runtime: AgentRuntimeConfig;
   readonly logger: Logger;
@@ -88,8 +90,11 @@ export async function createChatStreamResponse(options: {
     modelId: request.modelId,
     runtimeArea: "tool-runtime"
   });
+  const sessionWorkspacePath = await options.sessionWorkspaceService.ensureWorkspace(request.sessionId);
   const runtimeTools = options.toolRegistry.createRuntimeTools({
     runId: request.runId,
+    sessionId: request.sessionId,
+    sessionWorkspacePath,
     chatStorage: options.chatStorage,
     logger: runtimeLogger
   });

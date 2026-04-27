@@ -12,6 +12,7 @@ function createAppFixture() {
   const databasePath = join(fixtureDir, "controller.sqlite");
   const defaultDir = join(fixtureDir, "default-workspace");
   const persistedDir = join(fixtureDir, "persisted-workspace");
+  const sessionWorkspaceBaseDirectory = join(fixtureDir, "session-workspaces");
 
   mkdirSync(defaultDir, { recursive: true });
   mkdirSync(persistedDir, { recursive: true });
@@ -20,6 +21,7 @@ function createAppFixture() {
     databasePath,
     defaultDir,
     persistedDir,
+    sessionWorkspaceBaseDirectory,
     fixtureDir,
     cleanup() {
       rmSync(fixtureDir, { recursive: true, force: true });
@@ -74,7 +76,8 @@ test("controller app keeps persisted authorized directories when env uses defaul
         defaultModel: "openai/gpt-4.1-mini",
         timeoutMs: null
       },
-      port: 42831
+      port: 42831,
+      sessionWorkspaceBaseDirectory: fixture.sessionWorkspaceBaseDirectory
     });
 
     const reopenedStorage = createStorage(fixture.databasePath);

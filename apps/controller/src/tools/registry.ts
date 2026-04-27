@@ -20,12 +20,16 @@ export interface ToolMetadata {
 
 export interface ToolExecutionContext {
   readonly runId: string;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
   readonly chatStorage: ChatStorage;
   readonly logger: Logger;
 }
 
 export interface ToolExecutionHelpers {
   readonly persistedToolCallId: string;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
 }
 
 export interface RegisteredToolDefinition<TInput = unknown, TOutput = unknown> {
@@ -113,7 +117,9 @@ export function createToolRegistry(
                   messages: executionContext.messages,
                   abortSignal: executionContext.abortSignal ?? new AbortController().signal,
                   experimental_context: executionContext.experimental_context,
-                  persistedToolCallId
+                  persistedToolCallId,
+                  sessionId: context.sessionId,
+                  sessionWorkspacePath: context.sessionWorkspacePath
                 });
                 const completion = context.chatStorage.completeToolCall({
                   toolCallId: persistedToolCallId,

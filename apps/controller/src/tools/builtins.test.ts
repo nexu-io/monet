@@ -101,6 +101,8 @@ function createRuntimeTools(
 
   return registry.createRuntimeTools({
     runId: prepared.runId,
+    sessionId: prepared.sessionId,
+    sessionWorkspacePath: workspaceDir,
     chatStorage: storage,
     logger: createLogger("test")
   }) as Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>;
@@ -281,6 +283,8 @@ test("runtime tools pick up authorized directory updates after creation", async 
     );
     const runtimeTools = registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: firstWorkspaceDir,
       chatStorage: fixture.storage,
       logger: createLogger("test")
     }) as Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>;

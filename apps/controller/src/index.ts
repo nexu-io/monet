@@ -51,7 +51,8 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     databasePath: config.databasePath,
     openai: config.openai,
     openrouter: config.openrouter,
-    port: config.port
+    port: config.port,
+    sessionWorkspaceBaseDirectory: config.sessionWorkspaceBaseDirectory
   });
 
   const server = serve(

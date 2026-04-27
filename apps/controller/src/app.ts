@@ -14,6 +14,7 @@ import { registerSettingsRoutes } from "./routes/settings";
 import { registerSessionRoutes } from "./routes/sessions";
 import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
+import { createSessionWorkspaceService } from "./session-workspace-service";
 import { createBuiltinToolDefinitions } from "./tools/builtins";
 import { createToolRegistry } from "./tools/registry";
 import type { AgentRuntimeConfig, OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
@@ -28,6 +29,7 @@ export interface CreateControllerAppOptions {
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
   readonly port: number;
+  readonly sessionWorkspaceBaseDirectory: string;
 }
 
 export interface ControllerAppVariables {
@@ -86,6 +88,9 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       defaultModel: options.openrouter.defaultModel,
       timeoutMs: options.openrouter.timeoutMs
     }
+  });
+  const sessionWorkspaceService = createSessionWorkspaceService({
+    baseDirectory: options.sessionWorkspaceBaseDirectory
   });
   const providerCredentials = createProviderCredentialRegistry({
     openai: options.openai,
@@ -235,8 +240,22 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   registerHealthRoutes(app);
-  registerChatRoutes(app, { getChatStorage, providerRuntime, runRegistry, toolRegistry, runtime: options.agentRuntime });
-  registerRunRoutes(app, { getChatStorage, runRegistry, providerRuntime, toolRegistry, runtime: options.agentRuntime });
+  registerChatRoutes(app, {
+    getChatStorage,
+    providerRuntime,
+    runRegistry,
+    sessionWorkspaceService,
+    toolRegistry,
+    runtime: options.agentRuntime
+  });
+  registerRunRoutes(app, {
+    getChatStorage,
+    runRegistry,
+    providerRuntime,
+    sessionWorkspaceService,
+    toolRegistry,
+    runtime: options.agentRuntime
+  });
   registerSessionRoutes(app, { getChatStorage });
   registerProviderRoutes(app, { getChatStorage, providerCredentials, providerRuntime });
   registerSettingsRoutes(app, { getChatStorage });

@@ -115,10 +115,14 @@ test("tool registry persists completed executions", async () => {
           required: ["value"],
           additionalProperties: false
         } as never,
-        async execute(input: unknown) {
+        async execute(input: unknown, context) {
           const normalizedInput = input as { value: string };
 
-          return { echoed: normalizedInput.value };
+          return {
+            echoed: normalizedInput.value,
+            sessionId: context.sessionId,
+            sessionWorkspacePath: context.sessionWorkspacePath
+          };
         }
       }
     ]);
@@ -133,6 +137,8 @@ test("tool registry persists completed executions", async () => {
 
     const runtimeTools = registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test")
     });
@@ -150,16 +156,23 @@ test("tool registry persists completed executions", async () => {
       }
     );
 
-    assert.deepEqual(result, { echoed: "hello" });
+    assert.deepEqual(result, {
+      echoed: "hello",
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace"
+    });
 
     const [row] = getToolCalls(fixture.databasePath);
 
     assert.equal(row?.run_id, prepared.runId);
     assert.equal(row?.tool_name, "echo_tool");
     assert.equal(row?.input_json, '{"value":"hello"}');
-    assert.equal(row?.output_json, '{"echoed":"hello"}');
+    assert.equal(
+      row?.output_json,
+      `{"echoed":"hello","sessionId":"${prepared.sessionId}","sessionWorkspacePath":"/tmp/monet-test-session-workspace"}`
+    );
     assert.equal(row?.output_truncated, 0);
-    assert.equal(row?.output_size_bytes, Buffer.byteLength('{"echoed":"hello"}', "utf8"));
+    assert.equal(row?.output_size_bytes, Buffer.byteLength(row?.output_json ?? "", "utf8"));
     assert.equal(row?.status, "completed");
     assert.equal(row?.error_message, null);
     assert.equal(Boolean(row?.started_at), true);
@@ -199,6 +212,8 @@ test("tool registry persists failed executions", async () => {
 
     const runtimeTools = registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test")
     });
