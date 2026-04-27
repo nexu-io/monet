@@ -54,6 +54,7 @@ interface DesktopAppPathsSnapshot {
 
 interface OpenPathResult {
   readonly opened: boolean;
+  readonly path?: string;
   readonly error?: string;
 }
 
@@ -162,6 +163,9 @@ contextBridge.exposeInMainWorld("monetDesktop", {
   },
   openPath(payload: { path: string }): Promise<OpenPathResult> {
     return ipcRenderer.invoke("monet:open-path", payload);
+  },
+  openWorkspaceDirectory(payload: { sessionId: string }): Promise<OpenPathResult> {
+    return ipcRenderer.invoke("monet:open-workspace-directory", payload);
   },
   saveProviderSecret(payload: { providerType: ProviderType; secret: string }): Promise<ProviderSecretMutationResult> {
     return ipcRenderer.invoke("monet:save-provider-secret", payload);
