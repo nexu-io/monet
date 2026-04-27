@@ -76,6 +76,16 @@ interface ComposioToolListResponse {
   readonly data?: unknown;
 }
 
+interface ComposioToolExecuteResponse {
+  readonly data?: unknown;
+  readonly error?: unknown;
+  readonly successful?: unknown;
+  readonly session_info?: unknown;
+  readonly sessionInfo?: unknown;
+  readonly log_id?: unknown;
+  readonly logId?: unknown;
+}
+
 export interface ComposioConnectorProviderOptions {
   readonly config: ComposioProviderConfig;
   readonly storage: ConnectorStorage;
@@ -316,8 +326,71 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     return tools;
   }
 
-  async executeTool(_input: ConnectorExecuteToolInput): Promise<ConnectorToolResult> {
-    throw createConnectorProviderError("tool_not_found", { message: "Composio connector tool execution is not implemented yet." });
+  async executeTool(input: ConnectorExecuteToolInput): Promise<ConnectorToolResult> {
+    const allowedTool = getCatalogItemForProviderTool(input.toolId);
+
+    if (!allowedTool) {
+      throw createConnectorProviderError("tool_not_found", { message: "Connector tool was not found or is not available." });
+    }
+
+    if (!this.apiKey || !this.authConfigIds[allowedTool.catalogItem.id]) {
+      throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
+    }
+
+    const connection = this.storage.getConnectorConnection({
+      userId: input.userId,
+      connectorId: allowedTool.catalogItem.id,
+      provider: COMPOSIO_PROVIDER
+    });
+
+    if (!connection || connection.status === "disconnected" || !connection.providerConnectionId) {
+      throw createConnectorProviderError("connection_missing");
+    }
+
+    if (connection.status === "expired") {
+      throw createConnectorProviderError("connection_expired");
+    }
+
+    if (connection.status !== "connected") {
+      throw createConnectorProviderError("connection_missing");
+    }
+
+    if (input.connectionId && input.connectionId !== connection.providerConnectionId) {
+      throw createConnectorProviderError("forbidden", { message: "Connector tool cannot run against a different connected account." });
+    }
+
+    try {
+      const response = await this.executeComposioTool(
+        {
+          providerToolId: allowedTool.allowedTool.providerToolId,
+          userId: input.userId,
+          providerConnectionId: connection.providerConnectionId,
+          args: input.args
+        },
+        input.abortSignal
+      );
+
+      if (response.successful === false || response.error) {
+        const statusCode = getProviderStatusFromErrorPayload(response.error);
+        throw createConnectorProviderError(mapComposioExecutionError(response.error), {
+          ...(statusCode ? { statusCode } : {})
+        });
+      }
+
+      const providerExecutionId = getString(response.log_id) ?? getString(response.logId);
+      const sessionInfo = getRecord(response.session_info) ?? getRecord(response.sessionInfo);
+
+      return {
+        output: response.data,
+        ...(providerExecutionId ? { providerExecutionId } : {}),
+        ...(sessionInfo ? { metadata: { sessionInfo } } : {})
+      };
+    } catch (error) {
+      throw normalizeConnectorProviderError(error, {
+        fallbackCode: isAbortError(error) ? "provider_error" : "provider_error",
+        ...(isAbortError(error) ? { message: "Connector tool execution was aborted." } : {})
+      });
+    }
   }
 
   private async createConnectedAccount(
@@ -389,6 +462,21 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     return items.filter(isComposioToolResponse);
   }
 
+  private async executeComposioTool(
+    input: { providerToolId: string; userId: string; providerConnectionId: string; args: unknown },
+    abortSignal: AbortSignal | undefined
+  ): Promise<ComposioToolExecuteResponse> {
+    return this.requestJson<ComposioToolExecuteResponse>(`/api/v3.1/tools/execute/${encodeURIComponent(input.providerToolId)}`, {
+      method: "POST",
+      body: JSON.stringify({
+        connected_account_id: input.providerConnectionId,
+        user_id: input.userId,
+        arguments: input.args
+      }),
+      ...(abortSignal ? { abortSignal } : {})
+    });
+  }
+
   private async requestJson<T extends object>(path: string, input: { method: string; body?: string; abortSignal?: AbortSignal }): Promise<T> {
     const response = await this.request(path, input);
     const value = (await response.json()) as unknown;
@@ -436,6 +524,20 @@ function getCatalogItemsForToolListing(connectorId: ConnectorId | undefined): re
   }
 
   return [catalogItem];
+}
+
+function getCatalogItemForProviderTool(
+  providerToolId: string
+): { catalogItem: ConnectorCatalogItem; allowedTool: ConnectorAllowedTool } | undefined {
+  for (const catalogItem of listConnectorCatalog()) {
+    const allowedTool = catalogItem.allowedTools.find((candidate) => candidate.providerToolId === providerToolId);
+
+    if (allowedTool) {
+      return { catalogItem, allowedTool };
+    }
+  }
+
+  return undefined;
 }
 
 function mapComposioToolDefinition(
@@ -743,6 +845,68 @@ function mapComposioHttpStatus(status: number): ConnectorProviderErrorCode {
   }
 
   return "provider_error";
+}
+
+function mapComposioExecutionError(error: unknown): ConnectorProviderErrorCode {
+  const record = getRecord(error);
+  const statusCode = getProviderStatusFromErrorPayload(error);
+  const code = getString(record?.code) ?? getString(record?.type) ?? getString(record?.error_code) ?? getString(record?.errorCode);
+  const normalizedCode = code?.toLowerCase();
+
+  if (normalizedCode) {
+    if (normalizedCode.includes("rate") || normalizedCode.includes("throttle")) {
+      return "rate_limited";
+    }
+
+    if (normalizedCode.includes("argument") || normalizedCode.includes("validation") || normalizedCode.includes("invalid")) {
+      return "invalid_arguments";
+    }
+
+    if (normalizedCode.includes("auth") || normalizedCode.includes("credential") || normalizedCode.includes("expired")) {
+      return "connection_expired";
+    }
+
+    if (normalizedCode.includes("forbidden") || normalizedCode.includes("permission")) {
+      return "forbidden";
+    }
+
+    if (normalizedCode.includes("not_found") || normalizedCode.includes("not found")) {
+      return "tool_not_found";
+    }
+  }
+
+  if (statusCode) {
+    return mapComposioHttpStatus(statusCode);
+  }
+
+  return "provider_error";
+}
+
+function getProviderStatusFromErrorPayload(error: unknown): number | undefined {
+  const record = getRecord(error);
+
+  if (!record) {
+    return undefined;
+  }
+
+  const candidates = [record.statusCode, record.status, record.http_status, record.httpStatus];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isInteger(candidate) && candidate >= 400 && candidate <= 599) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function isAbortError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      ((error as { readonly name?: unknown }).name === "AbortError" || (error as { readonly name?: unknown }).name === "TimeoutError")
+  );
 }
 
 function isConnectorLastErrorCode(value: string | undefined): value is ConnectorConnectionStatus["lastErrorCode"] {
