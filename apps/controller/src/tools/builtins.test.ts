@@ -682,6 +682,87 @@ test("file tools access another session workspace only when explicitly authorize
   }
 });
 
+test("authorized external directory writes require confirmation and outside-both writes are denied", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const authorizedExternalDir = join(fixture.fixtureDir, "authorized-external");
+    const outsideDir = join(fixture.fixtureDir, "outside-external");
+    mkdirSync(authorizedExternalDir, { recursive: true });
+    mkdirSync(outsideDir, { recursive: true });
+
+    const authorizedWritePath = join(authorizedExternalDir, "authorized-write.txt");
+    const outsideWritePath = join(outsideDir, "denied-write.txt");
+    const writeFileDefinition = createBuiltinToolDefinitions({
+      allowedDirectories: [authorizedExternalDir]
+    }).find((definition) => definition.metadata.name === "write_file");
+    assert.ok(writeFileDefinition?.needsApproval);
+
+    const approvalContext = {
+      toolCallId: "call_external_approval",
+      messages: [],
+      experimental_context: undefined,
+      sessionId: "ses_external_write",
+      sessionWorkspacePath: fixture.workspaceDir
+    };
+
+    assert.equal(
+      await writeFileDefinition.needsApproval(
+        { path: authorizedWritePath, content: "requires confirmation" },
+        approvalContext
+      ),
+      true
+    );
+
+    await assert.rejects(
+      async () => writeFileDefinition.needsApproval?.(
+        { path: outsideWritePath, content: "denied" },
+        approvalContext
+      ),
+      /outside the authorized directories or session workspace/
+    );
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      allowedDirectories: [authorizedExternalDir]
+    });
+    const writeFileTool = runtimeTools.write_file!;
+    const realAuthorizedExternalDir = realpathSync(authorizedExternalDir);
+
+    const authorizedWrite = (await writeFileTool.execute(
+      { path: authorizedWritePath, content: "authorized external write" },
+      { ...createExecutionContext(), toolCallId: "call_authorized_external_write" }
+    )) as { requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
+    assert.equal(authorizedWrite.requestedPath, authorizedWritePath);
+    assert.equal(authorizedWrite.resolvedPath, join(realAuthorizedExternalDir, "authorized-write.txt"));
+    assert.equal(authorizedWrite.pathZone, "authorized_directory");
+    assert.equal(authorizedWrite.requiresConfirmation, true);
+    assert.equal(readFileSync(authorizedWritePath, "utf8"), "authorized external write");
+
+    await assert.rejects(
+      writeFileTool.execute(
+        { path: outsideWritePath, content: "denied external write" },
+        { ...createExecutionContext(), toolCallId: "call_denied_external_write" }
+      ),
+      /outside the authorized directories or session workspace/
+    );
+    assert.throws(() => readFileSync(outsideWritePath, "utf8"), /ENOENT/);
+
+    const toolCalls = getToolCalls(fixture.databasePath);
+    const authorizedCall = toolCalls.find((row) => row.input_json.includes("authorized-write.txt"));
+    assert.equal(authorizedCall?.tool_name, "write_file");
+    assert.equal(authorizedCall?.status, "completed");
+    assert.match(authorizedCall?.output_json ?? "", /"pathZone":"authorized_directory"/);
+    assert.match(authorizedCall?.output_json ?? "", /"requiresConfirmation":true/);
+
+    const deniedCall = toolCalls.find((row) => row.input_json.includes("denied-write.txt"));
+    assert.equal(deniedCall?.tool_name, "write_file");
+    assert.equal(deniedCall?.status, "failed");
+    assert.match(deniedCall?.error_message ?? "", /outside the authorized directories or session workspace/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("read_file and write_file reject relative path traversal escapes", async () => {
   const fixture = createTestFixture();
 
