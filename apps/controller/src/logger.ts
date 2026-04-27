@@ -6,8 +6,15 @@ type LogContext = Record<string, unknown>;
 const REDACTED_VALUE = "[REDACTED]";
 const MAX_LOG_DEPTH = 5;
 const MAX_STRING_LENGTH = 8_192;
-const SENSITIVE_KEY_PATTERN = /(authorization|bearer|cookie|password|secret|token|api[-_]?key)/i;
-const INLINE_SECRET_PATTERN = /(Bearer\s+)[A-Za-z0-9\-._~+/=]+/gi;
+const SENSITIVE_KEY_PATTERN =
+  /(^code$|authorization|bearer|cookie|password|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|oauth[-_]?code|provider[-_]?api[-_]?key|raw[-_]?(arguments?|args?|results?)|^(arguments?|args?|input|output|result)$)/i;
+const INLINE_SECRET_PATTERNS: ReadonlyArray<[RegExp, string]> = [
+  [/(Bearer\s+)[A-Za-z0-9\-._~+/=]+/gi, `$1${REDACTED_VALUE}`],
+  [/(Basic\s+)[A-Za-z0-9+/=]+/gi, `$1${REDACTED_VALUE}`],
+  [/((?:access_token|refresh_token|api_key|apikey|provider_api_key|authorization_code|oauth_code|code|state)=)[^\s&#?]+/gi, `$1${REDACTED_VALUE}`],
+  [/((?:access_token|refresh_token|api_key|apikey|provider_api_key|authorization_code|oauth_code|code|state)\":\s*\")[^\"]+(\")/gi, `$1${REDACTED_VALUE}$2`],
+  [/((?:access_token|refresh_token|api_key|apikey|provider_api_key|authorization_code|oauth_code|code|state)'\s*:\s*')[^']+(')/gi, `$1${REDACTED_VALUE}$2`]
+];
 const LOG_LEVEL_RANK: Record<LogLevel, number> = {
   debug: 10,
   info: 20,
@@ -139,7 +146,7 @@ function sanitizeValue(value: unknown, depth = 0, key?: string): unknown {
 }
 
 function sanitizeString(value: string) {
-  const redacted = value.replace(INLINE_SECRET_PATTERN, `$1${REDACTED_VALUE}`);
+  const redacted = INLINE_SECRET_PATTERNS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), value);
 
   if (redacted.length <= MAX_STRING_LENGTH) {
     return redacted;
