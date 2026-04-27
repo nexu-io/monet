@@ -36,6 +36,7 @@ type UpdateLiveArtifactInput = z.infer<typeof UpdateLiveArtifactInputSchema>;
 
 interface LiveArtifactToolDefinitionOptions {
   readonly chatStorage: ChatStorage;
+  readonly runId: string;
   readonly sessionId: string;
 }
 
@@ -121,11 +122,13 @@ export function createLiveArtifactToolDefinitions(
         ...createLiveArtifactMetadata
       },
       inputSchema: LiveArtifactCreateInputSchema,
-      execute(input) {
+      execute(input, context) {
         const parsed = LiveArtifactCreateInputSchema.parse(input) as CreateLiveArtifactInput;
         const artifact = options.chatStorage.createLiveArtifact({
           ...parsed,
-          sessionId: parsed.sessionId ?? options.sessionId
+          sessionId: parsed.sessionId ?? options.sessionId,
+          createdByRunId: options.runId,
+          createdByToolCallId: context.persistedToolCallId
         });
 
         return {
@@ -170,6 +173,7 @@ export function createLiveArtifactToolSource(): ToolSource {
     listTools: () => liveArtifactToolMetadata,
     resolveTools: (context) => createLiveArtifactToolDefinitions({
       chatStorage: context.chatStorage,
+      runId: context.runId,
       sessionId: context.sessionId
     })
   };

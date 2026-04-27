@@ -7,6 +7,7 @@ function getLiveArtifactTools() {
   return Object.fromEntries(
     createLiveArtifactToolDefinitions({
       chatStorage: {} as never,
+      runId: "run_test",
       sessionId: "ses_test"
     }).map((definition) => [definition.metadata.name, definition])
   );
