@@ -5,7 +5,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { PageFrame } from "../../components/page-frame";
 import { useControllerState } from "../../lib/controller-state";
-import { getConnector, listConnectors, startConnectorConnection, type ConnectorCatalogCard, type ConnectorDetail, type ConnectorId } from "../../lib/connectors-api";
+import { disconnectConnector, getConnector, listConnectors, startConnectorConnection, type ConnectorCatalogCard, type ConnectorDetail, type ConnectorId } from "../../lib/connectors-api";
 
 type ConnectorsLoadState =
   | { readonly status: "idle" }
@@ -24,6 +24,13 @@ type ConnectorActionState =
   | { readonly status: "starting"; readonly connectorId: ConnectorId }
   | { readonly status: "success"; readonly connectorId: ConnectorId; readonly message: string }
   | { readonly status: "error"; readonly connectorId: ConnectorId; readonly message: string };
+
+type ConnectorDisconnectState =
+  | { readonly status: "idle" }
+  | { readonly status: "confirming" }
+  | { readonly status: "disconnecting" }
+  | { readonly status: "success"; readonly message: string }
+  | { readonly status: "error"; readonly message: string };
 
 type ConnectorDetailWithExecutionMetadata = ConnectorDetail & {
   readonly lastProviderExecutionId?: string;
@@ -279,8 +286,9 @@ function ConnectorInlineNotice({ tone, message }: { readonly tone: "success" | "
   );
 }
 
-function ConnectorDetailDrawer({ connectorId, onClose }: { readonly connectorId: ConnectorId; readonly onClose: () => void }) {
+function ConnectorDetailDrawer({ connectorId, onClose, onDisconnected }: { readonly connectorId: ConnectorId; readonly onClose: () => void; readonly onDisconnected: () => Promise<void> }) {
   const [detailState, setDetailState] = useState<ConnectorDetailLoadState>({ status: "idle" });
+  const [disconnectState, setDisconnectState] = useState<ConnectorDisconnectState>({ status: "idle" });
 
   const refreshConnectorDetail = useCallback(async () => {
     setDetailState({ status: "loading" });
@@ -301,6 +309,10 @@ function ConnectorDetailDrawer({ connectorId, onClose }: { readonly connectorId:
   }, [refreshConnectorDetail]);
 
   useEffect(() => {
+    setDisconnectState({ status: "idle" });
+  }, [connectorId]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         onClose();
@@ -316,6 +328,26 @@ function ConnectorDetailDrawer({ connectorId, onClose }: { readonly connectorId:
   const drawerTitle = loadedConnector?.displayName ?? "Connector details";
   const accountLabel = loadedConnector ? getConnectorAccountLabel(loadedConnector) : undefined;
   const providerExecutionId = loadedConnector ? getProviderExecutionId(loadedConnector) : undefined;
+  const disconnecting = disconnectState.status === "disconnecting";
+
+  const handleDisconnect = useCallback(async () => {
+    if (!loadedConnector?.connection.connected || disconnecting) {
+      return;
+    }
+
+    setDisconnectState({ status: "disconnecting" });
+
+    try {
+      await disconnectConnector(loadedConnector.id);
+      await Promise.all([refreshConnectorDetail(), onDisconnected()]);
+      setDisconnectState({ status: "success", message: `${loadedConnector.displayName} has been disconnected.` });
+    } catch (error) {
+      setDisconnectState({
+        status: "error",
+        message: error instanceof Error ? error.message : `Unable to disconnect ${loadedConnector.displayName}.`
+      });
+    }
+  }, [disconnecting, loadedConnector, onDisconnected, refreshConnectorDetail]);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="connector-detail-title">
@@ -359,6 +391,9 @@ function ConnectorDetailDrawer({ connectorId, onClose }: { readonly connectorId:
 
           {loadedConnector ? (
             <>
+              {disconnectState.status === "success" ? <ConnectorInlineNotice tone="success" message={disconnectState.message} /> : null}
+              {disconnectState.status === "error" ? <ConnectorInlineNotice tone="error" message={disconnectState.message} /> : null}
+
               <section className="rounded-2xl border border-border-subtle bg-surface-1 p-4">
                 <div className="flex flex-col gap-4">
                   <div className="flex items-start justify-between gap-3">
@@ -425,10 +460,42 @@ function ConnectorDetailDrawer({ connectorId, onClose }: { readonly connectorId:
           <button className={secondaryButtonClassName} type="button" onClick={onClose}>
             Close
           </button>
-          <button className={dangerButtonClassName} type="button" disabled={!loadedConnector || !loadedConnector.connection.connected} aria-label={`Disconnect ${drawerTitle}`}>
-            Disconnect
+          <button
+            className={dangerButtonClassName}
+            type="button"
+            disabled={!loadedConnector || !loadedConnector.connection.connected || disconnecting}
+            onClick={() => setDisconnectState({ status: "confirming" })}
+            aria-label={`Disconnect ${drawerTitle}`}
+          >
+            {disconnecting ? "Disconnecting…" : "Disconnect"}
           </button>
         </footer>
+
+        {disconnectState.status === "confirming" || disconnectState.status === "disconnecting" ? (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30 p-5" role="presentation">
+            <section className="w-full max-w-md rounded-2xl border border-border-subtle bg-surface-0 p-5 shadow-xl" role="alertdialog" aria-modal="true" aria-labelledby="disconnect-confirm-title" aria-describedby="disconnect-confirm-description">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <p className={eyebrowClassName}>Confirm disconnect</p>
+                  <h3 id="disconnect-confirm-title" className="m-0 font-heading text-xl font-semibold text-text-heading">
+                    Disconnect {drawerTitle}?
+                  </h3>
+                  <p id="disconnect-confirm-description" className="m-0 leading-[1.6] text-text-muted">
+                    Monet will revoke this connector when supported, remove its chat tools, and cancel any pending connector approvals{accountLabel ? ` for ${accountLabel}` : ""}.
+                  </p>
+                </div>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <button className={secondaryButtonClassName} type="button" disabled={disconnecting} onClick={() => setDisconnectState({ status: "idle" })}>
+                    Keep connected
+                  </button>
+                  <button className={dangerButtonClassName} type="button" disabled={!loadedConnector || disconnecting} onClick={() => void handleDisconnect()}>
+                    {disconnecting ? "Disconnecting…" : "Disconnect connector"}
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        ) : null}
       </aside>
     </div>
   );
@@ -680,7 +747,7 @@ export default function ConnectorsPage() {
       description="Connect approved external services so Monet can use curated tools with safe approval policies."
     >
       {content}
-      {connectorsEnabled && selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} /> : null}
+      {connectorsEnabled && selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} onDisconnected={refreshConnectors} /> : null}
     </PageFrame>
   );
 }
