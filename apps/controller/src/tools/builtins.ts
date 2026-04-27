@@ -598,7 +598,9 @@ async function assertFilesystemPathAllowed(options: ClassifyFilesystemPathOption
   const resolvedPath = await classifyFilesystemPath(options);
 
   if (resolvedPath.zone === "denied") {
-    throw new Error("Path is outside the authorized directories or session workspace.");
+    throw new Error(
+      `Path is outside the authorized directories or session workspace. Requested path: ${resolvedPath.requestedPath}. Resolved path: ${resolvedPath.resolvedPath}.`
+    );
   }
 
   return resolvedPath;

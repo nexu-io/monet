@@ -14,6 +14,14 @@ type DnsLookupStub = (hostname: string, options: { all: true; verbatim: true }) 
   Array<{ address: string; family: number }>
 >;
 
+interface ToolCallRow {
+  readonly tool_name: string;
+  readonly input_json: string;
+  readonly output_json: string | null;
+  readonly status: string;
+  readonly error_message: string | null;
+}
+
 function createTestFixture() {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-builtins-tests-"));
   const databasePath = join(fixtureDir, "controller.sqlite");
@@ -118,6 +126,22 @@ function createExecutionContext() {
   };
 }
 
+function getToolCalls(databasePath: string) {
+  const connection = new DatabaseSync(databasePath);
+
+  try {
+    return connection
+      .prepare(
+        `SELECT tool_name, input_json, output_json, status, error_message
+         FROM tool_calls
+         ORDER BY started_at ASC`
+      )
+      .all() as unknown as ToolCallRow[];
+  } finally {
+    connection.close();
+  }
+}
+
 test("builtin tool registry exposes fetch/read/write tools", () => {
   const registry = createToolRegistry(
     createBuiltinToolDefinitions({
@@ -156,6 +180,7 @@ test("write_file approval is dynamic by path zone", async () => {
     }).find((definition) => definition.metadata.name === "write_file");
 
     assert.ok(writeFileDefinition?.needsApproval);
+    const writeFileNeedsApproval = writeFileDefinition.needsApproval;
 
     const approvalContext = {
       toolCallId: "call_sdk_approval",
@@ -166,7 +191,7 @@ test("write_file approval is dynamic by path zone", async () => {
     };
 
     assert.equal(
-      await writeFileDefinition.needsApproval(
+      await writeFileNeedsApproval(
         { path: "workspace-output.txt", content: "workspace" },
         approvalContext
       ),
@@ -174,7 +199,7 @@ test("write_file approval is dynamic by path zone", async () => {
     );
 
     assert.equal(
-      await writeFileDefinition.needsApproval(
+      await writeFileNeedsApproval(
         { path: join(authorizedDir, "authorized-output.txt"), content: "authorized" },
         approvalContext
       ),
@@ -182,12 +207,139 @@ test("write_file approval is dynamic by path zone", async () => {
     );
 
     await assert.rejects(
-      writeFileDefinition.needsApproval(
+      async () => writeFileNeedsApproval(
         { path: join(fixture.fixtureDir, "outside-output.txt"), content: "blocked" },
         approvalContext
       ),
       /outside the authorized directories or session workspace/
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("file tool behavior covers workspace, authorized, denied, and persisted error details", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const authorizedDir = join(fixture.fixtureDir, "authorized-external");
+    const outsidePath = join(fixture.fixtureDir, "outside-write.txt");
+    mkdirSync(authorizedDir, { recursive: true });
+    writeFileSync(join(fixture.workspaceDir, "workspace-input.txt"), "workspace read", "utf8");
+    writeFileSync(join(authorizedDir, "authorized-input.txt"), "authorized read", "utf8");
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      allowedDirectories: [authorizedDir]
+    }) as Record<
+      string,
+      {
+        needsApproval?: (input: unknown, context: unknown) => Promise<boolean> | boolean;
+        execute: (input: unknown, context: unknown) => Promise<unknown>;
+      }
+    >;
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+    const writeFileNeedsApproval = writeFileTool.needsApproval;
+    if (!writeFileNeedsApproval) {
+      throw new Error("write_file should expose dynamic approval.");
+    }
+    const realWorkspaceDir = realpathSync(fixture.workspaceDir);
+    const realAuthorizedDir = realpathSync(authorizedDir);
+    const approvalContext = {
+      toolCallId: "call_sdk_approval",
+      messages: [],
+      experimental_context: undefined
+    };
+
+    assert.equal(
+      await writeFileNeedsApproval(
+        { path: "workspace-output.txt", content: "workspace write" },
+        approvalContext
+      ),
+      false
+    );
+
+    const workspaceWrite = (await writeFileTool.execute(
+      { path: "workspace-output.txt", content: "workspace write" },
+      { ...createExecutionContext(), toolCallId: "call_workspace_write" }
+    )) as { path: string; pathZone: string; requiresConfirmation: boolean; requestedPath: string; resolvedPath: string };
+    assert.equal(workspaceWrite.path, join(realWorkspaceDir, "workspace-output.txt"));
+    assert.equal(workspaceWrite.pathZone, "session_workspace");
+    assert.equal(workspaceWrite.requiresConfirmation, false);
+    assert.equal(workspaceWrite.requestedPath, "workspace-output.txt");
+    assert.equal(workspaceWrite.resolvedPath, join(realWorkspaceDir, "workspace-output.txt"));
+    assert.equal(readFileSync(join(fixture.workspaceDir, "workspace-output.txt"), "utf8"), "workspace write");
+
+    const workspaceRead = (await readFileTool.execute(
+      { path: "workspace-input.txt" },
+      { ...createExecutionContext(), toolCallId: "call_workspace_read" }
+    )) as { content: string; pathZone: string; requiresConfirmation: boolean; resolvedPath: string };
+    assert.equal(workspaceRead.content, "workspace read");
+    assert.equal(workspaceRead.pathZone, "session_workspace");
+    assert.equal(workspaceRead.requiresConfirmation, false);
+    assert.equal(workspaceRead.resolvedPath, join(realWorkspaceDir, "workspace-input.txt"));
+
+    const authorizedWritePath = join(authorizedDir, "authorized-output.txt");
+    assert.equal(
+      await writeFileNeedsApproval(
+        { path: authorizedWritePath, content: "authorized write" },
+        approvalContext
+      ),
+      true
+    );
+
+    const authorizedWrite = (await writeFileTool.execute(
+      { path: authorizedWritePath, content: "authorized write" },
+      { ...createExecutionContext(), toolCallId: "call_authorized_write" }
+    )) as { path: string; pathZone: string; requiresConfirmation: boolean; requestedPath: string; resolvedPath: string };
+    assert.equal(authorizedWrite.path, join(realAuthorizedDir, "authorized-output.txt"));
+    assert.equal(authorizedWrite.pathZone, "authorized_directory");
+    assert.equal(authorizedWrite.requiresConfirmation, true);
+    assert.equal(authorizedWrite.requestedPath, authorizedWritePath);
+    assert.equal(authorizedWrite.resolvedPath, join(realAuthorizedDir, "authorized-output.txt"));
+    assert.equal(readFileSync(authorizedWritePath, "utf8"), "authorized write");
+
+    const authorizedRead = (await readFileTool.execute(
+      { path: join(authorizedDir, "authorized-input.txt") },
+      { ...createExecutionContext(), toolCallId: "call_authorized_read" }
+    )) as { content: string; pathZone: string; requiresConfirmation: boolean; resolvedPath: string };
+    assert.equal(authorizedRead.content, "authorized read");
+    assert.equal(authorizedRead.pathZone, "authorized_directory");
+    assert.equal(authorizedRead.requiresConfirmation, false);
+    assert.equal(authorizedRead.resolvedPath, join(realAuthorizedDir, "authorized-input.txt"));
+
+    await assert.rejects(
+      async () => writeFileNeedsApproval(
+        { path: outsidePath, content: "blocked" },
+        approvalContext
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /outside the authorized directories or session workspace/);
+        assert.match(error.message, /Requested path:/);
+        assert.match(error.message, /Resolved path:/);
+        assert.match(error.message, /outside-write\.txt/);
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      writeFileTool.execute(
+        { path: outsidePath, content: "blocked" },
+        { ...createExecutionContext(), toolCallId: "call_denied_write" }
+      ),
+      /Requested path:.*outside-write\.txt.*Resolved path:/
+    );
+    assert.throws(() => readFileSync(outsidePath, "utf8"), /ENOENT/);
+
+    const toolCalls = getToolCalls(fixture.databasePath);
+    const deniedWriteCall = toolCalls.find((row) => row.input_json.includes("outside-write.txt"));
+    assert.equal(deniedWriteCall?.tool_name, "write_file");
+    assert.equal(deniedWriteCall?.status, "failed");
+    assert.equal(deniedWriteCall?.output_json, null);
+    assert.match(deniedWriteCall?.error_message ?? "", /outside the authorized directories or session workspace/);
+    assert.match(deniedWriteCall?.error_message ?? "", /Requested path:.*outside-write\.txt/);
+    assert.match(deniedWriteCall?.error_message ?? "", /Resolved path:/);
   } finally {
     fixture.cleanup();
   }
