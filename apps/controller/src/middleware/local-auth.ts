@@ -1,0 +1,166 @@
+import type { Context, MiddlewareHandler, Next } from "hono";
+
+import { createLogger } from "../logger";
+import { createErrorResponse } from "../openapi";
+import { getRequestId } from "../request-context";
+
+const authLogger = createLogger("controller", {
+  component: "local-auth"
+});
+
+export interface LocalAuthOptions {
+  readonly allowedOrigins: readonly string[];
+  readonly bearerToken: string;
+  readonly getPort?: () => number;
+  readonly port: number;
+}
+
+export function createLocalAuthMiddleware(options: LocalAuthOptions): MiddlewareHandler {
+  return async function localAuthMiddleware(context: Context, next: Next) {
+    if (!hasAllowedHost(context.req.header("host"), options.getPort?.() ?? options.port)) {
+      authLogger.warn("auth.invalid_host", buildAuthLogContext(context));
+
+      return context.json(
+        createErrorResponse("invalid_host", "Host header must target 127.0.0.1 or localhost on the configured controller port."),
+        403
+      );
+    }
+
+    const origin = context.req.header("origin");
+
+    if (origin && !isAllowedOrigin(origin, options.allowedOrigins)) {
+      authLogger.warn("auth.invalid_origin", buildAuthLogContext(context, { origin }));
+
+      return context.json(createErrorResponse("invalid_origin", "Origin is not allowed to access the local controller."), 403);
+    }
+
+    if (origin) {
+      setCorsResponseHeaders(context, origin);
+    }
+
+    if (isCorsPreflight(context)) {
+      return context.body(null, 204);
+    }
+
+    if (context.req.header("cookie")) {
+      authLogger.warn("auth.cookie_auth_rejected", buildAuthLogContext(context));
+
+      return context.json(
+        createErrorResponse("cookie_auth_not_supported", "Cookie-based authentication is not supported by the local controller."),
+        400
+      );
+    }
+
+    const header = context.req.header("authorization");
+    const token = extractBearerToken(header);
+
+    if (token !== options.bearerToken) {
+      authLogger.warn("auth.unauthorized", buildAuthLogContext(context, { hasAuthorizationHeader: header != null }));
+
+      return context.json(createErrorResponse("unauthorized", "Missing or invalid bearer token."), 401);
+    }
+
+    await next();
+
+    // Streaming route handlers return their own Response object, so headers set
+    // before `next()` can be replaced. Re-apply CORS after downstream handlers
+    // have produced the final response.
+    if (origin) {
+      setCorsResponseHeaders(context, origin);
+    }
+  };
+}
+
+function buildAuthLogContext(context: Context, extra: Record<string, unknown> = {}) {
+  return {
+    requestId: getRequestId(context),
+    method: context.req.method,
+    path: context.req.path,
+    host: context.req.header("host"),
+    ...extra
+  };
+}
+
+function hasAllowedHost(header: string | undefined, port: number): boolean {
+  if (!header) {
+    return false;
+  }
+
+  const host = stripPort(header.trim().toLowerCase());
+  const requestPort = extractPort(header) ?? defaultPortForHost(host);
+
+  return requestPort === port && (host === "127.0.0.1" || host === "localhost");
+}
+
+function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boolean {
+  if (origin === "null") {
+    return allowedOrigins.includes("null");
+  }
+
+  try {
+    return allowedOrigins.includes(new URL(origin).origin);
+  } catch {
+    return false;
+  }
+}
+
+function isCorsPreflight(context: Context): boolean {
+  return context.req.method === "OPTIONS" && context.req.header("access-control-request-method") != null;
+}
+
+function setCorsResponseHeaders(context: Context, origin: string) {
+  context.header("access-control-allow-origin", origin);
+  context.res.headers.set("access-control-allow-origin", origin);
+  context.header("vary", "Origin");
+  context.res.headers.set("vary", "Origin");
+
+  const requestedMethod = context.req.header("access-control-request-method");
+  const requestedHeaders = context.req.header("access-control-request-headers");
+
+  if (requestedMethod) {
+    context.header("access-control-allow-methods", requestedMethod);
+    context.res.headers.set("access-control-allow-methods", requestedMethod);
+  }
+
+  if (requestedHeaders) {
+    context.header("access-control-allow-headers", requestedHeaders);
+    context.res.headers.set("access-control-allow-headers", requestedHeaders);
+  }
+}
+
+function stripPort(host: string): string {
+  return host.replace(/:\d+$/, "");
+}
+
+function extractPort(host: string): number | null {
+  const match = host.trim().match(/:(\d+)$/);
+  const port = match?.[1];
+
+  if (!port) {
+    return null;
+  }
+
+  return Number.parseInt(port, 10);
+}
+
+function defaultPortForHost(host: string): number | null {
+  if (host === "127.0.0.1" || host === "localhost") {
+    return 80;
+  }
+
+  return null;
+}
+
+function extractBearerToken(header: string | undefined): string | null {
+  if (!header) {
+    return null;
+  }
+
+  const [scheme, token] = header.split(/\s+/, 2);
+
+  if (scheme?.toLowerCase() !== "bearer" || !token) {
+    return null;
+  }
+
+  return token;
+}

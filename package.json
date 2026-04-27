@@ -1,0 +1,34 @@
+{
+  "name": "monet",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.8.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @monet/controller build && pnpm --filter @monet/web-ui build && pnpm --filter @monet/desktop build",
+    "build:apps": "pnpm --filter ./apps/* --if-present build",
+    "build:controller": "pnpm --filter @monet/controller build",
+    "build:desktop": "pnpm --filter @monet/desktop build",
+    "build:web": "pnpm --filter @monet/web-ui build",
+    "db:generate": "pnpm --filter @monet/database db:generate",
+    "db:migrate": "pnpm --filter @monet/database db:migrate",
+    "dev": "node ./scripts/dev.mjs",
+    "dev:controller": "MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/controller dev",
+    "dev:desktop": "pnpm run build:desktop && MONET_DESKTOP_RENDERER_URL=http://127.0.0.1:42832 MONET_DESKTOP_CONTROLLER_URL=http://127.0.0.1:42831 MONET_DESKTOP_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/desktop dev",
+    "dev:web": "VITE_MONET_CONTROLLER_URL=http://127.0.0.1:42831 VITE_MONET_CONTROLLER_BEARER_TOKEN=monet-dev-token pnpm --filter @monet/web-ui dev",
+    "pack:desktop": "pnpm build && pnpm --filter @monet/desktop pack",
+    "dist:desktop": "pnpm build && pnpm --filter @monet/desktop dist",
+    "release:desktop": "pnpm build && pnpm --filter @monet/desktop dist:publish",
+    "check:openapi": "pnpm generate:openapi && git diff --exit-code -- apps/controller/openapi.json",
+    "generate:openapi": "pnpm --filter @monet/controller generate:openapi",
+    "generate:api": "pnpm generate:openapi && pnpm exec openapi-ts --file openapi-ts.config.ts",
+    "install:check": "pnpm install --frozen-lockfile",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.80.0"
+  }
+}

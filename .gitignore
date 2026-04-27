@@ -1,0 +1,11 @@
+.ralph/
+node_modules/
+dist/
+build/
+out/
+.next/
+coverage/
+*.tsbuildinfo
+apps/controller/sqlite/*.db
+apps/controller/sqlite/*.db-shm
+apps/controller/sqlite/*.db-wal

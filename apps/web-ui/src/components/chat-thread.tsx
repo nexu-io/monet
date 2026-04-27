@@ -1,0 +1,854 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import type { UIMessage } from "ai";
+import { Badge, Button, Card } from "@nexu-design/ui-web";
+import { FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
+import { cjk } from "@streamdown/cjk";
+import { code } from "@streamdown/code";
+import { math } from "@streamdown/math";
+import { mermaid } from "@streamdown/mermaid";
+import { Streamdown } from "streamdown";
+import "katex/dist/katex.min.css";
+import "streamdown/styles.css";
+
+type ChatMessage = UIMessage;
+const WRITE_FILE_PREVIEW_MAX_LINES = 24;
+const WRITE_FILE_PREVIEW_MAX_CHARS = 1_200;
+
+type TextPart = { readonly type: "text"; readonly text: string };
+type ReasoningPart = { readonly type: "reasoning"; readonly text: string; readonly label?: string };
+type StepStartPart = { readonly type: "step-start"; readonly title?: string };
+type FilePart = { readonly type: "file"; readonly filename?: string; readonly mediaType?: string; readonly url?: string };
+type SourceUrlPart = { readonly type: "source-url"; readonly title?: string; readonly url: string; readonly host?: string };
+type SourceDocumentPart = { readonly type: "source-document"; readonly title?: string; readonly snippet?: string };
+type ToolPart = {
+  readonly type: `tool-${string}` | "dynamic-tool";
+  readonly toolName?: string;
+  readonly toolCallId?: string;
+  readonly state:
+    | "input-streaming"
+    | "input-available"
+    | "approval-requested"
+    | "running"
+    | "output-available"
+    | "output-error"
+    | "error";
+  readonly input?: unknown;
+  readonly output?: unknown;
+  readonly errorText?: string;
+  readonly approval?: {
+    readonly id: string;
+  };
+};
+type UnknownPart = { readonly type: string; readonly [key: string]: unknown };
+
+type ChatMessagePart = TextPart | ReasoningPart | StepStartPart | FilePart | SourceUrlPart | SourceDocumentPart | ToolPart | UnknownPart;
+
+const partCardClassName = "flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3";
+const partTitleClassName = "text-text-heading";
+const partLabelClassName = "text-xs font-semibold uppercase tracking-[0.08em] text-accent";
+const toolSectionClassName = "flex flex-col gap-1.5";
+const toolPreClassName = "m-0 overflow-auto whitespace-pre-wrap rounded-md bg-surface-0 p-2.5 font-mono text-sm text-text-secondary";
+const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
+const toolSummaryClassName = "flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden max-[960px]:flex-col max-[960px]:items-start";
+const markdownClassName = "leading-[1.6] text-text-primary [&_*:first-child]:mt-0 [&_*:last-child]:mb-0 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_li>ol]:my-1 [&_li>ul]:my-1";
+const internalToolLineClassName = "flex min-h-8 items-center gap-2 text-sm leading-[1.5] text-text-muted";
+const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted),var(--color-text-heading),var(--color-text-muted))] bg-[length:200%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_1.4s_ease-in-out_infinite]";
+
+function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
+  switch (phase) {
+    case "awaiting-confirm":
+      return `${partCardClassName} border-[hsl(var(--accent)/0.4)] bg-[hsl(var(--accent)/0.06)]`;
+    case "preparing":
+    case "running":
+      return `${partCardClassName} border-[hsl(var(--warning)/0.35)]`;
+    case "completed":
+      return `${partCardClassName} border-[hsl(var(--success)/0.35)]`;
+    case "failed":
+      return `${partCardClassName} border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.05)]`;
+    default:
+      return partCardClassName;
+  }
+}
+
+function formatToolState(state: string) {
+  switch (state) {
+    case "input-available":
+    case "input-streaming":
+      return "Preparing";
+    case "approval-requested":
+      return "Awaiting confirm";
+    case "output-available":
+      return "Completed";
+    case "running":
+      return "Running";
+    case "output-error":
+    case "error":
+      return "Failed";
+    default:
+      return state;
+  }
+}
+
+function getToolStateMeta(state: string) {
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return { label: "Preparing", badgeVariant: "warning" as const, phase: "preparing" as const };
+    case "approval-requested":
+      return { label: "Awaiting confirm", badgeVariant: "accent" as const, phase: "awaiting-confirm" as const };
+    case "running":
+      return { label: "Running", badgeVariant: "secondary" as const, phase: "running" as const };
+    case "output-available":
+      return { label: "Completed", badgeVariant: "success" as const, phase: "completed" as const };
+    case "output-error":
+    case "error":
+      return { label: "Failed", badgeVariant: "destructive" as const, phase: "failed" as const };
+    default:
+      return { label: formatToolState(state), badgeVariant: "secondary" as const, phase: "unknown" as const };
+  }
+}
+
+function isTextPart(part: ChatMessagePart): part is TextPart {
+  return part.type === "text" && typeof part.text === "string";
+}
+
+function getLastTextPartIndex(parts: readonly ChatMessagePart[]) {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part && isTextPart(part)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function isReasoningPart(part: ChatMessagePart): part is ReasoningPart {
+  return part.type === "reasoning" && typeof part.text === "string";
+}
+
+function isStepStartPart(part: ChatMessagePart): part is StepStartPart {
+  return part.type === "step-start";
+}
+
+function isInternalStepStartPart(part: ChatMessagePart) {
+  return (
+    isStepStartPart(part) ||
+    (part.type === "unknown" &&
+      part.reason === "unsupported-part" &&
+      part.originalType === "step-start")
+  );
+}
+
+function isFilePart(part: ChatMessagePart): part is FilePart {
+  return part.type === "file";
+}
+
+function isSourceUrlPart(part: ChatMessagePart): part is SourceUrlPart {
+  return part.type === "source-url" && typeof part.url === "string";
+}
+
+function getSafeSourceUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+
+    return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:" ? parsedUrl.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSourceDocumentPart(part: ChatMessagePart): part is SourceDocumentPart {
+  return part.type === "source-document";
+}
+
+function isToolPart(part: ChatMessagePart): part is ToolPart {
+  const candidate = part as Partial<ToolPart>;
+
+  return (
+    (part.type === "dynamic-tool" && typeof candidate.toolName === "string" && typeof candidate.state === "string") ||
+    (part.type.startsWith("tool-") && typeof candidate.state === "string")
+  );
+}
+
+function hasTextContent(message: ChatMessage) {
+  return message.parts.some((part) => isTextPart(part) && part.text.trim().length > 0);
+}
+
+function getToolName(part: ToolPart) {
+  if (typeof part.toolName === "string" && part.toolName.trim().length > 0) {
+    return part.toolName;
+  }
+
+  return part.type.startsWith("tool-") ? part.type.slice("tool-".length) : "tool";
+}
+
+function getStringField(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const fieldValue = (value as Record<string, unknown>)[key];
+
+  return typeof fieldValue === "string" && fieldValue.trim().length > 0 ? fieldValue : null;
+}
+
+function getInternalToolIcon(toolName: string): LucideIcon {
+  switch (toolName) {
+    case "fetch_url":
+      return Globe;
+    case "read_file":
+      return FileText;
+    case "write_file":
+      return FilePenLine;
+    default:
+      return Wrench;
+  }
+}
+
+function isInternalToolName(toolName: string) {
+  return toolName === "fetch_url" || toolName === "read_file" || toolName === "write_file";
+}
+
+function isExecutingToolState(state: ToolPart["state"]) {
+  return state === "input-streaming" || state === "input-available" || state === "running";
+}
+
+function getInternalToolMessage(toolName: string, part: ToolPart) {
+  const url = getStringField(part.input, "url");
+  const path = getStringField(part.input, "path");
+  const target = toolName === "fetch_url" ? url : path;
+  const destination = target ? ` ${target}` : "";
+
+  if (part.state === "output-error" || part.state === "error") {
+    switch (toolName) {
+      case "fetch_url":
+        return target ? `Couldn't fetch from ${target}.` : "Couldn't fetch URL.";
+      case "read_file":
+        return target ? `Couldn't read ${target}.` : "Couldn't read file.";
+      case "write_file":
+        return target ? `Couldn't write ${target}.` : "Couldn't write file.";
+      default:
+        return "Tool failed.";
+    }
+  }
+
+  if (part.state === "output-available") {
+    switch (toolName) {
+      case "fetch_url":
+        return target ? `Fetched from ${target}.` : "Fetched URL.";
+      case "read_file":
+        return target ? `Read ${target}.` : "Read file.";
+      case "write_file":
+        return target ? `Wrote ${target}.` : "Wrote file.";
+      default:
+        return "Tool completed.";
+    }
+  }
+
+  if (part.state === "approval-requested") {
+    return target ? `Ready to write ${target}.` : "Ready to write file.";
+  }
+
+  switch (toolName) {
+    case "fetch_url":
+      return target ? `Fetching from ${target}.` : "Fetching URL.";
+    case "read_file":
+      return target ? `Reading ${target}.` : "Reading file.";
+    case "write_file":
+      return target ? `Writing ${target}.` : "Writing file.";
+    default:
+      return `${formatToolState(part.state)}.`;
+  }
+}
+
+function isLikelyJsonString(value: string) {
+  const trimmed = value.trim();
+
+  return (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
+}
+
+function formatToolInputValue(value: unknown): string {
+  if (value == null) {
+    return "None";
+  }
+
+  if (typeof value === "string") {
+    return isLikelyJsonString(value) ? "Structured input" : value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  }
+
+  if (typeof value === "object") {
+    return "Nested data";
+  }
+
+  return "Provided";
+}
+
+function getToolInputEntries(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return [];
+  }
+
+  return Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => ({
+    key,
+    value: formatToolInputValue(entryValue)
+  }));
+}
+
+function renderToolInputSummary(value: unknown) {
+  const entries = getToolInputEntries(value);
+
+  if (entries.length === 0) {
+    return <p className={mutedPartTextClassName}>{formatToolInputValue(value)}</p>;
+  }
+
+  return (
+    <dl className="m-0 grid gap-2 rounded-md bg-surface-0 p-2.5 text-sm">
+      {entries.map((entry) => (
+        <div key={entry.key} className="grid gap-1 sm:grid-cols-[minmax(8rem,14rem)_1fr]">
+          <dt className="font-semibold text-text-heading [overflow-wrap:anywhere]">{entry.key}</dt>
+          <dd className="m-0 text-text-secondary [overflow-wrap:anywhere]">{entry.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function getMessageRunId(message: ChatMessage) {
+  const metadata = message.metadata;
+
+  if (typeof metadata !== "object" || metadata === null || !("runId" in metadata)) {
+    return null;
+  }
+
+  return typeof (metadata as { runId?: unknown }).runId === "string" ? (metadata as { runId: string }).runId : null;
+}
+
+function isWriteFileInput(value: unknown): value is { readonly path: string; readonly content: string } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return typeof (value as { path?: unknown }).path === "string" && typeof (value as { content?: unknown }).content === "string";
+}
+
+function getWriteFilePreview(content: string) {
+  const lines = content.split("\n");
+  const limitedLines = lines.slice(0, WRITE_FILE_PREVIEW_MAX_LINES).join("\n");
+  const limitedContent = limitedLines.length > WRITE_FILE_PREVIEW_MAX_CHARS
+    ? `${limitedLines.slice(0, WRITE_FILE_PREVIEW_MAX_CHARS)}…`
+    : limitedLines;
+  const wasLineTruncated = lines.length > WRITE_FILE_PREVIEW_MAX_LINES;
+  const wasCharTruncated = limitedLines.length > WRITE_FILE_PREVIEW_MAX_CHARS || content.length > WRITE_FILE_PREVIEW_MAX_CHARS;
+
+  return {
+    content: limitedContent,
+    wasTruncated: wasLineTruncated || wasCharTruncated,
+    lineCount: lines.length,
+    charCount: content.length
+  };
+}
+
+function renderPart(
+  message: ChatMessage,
+  part: ChatMessagePart,
+  index: number,
+  options: {
+    readonly status: "submitted" | "streaming" | "ready" | "error";
+    readonly isStreamingPart: boolean;
+    readonly isArchived: boolean;
+    readonly pendingToolApprovalIds: ReadonlySet<string>;
+    readonly onToolApproval?: (input: {
+      runId: string;
+      toolCallId: string;
+      confirmationToken: string;
+      decision: "approved" | "rejected";
+    }) => void | Promise<void>;
+  }
+) {
+  if (isTextPart(part)) {
+    return (
+      <Streamdown
+        key={`${part.type}-${index}`}
+        animated={{ animation: "blurIn", duration: 180, easing: "ease-out", sep: "word", stagger: 0 }}
+        caret={options.isStreamingPart ? "block" : undefined}
+        isAnimating={options.isStreamingPart}
+        mode={options.isStreamingPart ? "streaming" : "static"}
+        plugins={{ code, mermaid, math, cjk }}
+        controls={{ mermaid: { fullscreen: true, download: true, copy: true, panZoom: true } }}
+        className={markdownClassName}
+      >
+        {part.text}
+      </Streamdown>
+    );
+  }
+
+  if (isReasoningPart(part)) {
+    return (
+      <details key={`${part.type}-${index}`} className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3 [&>summary]:cursor-pointer [&>summary]:font-semibold [&>summary]:text-text-heading">
+        <summary>{part.label ?? "Reasoning"}</summary>
+        <p className="m-0 whitespace-pre-wrap text-text-secondary">{part.text}</p>
+      </details>
+    );
+  }
+
+  if (isInternalStepStartPart(part)) {
+    return null;
+  }
+
+  if (isFilePart(part)) {
+    return (
+      <div key={`${part.type}-${index}`} className={partCardClassName}>
+        <span className={partLabelClassName}>File</span>
+        <strong className={partTitleClassName}>{part.filename ?? "Attachment"}</strong>
+        <span>{part.mediaType ?? "Unknown type"}</span>
+        {part.url ? <span className="mono overflow-auto [overflow-wrap:anywhere]">{part.url}</span> : null}
+      </div>
+    );
+  }
+
+  if (isSourceUrlPart(part)) {
+    const safeUrl = getSafeSourceUrl(part.url);
+
+    if (!safeUrl) {
+      return (
+        <div key={`${part.type}-${index}`} className={partCardClassName}>
+          <span className={partLabelClassName}>Source URL</span>
+          <strong className={`${partTitleClassName} [overflow-wrap:anywhere]`}>{part.title ?? part.url}</strong>
+          <span>{part.host ?? part.url}</span>
+        </div>
+      );
+    }
+
+    return (
+      <a key={`${part.type}-${index}`} className={partCardClassName} href={safeUrl}>
+        <span className={partLabelClassName}>Source URL</span>
+        <strong className={`${partTitleClassName} [overflow-wrap:anywhere]`}>{part.title ?? part.url}</strong>
+        <span>{part.host ?? part.url}</span>
+      </a>
+    );
+  }
+
+  if (isSourceDocumentPart(part)) {
+    return (
+      <div key={`${part.type}-${index}`} className={partCardClassName}>
+        <span className={partLabelClassName}>Source document</span>
+        <strong className={partTitleClassName}>{part.title ?? "Document"}</strong>
+        {part.snippet ? <span>{part.snippet}</span> : null}
+      </div>
+    );
+  }
+
+  if (isToolPart(part)) {
+    const runId = getMessageRunId(message);
+    const toolName = getToolName(part);
+    const toolStateMeta = getToolStateMeta(part.state);
+    const canApprove =
+      part.state === "approval-requested" &&
+      typeof part.toolCallId === "string" &&
+      typeof part.approval?.id === "string" &&
+      typeof runId === "string" &&
+      typeof options.onToolApproval === "function";
+    const isPendingApproval = typeof part.toolCallId === "string" && options.pendingToolApprovalIds.has(part.toolCallId);
+    const isWriteFileCall = toolName === "write_file" && isWriteFileInput(part.input);
+    const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
+
+    if (isInternalToolName(toolName)) {
+      const Icon = getInternalToolIcon(toolName);
+      const isExecuting = isExecutingToolState(part.state);
+      const message = getInternalToolMessage(toolName, part);
+
+      return (
+        <div key={`${part.type}-${index}`} className={internalToolLineClassName} data-tool-phase={toolStateMeta.phase}>
+          <Icon aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
+          <span className={`${isExecuting ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={message}>{message}</span>
+          {part.errorText ? <span className="min-w-0 truncate text-error" title={part.errorText}>{part.errorText}</span> : null}
+          {part.state === "approval-requested" && canApprove ? (
+            <span className="ml-1 inline-flex shrink-0 gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                onClick={() => {
+                  void options.onToolApproval?.({
+                    runId,
+                    toolCallId: part.toolCallId!,
+                    confirmationToken: part.approval!.id,
+                    decision: "approved"
+                  });
+                }}
+              >
+                {isPendingApproval ? "Submitting..." : "Approve"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                onClick={() => {
+                  void options.onToolApproval?.({
+                    runId,
+                    toolCallId: part.toolCallId!,
+                    confirmationToken: part.approval!.id,
+                    decision: "rejected"
+                  });
+                }}
+              >
+                Reject
+              </Button>
+            </span>
+          ) : null}
+        </div>
+      );
+    }
+
+    return (
+      <details key={`${part.type}-${index}`} className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
+        <summary className={toolSummaryClassName}>
+          <div className="flex flex-col gap-1">
+            <span className={partLabelClassName}>Tool call</span>
+            <strong className={partTitleClassName}>{toolName}</strong>
+            <span className="text-sm text-text-muted">Details collapsed</span>
+          </div>
+          <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
+        </summary>
+
+        <div className="mt-3 flex flex-col gap-3">
+          {isWriteFileCall ? (
+            <>
+              <div className={toolSectionClassName}>
+                <span className={partLabelClassName}>Target path</span>
+                <div className="mono overflow-auto rounded-md bg-surface-0 p-2.5 text-sm text-text-heading [overflow-wrap:anywhere]">{part.input.path}</div>
+              </div>
+
+              <div className={toolSectionClassName}>
+                <span className={partLabelClassName}>Content preview</span>
+                <pre className={toolPreClassName}>{writeFilePreview?.content}</pre>
+                {writeFilePreview?.wasTruncated ? (
+                  <p className={mutedPartTextClassName}>
+                    Showing the first {Math.min(writeFilePreview.lineCount, WRITE_FILE_PREVIEW_MAX_LINES)} lines and up to {WRITE_FILE_PREVIEW_MAX_CHARS} characters.
+                  </p>
+                ) : (
+                  <p className={mutedPartTextClassName}>{writeFilePreview?.lineCount ?? 0} lines · {writeFilePreview?.charCount ?? 0} characters</p>
+                )}
+              </div>
+            </>
+          ) : null}
+
+          {part.input !== undefined && !isWriteFileCall ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Input summary</span>
+              {renderToolInputSummary(part.input)}
+            </div>
+          ) : null}
+
+          {part.state === "approval-requested" && isWriteFileCall ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Risk</span>
+              <p className={mutedPartTextClassName}>This tool can create or overwrite the target file. Approve only if the destination path and previewed content are expected.</p>
+            </div>
+          ) : null}
+
+          {part.state === "approval-requested" && canApprove ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Confirmation</span>
+              <p className={mutedPartTextClassName}>
+                {isWriteFileCall
+                  ? "This action can create or overwrite a file inside an authorized directory. Review the path and content preview before continuing."
+                  : "Review the tool input, then approve or reject execution."}
+              </p>
+              <div className="mt-3 flex justify-start gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                  onClick={() => {
+                    void options.onToolApproval?.({
+                      runId,
+                      toolCallId: part.toolCallId!,
+                      confirmationToken: part.approval!.id,
+                      decision: "approved"
+                    });
+                  }}
+                >
+                  {isPendingApproval ? "Submitting..." : "Approve"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={isPendingApproval || options.isArchived || options.status === "submitted" || options.status === "streaming"}
+                  onClick={() => {
+                    void options.onToolApproval?.({
+                      runId,
+                      toolCallId: part.toolCallId!,
+                      confirmationToken: part.approval!.id,
+                      decision: "rejected"
+                    });
+                  }}
+                >
+                  {isPendingApproval ? "Submitting..." : "Reject"}
+                </Button>
+              </div>
+              {isPendingApproval ? <p className={mutedPartTextClassName}>Confirmation submitted. Waiting for the run to continue…</p> : null}
+            </div>
+          ) : null}
+
+          {part.errorText ? (
+            <div className={toolSectionClassName}>
+              <span className={partLabelClassName}>Error</span>
+              <pre className={toolPreClassName}>{part.errorText}</pre>
+            </div>
+          ) : null}
+        </div>
+      </details>
+    );
+  }
+
+  return (
+    <div key={`${part.type}-${index}`} className={partCardClassName}>
+      <span className={partLabelClassName}>Message detail</span>
+      <strong className={partTitleClassName}>{part.type}</strong>
+      <p className={mutedPartTextClassName}>This message part is not displayed.</p>
+    </div>
+  );
+}
+
+export interface ChatThreadProps {
+  readonly messages: readonly ChatMessage[];
+  readonly status: "submitted" | "streaming" | "ready" | "error";
+  readonly errorText: string | undefined;
+  readonly isArchived: boolean;
+  readonly onToolApproval?: (input: {
+    runId: string;
+    toolCallId: string;
+    confirmationToken: string;
+    decision: "approved" | "rejected";
+  }) => void | Promise<void>;
+}
+
+export function ChatThread({ messages, status, errorText, isArchived, onToolApproval }: ChatThreadProps) {
+  const rootRef = useRef<HTMLElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const lastLocatedUserMessageIdRef = useRef<string | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [pendingToolApprovalIds, setPendingToolApprovalIds] = useState<Set<string>>(new Set());
+
+  function getScrollContainer() {
+    return rootRef.current?.closest('[data-chat-scroll-container="true"]') ?? null;
+  }
+
+  function scrollToBottomNow(behavior: ScrollBehavior = "auto") {
+    const scrollContainer = getScrollContainer();
+
+    if (!(scrollContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior
+    });
+  }
+
+  useEffect(() => {
+    const activeApprovalIds = new Set(
+      messages.flatMap((message) =>
+        message.parts.flatMap((part) =>
+          isToolPart(part) && part.state === "approval-requested" && typeof part.toolCallId === "string" ? [part.toolCallId] : []
+        )
+      )
+    );
+
+    setPendingToolApprovalIds((current) => {
+      const next = new Set(Array.from(current).filter((toolCallId) => activeApprovalIds.has(toolCallId)));
+
+      if (next.size === current.size && Array.from(next).every((toolCallId) => current.has(toolCallId))) {
+        return current;
+      }
+
+      return next;
+    });
+  }, [messages]);
+
+  useEffect(() => {
+    const scrollContainer = getScrollContainer();
+
+    if (!(scrollContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    const updateScrollState = () => {
+      const distanceToBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+      const isAtBottom = distanceToBottom <= 96;
+
+      shouldStickToBottomRef.current = isAtBottom;
+      setShowScrollToBottom(!isAtBottom);
+    };
+
+    updateScrollState();
+    scrollContainer.addEventListener("scroll", updateScrollState, { passive: true });
+
+    return () => {
+      scrollContainer.removeEventListener("scroll", updateScrollState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const scrollContainer = getScrollContainer();
+    const isStreamingAssistantMessage = status === "streaming" && messages.at(-1)?.role === "assistant";
+
+    if (!(scrollContainer instanceof HTMLElement) || (!shouldStickToBottomRef.current && !isStreamingAssistantMessage)) {
+      return;
+    }
+
+    if (isStreamingAssistantMessage) {
+      shouldStickToBottomRef.current = true;
+      setShowScrollToBottom(false);
+    }
+
+    scrollToBottomNow(status === "streaming" ? "auto" : "smooth");
+  }, [messages, status]);
+
+  useEffect(() => {
+    const latestMessage = messages.at(-1);
+
+    if (!latestMessage || latestMessage.role !== "user" || latestMessage.id === lastLocatedUserMessageIdRef.current) {
+      return;
+    }
+
+    lastLocatedUserMessageIdRef.current = latestMessage.id;
+    shouldStickToBottomRef.current = false;
+
+    requestAnimationFrame(() => {
+      rootRef.current
+        ?.querySelector(`[data-message-id="${latestMessage.id}"]`)
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  }, [messages]);
+
+  useEffect(() => {
+    if (status !== "streaming" || messages.at(-1)?.role !== "assistant" || !rootRef.current) {
+      return;
+    }
+
+    shouldStickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    scrollToBottomNow("auto");
+
+    const observer = new ResizeObserver(() => {
+      scrollToBottomNow("auto");
+    });
+
+    observer.observe(rootRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [messages, status]);
+
+  function scrollToBottom() {
+    const scrollContainer = getScrollContainer();
+
+    if (!(scrollContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    shouldStickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: "smooth" });
+  }
+
+  async function handleToolApproval(input: {
+    runId: string;
+    toolCallId: string;
+    confirmationToken: string;
+    decision: "approved" | "rejected";
+  }) {
+    if (!onToolApproval) {
+      return;
+    }
+
+    setPendingToolApprovalIds((current) => new Set(current).add(input.toolCallId));
+
+    try {
+      await onToolApproval(input);
+    } catch {
+      setPendingToolApprovalIds((current) => {
+        const next = new Set(current);
+        next.delete(input.toolCallId);
+        return next;
+      });
+    }
+  }
+
+  return (
+    <section ref={rootRef} className="relative flex flex-col gap-4" aria-label="Conversation transcript">
+      {messages.map((message, messageIndex) => {
+        const isStreamingAssistant = status === "streaming" && message.role === "assistant" && messageIndex === messages.length - 1;
+        const streamingTextPartIndex = isStreamingAssistant ? getLastTextPartIndex(message.parts) : -1;
+        const renderedParts = message.parts.map((part, index) =>
+          renderPart(message, part, index, {
+            status,
+            isStreamingPart: isStreamingAssistant && index === streamingTextPartIndex,
+            isArchived,
+            pendingToolApprovalIds,
+            onToolApproval: handleToolApproval
+          })
+        );
+
+        if (message.role === "assistant") {
+          return (
+            <article key={message.id} className="flex w-full flex-col gap-3" data-message-id={message.id} data-role={message.role}>
+              {renderedParts}
+            </article>
+          );
+        }
+
+        return (
+          <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-message-id={message.id} data-role={message.role}>
+            <Card className={`rounded-xl border border-border-subtle px-4.5 shadow-xs ${message.role === "user" ? "w-fit max-w-[60%] border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)] py-2 [overflow-wrap:anywhere] max-[960px]:max-w-full" : "w-[min(100%,calc(var(--spacing)*180))] bg-surface-1 py-4 max-[960px]:w-full"}`}>
+              <div className="flex flex-col gap-3">
+                {renderedParts}
+              </div>
+            </Card>
+          </article>
+        );
+      })}
+
+      {(status === "submitted" || (status === "streaming" && messages.at(-1)?.role === "assistant" && !hasTextContent(messages.at(-1)!))) ? (
+        <div className="w-full py-1 text-sm font-medium" aria-live="polite">
+          <span className="inline-block animate-[thinking-shimmer_1.35s_linear_infinite] bg-[linear-gradient(90deg,var(--color-text-muted),var(--color-text-primary),var(--color-text-muted))] bg-[length:200%_100%] bg-clip-text text-transparent">
+            Thinking...
+          </span>
+        </div>
+      ) : null}
+
+      {errorText ? (
+        <Card className="rounded-xl border border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.05)] px-4.5 py-4 shadow-xs">
+          <div className="flex flex-col gap-1">
+            <span className={partLabelClassName}>Request error</span>
+            <strong className={partTitleClassName}>Chat transport returned an error.</strong>
+            <p className="m-0 leading-[1.5] text-text-muted">{errorText}</p>
+          </div>
+        </Card>
+      ) : null}
+
+      {showScrollToBottom && messages.length > 0 ? (
+        <div className="pointer-events-none sticky bottom-2 flex justify-center">
+          <Button type="button" variant="secondary" className="pointer-events-auto shadow-dropdown" onClick={scrollToBottom}>Back to bottom</Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
