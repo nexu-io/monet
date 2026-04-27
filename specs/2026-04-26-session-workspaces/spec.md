@@ -42,6 +42,14 @@ Resolved implementation decision for workspace directory names:
 - If a session ID fails this filesystem-safe validation, reject workspace path generation with a clear error instead of deriving a path from the unsafe value.
 - This keeps workspace paths stable, human-recognizable, and compatible with existing generated session IDs while still preventing path separators, traversal components, shell metacharacters, and platform-problematic characters from becoming path segments.
 
+Resolved implementation decision for workspace write limits:
+
+- Use a default per-session workspace quota of **100 MB**.
+- Use a default max single `write_file` content size of **1,000,000 bytes**.
+- Enforce both limits before performing a workspace write that can skip confirmation.
+- The 100 MB quota keeps confirmation-free writes bounded while still being large enough for generated HTML, images/assets, reports, and small project artifacts.
+- The 1,000,000 byte single-write limit matches the existing `read_file` and `fetch_url` byte limit style in the controller, avoids introducing a larger unreviewed payload path, and can be made configurable later if product needs require larger generated files.
+
 ## 3. Goals
 
 1. **Reliable default writes**
@@ -159,11 +167,11 @@ If a user intentionally adds another session workspace to authorized directories
 
 Add quotas before or shortly after enabling confirmation-free writes.
 
-Recommended initial limits:
+Initial limits:
 
-- Per-session workspace quota: 100 MB or 250 MB.
-- Max single `write_file` content size: keep or add a strict limit.
-- Optional global workspace quota: 1–5 GB.
+- Per-session workspace quota: 100 MB.
+- Max single `write_file` content size: 1,000,000 bytes.
+- Optional global workspace quota: defer for MVP; consider 1–5 GB later if orphan cleanup and user-facing storage management are not sufficient.
 
 If quota is exceeded, fail the tool with a clear error:
 
@@ -459,7 +467,7 @@ Temporary compatibility path:
 ## 13. Open Questions
 
 1. Resolved: workspace directories should use raw session IDs after strict filesystem-safe validation (`^ses_[a-z0-9]+$`), not hashed directory names.
-2. What should the default per-session quota be?
+2. Resolved: default per-session workspace quota is 100 MB, and max single `write_file` content size is 1,000,000 bytes.
 3. Should the UI expose a file browser, or only “Open folder” for MVP?
 4. Should exported chats include workspace files by default or behind an explicit checkbox?
 5. Does the current AI SDK version support dynamic `needsApproval` based on resolved input and execution context?
