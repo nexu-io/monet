@@ -5,7 +5,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { PageFrame } from "../../components/page-frame";
 import { useControllerState } from "../../lib/controller-state";
-import { getConnector, listConnectors, type ConnectorCatalogCard, type ConnectorDetail, type ConnectorId } from "../../lib/connectors-api";
+import { getConnector, listConnectors, startConnectorConnection, type ConnectorCatalogCard, type ConnectorDetail, type ConnectorId } from "../../lib/connectors-api";
 
 type ConnectorsLoadState =
   | { readonly status: "idle" }
@@ -18,6 +18,12 @@ type ConnectorDetailLoadState =
   | { readonly status: "loading" }
   | { readonly status: "error"; readonly message: string }
   | { readonly status: "loaded"; readonly connector: ConnectorDetail };
+
+type ConnectorActionState =
+  | { readonly status: "idle" }
+  | { readonly status: "starting"; readonly connectorId: ConnectorId }
+  | { readonly status: "success"; readonly connectorId: ConnectorId; readonly message: string }
+  | { readonly status: "error"; readonly connectorId: ConnectorId; readonly message: string };
 
 type ConnectorDetailWithExecutionMetadata = ConnectorDetail & {
   readonly lastProviderExecutionId?: string;
@@ -143,14 +149,19 @@ function ConnectorStatusBadge({ status }: { readonly status: ConnectorCatalogCar
 
 function ConnectorCard({
   connector,
-  onOpenDetail
+  actionBusy,
+  onPrimaryAction,
+  onViewTools
 }: {
   readonly connector: ConnectorCatalogCard;
-  readonly onOpenDetail: (connectorId: ConnectorId) => void;
+  readonly actionBusy: boolean;
+  readonly onPrimaryAction: (connector: ConnectorCatalogCard) => void;
+  readonly onViewTools: (connectorId: ConnectorId) => void;
 }) {
   const statusMeta = connectorStatusMeta[connector.status];
   const featuredTools = connector.featuredTools.slice(0, 3).map(formatToolId);
   const accountLabel = connector.connectedAccountLabel?.trim();
+  const primaryActionLabel = actionBusy ? "Starting…" : statusMeta.primaryActionLabel;
 
   return (
     <article className="flex min-h-[24rem] flex-col justify-between gap-5 rounded-2xl border border-border-subtle bg-surface-1 p-5 shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2">
@@ -199,13 +210,13 @@ function ConnectorCard({
         <button
           className={primaryButtonClassName}
           type="button"
-          disabled={statusMeta.primaryActionDisabled}
-          onClick={() => onOpenDetail(connector.id)}
+          disabled={statusMeta.primaryActionDisabled || actionBusy}
+          onClick={() => onPrimaryAction(connector)}
           aria-label={`${statusMeta.primaryActionLabel} ${connector.displayName}`}
         >
-          {statusMeta.primaryActionLabel}
+          {primaryActionLabel}
         </button>
-        <button className={secondaryButtonClassName} type="button" disabled={connector.status === "unavailable"} onClick={() => onOpenDetail(connector.id)} aria-label={`View ${connector.displayName} tools`}>
+        <button className={secondaryButtonClassName} type="button" disabled={connector.status === "unavailable" || actionBusy} onClick={() => onViewTools(connector.id)} aria-label={`View ${connector.displayName} tools`}>
           View tools
         </button>
       </div>
@@ -213,7 +224,17 @@ function ConnectorCard({
   );
 }
 
-function ConnectorCardGrid({ connectors, onOpenDetail }: { readonly connectors: readonly ConnectorCatalogCard[]; readonly onOpenDetail: (connectorId: ConnectorId) => void }) {
+function ConnectorCardGrid({
+  connectors,
+  actionState,
+  onPrimaryAction,
+  onViewTools
+}: {
+  readonly connectors: readonly ConnectorCatalogCard[];
+  readonly actionState: ConnectorActionState;
+  readonly onPrimaryAction: (connector: ConnectorCatalogCard) => void;
+  readonly onViewTools: (connectorId: ConnectorId) => void;
+}) {
   return (
     <section className="flex flex-col gap-4" aria-label="Available connectors">
       <div className="flex flex-col gap-2">
@@ -225,12 +246,36 @@ function ConnectorCardGrid({ connectors, onOpenDetail }: { readonly connectors: 
           </div>
         </div>
       </div>
+      {actionState.status === "success" ? (
+        <ConnectorInlineNotice tone="success" message={actionState.message} />
+      ) : actionState.status === "error" ? (
+        <ConnectorInlineNotice tone="error" message={actionState.message} />
+      ) : null}
       <div className={connectorGridClassName}>
         {connectors.map((connector) => (
-          <ConnectorCard key={connector.id} connector={connector} onOpenDetail={onOpenDetail} />
+          <ConnectorCard
+            key={connector.id}
+            connector={connector}
+            actionBusy={actionState.status === "starting" && actionState.connectorId === connector.id}
+            onPrimaryAction={onPrimaryAction}
+            onViewTools={onViewTools}
+          />
         ))}
       </div>
     </section>
+  );
+}
+
+function ConnectorInlineNotice({ tone, message }: { readonly tone: "success" | "error"; readonly message: string }) {
+  const className =
+    tone === "success"
+      ? "rounded-xl border border-success/20 bg-success-subtle px-4 py-3 text-sm font-medium text-success"
+      : "rounded-xl border border-error/20 bg-error-subtle px-4 py-3 text-sm font-medium text-error";
+
+  return (
+    <p className={className} role={tone === "error" ? "alert" : "status"} aria-live="polite">
+      {message}
+    </p>
   );
 }
 
@@ -442,6 +487,7 @@ export default function ConnectorsPage() {
   const { config, controllerState, isDesktop, restartController, restartPending } = useControllerState();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loadState, setLoadState] = useState<ConnectorsLoadState>({ status: "idle" });
+  const [actionState, setActionState] = useState<ConnectorActionState>({ status: "idle" });
   const selectedConnectorId = useMemo(() => {
     const value = searchParams.get(connectorDetailQueryParam);
 
@@ -496,6 +542,56 @@ export default function ConnectorsPage() {
       return next;
     });
   }, [setSearchParams]);
+
+  const handleConnectorPrimaryAction = useCallback(
+    async (connector: ConnectorCatalogCard) => {
+      if (connector.status === "unavailable") {
+        return;
+      }
+
+      if (connector.status === "connected") {
+        openConnectorDetail(connector.id);
+        return;
+      }
+
+      setActionState({ status: "starting", connectorId: connector.id });
+
+      try {
+        const response = await startConnectorConnection(connector.id);
+
+        if (response.status === "connected") {
+          setActionState({ status: "success", connectorId: connector.id, message: `${connector.displayName} is connected.` });
+          await refreshConnectors();
+          openConnectorDetail(connector.id);
+          return;
+        }
+
+        if (response.status === "pending") {
+          setActionState({
+            status: "success",
+            connectorId: connector.id,
+            message: `${connector.displayName} connection is pending. Return to Monet after completing provider authorization to refresh its status.`
+          });
+          await refreshConnectors();
+          openConnectorDetail(connector.id);
+          return;
+        }
+
+        setActionState({
+          status: "success",
+          connectorId: connector.id,
+          message: `${connector.displayName} authorization is ready. Complete the provider flow, then return to Monet to refresh connector status.`
+        });
+      } catch (error) {
+        setActionState({
+          status: "error",
+          connectorId: connector.id,
+          message: error instanceof Error ? error.message : `Unable to start ${connector.displayName} connection.`
+        });
+      }
+    },
+    [openConnectorDetail, refreshConnectors]
+  );
 
   let content: ReactNode;
 
@@ -574,7 +670,7 @@ export default function ConnectorsPage() {
       />
     );
   } else {
-    content = <ConnectorCardGrid connectors={loadState.connectors} onOpenDetail={openConnectorDetail} />;
+    content = <ConnectorCardGrid connectors={loadState.connectors} actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onViewTools={openConnectorDetail} />;
   }
 
   return (
