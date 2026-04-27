@@ -146,6 +146,10 @@ export const LiveArtifactJsonValueSchema = jsonValueSchema.superRefine((value, c
 
 const jsonObjectSchema = z.record(LiveArtifactJsonValueSchema);
 
+function getJsonByteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
 export const LiveArtifactMarkdownRenderJsonSchema = z.object({
   kind: z.literal("markdown"),
   markdown: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.markdown)
@@ -210,7 +214,14 @@ export const LiveArtifactRenderJsonSchema = z.union([
   LiveArtifactTableRenderJsonSchema,
   LiveArtifactLinkCardRenderJsonSchema,
   LiveArtifactJsonRenderJsonSchema
-]);
+]).superRefine((value, ctx) => {
+  if (getJsonByteLength(value) > LIVE_ARTIFACT_LIMITS.renderJsonBytes) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Render JSON exceeds max size of ${LIVE_ARTIFACT_LIMITS.renderJsonBytes} bytes`
+    });
+  }
+});
 
 export const LiveArtifactTileConnectorSourceSchema = z.object({
   connectorId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.connectorId),
