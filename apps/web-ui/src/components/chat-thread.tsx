@@ -195,6 +195,36 @@ function getStringField(value: unknown, key: string) {
   return typeof fieldValue === "string" && fieldValue.trim().length > 0 ? fieldValue : null;
 }
 
+function getRecordField(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const fieldValue = (value as Record<string, unknown>)[key];
+
+  return typeof fieldValue === "object" && fieldValue !== null && !Array.isArray(fieldValue) ? fieldValue : null;
+}
+
+function getToolErrorDetails(part: ToolPart) {
+  if (part.state !== "output-error" && part.state !== "error") {
+    return null;
+  }
+
+  if (typeof part.errorText === "string" && part.errorText.trim().length > 0) {
+    return part.errorText.trim();
+  }
+
+  const outputMessage = getStringField(part.output, "message") ?? getStringField(part.output, "errorMessage") ?? getStringField(part.output, "error");
+
+  if (outputMessage) {
+    return outputMessage;
+  }
+
+  const nestedError = getRecordField(part.output, "error");
+
+  return getStringField(nestedError, "message") ?? getStringField(nestedError, "details") ?? getStringField(part.output, "details");
+}
+
 function getSuccessfulWriteFileOutputPath(part: ToolPart) {
   if (part.state !== "output-available") {
     return null;
@@ -231,15 +261,18 @@ function getInternalToolMessage(toolName: string, part: ToolPart) {
   const destination = target ? ` ${target}` : "";
 
   if (part.state === "output-error" || part.state === "error") {
+    const errorDetails = getToolErrorDetails(part);
+    const withDetails = (fallback: string) => errorDetails ? `${fallback}: ${errorDetails}` : `${fallback}.`;
+
     switch (toolName) {
       case "fetch_url":
-        return target ? `Couldn't fetch from ${target}.` : "Couldn't fetch URL.";
+        return withDetails(target ? `Couldn't fetch from ${target}` : "Couldn't fetch URL");
       case "read_file":
-        return target ? `Couldn't read ${target}.` : "Couldn't read file.";
+        return withDetails(target ? `Couldn't read ${target}` : "Couldn't read file");
       case "write_file":
-        return target ? `Couldn't write ${target}.` : "Couldn't write file.";
+        return withDetails(target ? `Couldn't write ${target}` : "Couldn't write file");
       default:
-        return "Tool failed.";
+        return withDetails("Tool failed");
     }
   }
 
@@ -474,6 +507,7 @@ function renderPart(
     const isWriteFileCall = toolName === "write_file" && isWriteFileInput(part.input);
     const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
     const successfulWriteFilePath = toolName === "write_file" ? getSuccessfulWriteFileOutputPath(part) : null;
+    const toolErrorDetails = getToolErrorDetails(part);
 
     if (isInternalToolName(toolName)) {
       const Icon = getInternalToolIcon(toolName);
@@ -495,7 +529,7 @@ function renderPart(
               {options.openingPath === successfulWriteFilePath ? "Opening…" : successfulWriteFilePath}
             </button>
           ) : null}
-          {part.errorText ? <span className="min-w-0 truncate text-error" title={part.errorText}>{part.errorText}</span> : null}
+          {toolErrorDetails ? <span className="min-w-0 truncate text-error" title={toolErrorDetails}>{toolErrorDetails}</span> : null}
           {part.state === "approval-requested" && canApprove ? (
             <span className="ml-1 inline-flex shrink-0 gap-2">
               <Button
@@ -627,10 +661,10 @@ function renderPart(
             </div>
           ) : null}
 
-          {part.errorText ? (
+          {toolErrorDetails ? (
             <div className={toolSectionClassName}>
               <span className={partLabelClassName}>Error</span>
-              <pre className={toolPreClassName}>{part.errorText}</pre>
+              <pre className={toolPreClassName}>{toolErrorDetails}</pre>
             </div>
           ) : null}
         </div>
