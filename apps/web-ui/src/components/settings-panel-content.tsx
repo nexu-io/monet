@@ -97,63 +97,10 @@ const browserSecretStorageSnapshot: ProviderSecretStorageSnapshot = {
   reason: "desktop_api_unavailable"
 };
 
-const validationReasonMeta: Record<
-  ValidateProviderResponse["reason"],
-  {
-    label: string;
-    badgeVariant: "success" | "warning" | "destructive" | "secondary";
-    dotStatus: "success" | "warning" | "error" | "info";
-    guidance: string;
-  }
-> = {
-  ok: {
-    label: "Ready",
-    badgeVariant: "success",
-    dotStatus: "success",
-    guidance: "The provider has credentials, a resolved default model, and at least one enabled model available for chat."
-  },
-  disabled: {
-    label: "Disabled",
-    badgeVariant: "secondary",
-    dotStatus: "info",
-    guidance: "Enable this provider before using it as a default for new sessions."
-  },
-  no_enabled_models: {
-    label: "No enabled models",
-    badgeVariant: "warning",
-    dotStatus: "warning",
-    guidance: "This provider is configured, but no enabled chat models are currently available."
-  },
-  missing_default_model: {
-    label: "Default model missing",
-    badgeVariant: "warning",
-    dotStatus: "warning",
-    guidance: "Set a default model so new sessions can resolve provider/model IDs before sending messages."
-  },
-  default_model_unresolved: {
-    label: "Default model unresolved",
-    badgeVariant: "warning",
-    dotStatus: "warning",
-    guidance: "The saved default model is not present in the enabled model catalog returned by the provider."
-  },
-  missing_credentials: {
-    label: "Missing credentials",
-    badgeVariant: "destructive",
-    dotStatus: "error",
-    guidance: "Add local credentials for this provider, then validate again to refresh the catalog and status."
-  },
-  provider_api_error: {
-    label: "Provider API error",
-    badgeVariant: "destructive",
-    dotStatus: "error",
-    guidance: "The live provider check could not complete. Retry after fixing network, base URL, or credential issues."
-  }
-};
-
 const surfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs";
 const mutedSurfaceCardClassName = "col-span-12 rounded-xl border border-border-subtle bg-surface-2 p-4 shadow-none";
-const settingsPanelStackClassName = "flex flex-col gap-3";
-const settingsModelsStackClassName = "flex flex-col gap-4";
+const settingsPanelStackClassName = "m-6 flex flex-col gap-3 max-app:m-4";
+const settingsModelsStackClassName = "m-6 flex min-h-0 flex-1 flex-col gap-4 max-app:m-4";
 const settingsListStackClassName = "flex flex-col gap-3";
 const settingsEmptyStateClassName = "flex flex-col items-start gap-3";
 const settingsItemCardClassName = "flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-1 p-3 shadow-xs";
@@ -173,15 +120,6 @@ const settingsSecretFieldClassName = "flex flex-col gap-1";
 const settingsSecretInputClassName = "min-h-10 w-full rounded-md border border-border-subtle bg-surface-0 px-3 py-2 text-text-primary transition-colors focus:border-accent focus:outline-none focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
 const settingsInlineActionClassName = "inline-flex cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent px-1.5 py-0.5 text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60";
 const settingsValidationCardClassName = `${mutedSurfaceCardClassName} flex flex-col gap-1`;
-const statusBadgeBaseClassName = "inline-flex w-fit items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold";
-const statusBadgeToneClassNames = {
-  healthy: "bg-success-subtle text-success",
-  offline: "bg-error-subtle text-error",
-  unknown: "bg-warning-subtle text-warning"
-} as const;
-
-type ValidationBadgeTone = keyof typeof statusBadgeToneClassNames;
-
 function formatProviderType(type: Provider["type"]) {
   return type === "openai" ? "OpenAI" : "OpenRouter";
 }
@@ -201,10 +139,6 @@ function getSecretStatus(snapshot: ProviderSecretStorageSnapshot | null, provide
   return snapshot?.providers.find((entry) => entry.providerType === providerType) ?? null;
 }
 
-function getStatusBadgeClassName(tone: ValidationBadgeTone) {
-  return `${statusBadgeBaseClassName} ${statusBadgeToneClassNames[tone]}`;
-}
-
 function getThemeSwatchClassName(theme: AppTheme) {
   const previewClassName = {
     system: "bg-[linear-gradient(135deg,#0f172a_0%_50%,#f8fafc_50%_100%)]",
@@ -216,11 +150,11 @@ function getThemeSwatchClassName(theme: AppTheme) {
 }
 
 const settingsModelSplitPanelClassName =
-  "overflow-hidden rounded-2xl border border-border-subtle bg-surface-0 shadow-xs";
+  "h-full overflow-hidden rounded-2xl border border-border-subtle bg-surface-1 p-0 shadow-xs";
 const settingsModelPaneListClassName =
-  "flex w-full shrink-0 flex-col border-b border-border-subtle bg-surface-2 md:w-[216px] md:border-b-0 md:border-r";
+  "flex w-full shrink-0 flex-col border-b border-border-subtle bg-surface-1 md:w-[216px] md:border-b-0 md:border-r";
 const settingsModelPaneDetailClassName =
-  "min-w-0 flex-1 overflow-y-auto bg-surface-0 px-6 py-5 max-sm:px-4";
+  "min-w-0 flex-1 overflow-y-auto bg-surface-1 px-6 py-5 max-sm:px-4";
 
 function getProviderInitial(provider: Provider) {
   const customLabel = provider.displayName.trim();
@@ -244,46 +178,6 @@ function getProviderDocsUrl(provider: Provider) {
   return provider.type === "openai"
     ? "https://platform.openai.com/api-keys"
     : "https://openrouter.ai/keys";
-}
-
-function formatProviderReadinessLabel(validation: ProviderValidationState | null | undefined) {
-  if (!validation) {
-    return { status: "info" as const, label: "Not checked" };
-  }
-
-  if (validation.loading) {
-    return { status: "info" as const, label: "Checking" };
-  }
-
-  if (validation.error) {
-    return { status: "error" as const, label: "Needs setup" };
-  }
-
-  if (!validation.data) {
-    return { status: "info" as const, label: "Not checked" };
-  }
-
-  if (validation.data.valid) {
-    return { status: "success" as const, label: "Ready" };
-  }
-
-  return {
-    status: validationReasonMeta[validation.data.reason].dotStatus,
-    label: validationReasonMeta[validation.data.reason].label
-  };
-}
-
-function statusDotGlyphClass(status: ReturnType<typeof formatProviderReadinessLabel>["status"]) {
-  switch (status) {
-    case "success":
-      return "text-success";
-    case "error":
-      return "text-error";
-    case "warning":
-      return "text-warning";
-    default:
-      return "text-text-muted";
-  }
 }
 
 function getPersistedSelectedModelIds(models: readonly ProviderModel[]) {
@@ -365,49 +259,6 @@ async function applyProviderCredentialToController(providerType: Provider["type"
     method: secret?.trim() ? "PUT" : "DELETE",
     ...(secret?.trim() ? { body: JSON.stringify({ apiKey: secret.trim() }) } : {})
   });
-}
-
-function ValidationBadge({ state }: { state: ProviderValidationState | null | undefined }) {
-  if (!state) {
-    return (
-      <Badge variant="secondary" size="sm" radius="full" className={getStatusBadgeClassName("unknown")}>
-        <StatusDot status="info" size="xs" className="size-2" />
-        <span>Not checked yet</span>
-      </Badge>
-    );
-  }
-
-  if (state.loading) {
-    return (
-      <Badge variant="warning" size="sm" radius="full" className={getStatusBadgeClassName("unknown")}>
-        <StatusDot status="warning" size="xs" pulse className="size-2" />
-        <span>Validating…</span>
-      </Badge>
-    );
-  }
-
-  if (state.error) {
-    return (
-      <Badge variant="destructive" size="sm" radius="full" className={getStatusBadgeClassName("offline")}>
-        <StatusDot status="error" size="xs" className="size-2" />
-        <span>Validation failed</span>
-      </Badge>
-    );
-  }
-
-  if (!state.data) {
-    return null;
-  }
-
-  const meta = validationReasonMeta[state.data.reason];
-  const tone: ValidationBadgeTone = state.data.valid ? "healthy" : meta.badgeVariant === "destructive" ? "offline" : "unknown";
-
-  return (
-    <Badge variant={meta.badgeVariant} size="sm" radius="full" className={getStatusBadgeClassName(tone)}>
-      <StatusDot status={meta.dotStatus} size="xs" className="size-2" />
-      <span>{meta.label}</span>
-    </Badge>
-  );
 }
 
 function GeneralSettingsPanel() {
@@ -776,7 +627,8 @@ function ModelSettingsPanel() {
   const [modelsState, setModelsState] = useState<AsyncState<ProviderModel[]>>(initialModelsState);
   const [modelsCacheByProviderId, setModelsCacheByProviderId] = useState<Record<string, ProviderModelsCacheEntry>>({});
   const [modelSearch, setModelSearch] = useState("");
-  const [manualModelName, setManualModelName] = useState("");
+  const [isModelSearchOpen, setIsModelSearchOpen] = useState(false);
+  const [highlightedModelResultIndex, setHighlightedModelResultIndex] = useState(0);
   const [manualModelError, setManualModelError] = useState<string | null>(null);
   const [selectedModelIdsByProviderId, setSelectedModelIdsByProviderId] = useState<Record<string, string[]>>({});
   const [modelSelectionBusyId, setModelSelectionBusyId] = useState<string | null>(null);
@@ -805,7 +657,6 @@ function ModelSettingsPanel() {
   const providers = providersState.data ?? [];
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) ?? null;
   const selectedValidation = selectedProviderId ? validationByProviderId[selectedProviderId] : null;
-  const selectedValidationMeta = selectedValidation?.data ? validationReasonMeta[selectedValidation.data.reason] : null;
   const selectedProviderSecretStatus = getSecretStatus(secretStorageState.data, selectedProvider?.type ?? "openai");
   const modelCatalog = modelsState.data ?? [];
   const selectedModelIds = selectedProviderId ? (selectedModelIdsByProviderId[selectedProviderId] ?? []) : [];
@@ -836,7 +687,7 @@ function ModelSettingsPanel() {
     );
   }, [providers, providerSearch]);
 
-  const showCreateForm = isCreatingProvider || providers.length === 0;
+  const showCreateForm = !providersState.loading && !providersState.error && (isCreatingProvider || providers.length === 0);
   const providerBaseUrlChanged = (providerBaseUrlInput.trim() || null) !== (selectedProvider?.baseUrl ?? null);
 
   const loadSecretStorage = useCallback(async () => {
@@ -1079,9 +930,18 @@ function ModelSettingsPanel() {
     setSecretInput("");
     setProviderBaseUrlInput(selectedProvider?.baseUrl ?? "");
     setModelSearch("");
-    setManualModelName("");
+    setIsModelSearchOpen(false);
+    setHighlightedModelResultIndex(0);
     setManualModelError(null);
   }, [selectedProvider?.baseUrl, selectedProviderId]);
+
+  useEffect(() => {
+    setHighlightedModelResultIndex(0);
+  }, [normalizedModelSearch]);
+
+  useEffect(() => {
+    setHighlightedModelResultIndex((current) => Math.min(current, Math.max(modelSearchResults.length - 1, 0)));
+  }, [modelSearchResults.length]);
 
   useEffect(() => {
     if (!selectedProviderId) {
@@ -1367,7 +1227,7 @@ function ModelSettingsPanel() {
   }, []);
 
   const addManualModel = useCallback(async (providerId: string) => {
-    const modelName = manualModelName.trim();
+    const modelName = modelSearch.trim();
 
     if (!modelName) {
       return;
@@ -1399,8 +1259,8 @@ function ModelSettingsPanel() {
       });
       await loadProviders();
       await validateProvider(providerId);
-      setManualModelName("");
       setModelSearch("");
+      setIsModelSearchOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to add model.";
       setManualModelError(
@@ -1411,7 +1271,7 @@ function ModelSettingsPanel() {
     } finally {
       setModelSelectionBusyId(null);
     }
-  }, [loadProviders, manualModelName, upsertCachedModel, validateProvider]);
+  }, [loadProviders, modelSearch, upsertCachedModel, validateProvider]);
 
   const addSelectedModel = useCallback(async (providerId: string, modelId: string) => {
     setModelSelectionBusyId(modelId);
@@ -1434,10 +1294,26 @@ function ModelSettingsPanel() {
         };
       });
       setModelSearch("");
+      setIsModelSearchOpen(false);
     } finally {
       setModelSelectionBusyId(null);
     }
   }, [modelCatalog, selectedModelIds.length, updateCachedModel]);
+
+  const addModelFromInput = useCallback(async (providerId: string) => {
+    const normalizedInput = modelSearch.trim().toLowerCase();
+    const highlightedModel = modelSearchResults[highlightedModelResultIndex] ?? modelSearchResults[0];
+    const highlightedModelMatchesInput = highlightedModel
+      ? highlightedModel.modelName.toLowerCase() === normalizedInput || highlightedModel.displayName.toLowerCase() === normalizedInput
+      : false;
+
+    if (highlightedModel && highlightedModelMatchesInput) {
+      await addSelectedModel(providerId, highlightedModel.id);
+      return;
+    }
+
+    await addManualModel(providerId);
+  }, [addManualModel, addSelectedModel, highlightedModelResultIndex, modelSearch, modelSearchResults]);
 
   const removeSelectedModel = useCallback(async (providerId: string, modelId: string) => {
     setModelSelectionBusyId(modelId);
@@ -1458,56 +1334,10 @@ function ModelSettingsPanel() {
     }
   }, [updateCachedModel]);
 
-  if (providersState.loading) {
-    return (
-      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
-        <CardHeader>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Model providers</span>
-            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Provider setup</CardTitle>
-            <CardDescription className="m-0 leading-[1.5] text-text-muted">Loading providers, model catalogs, and validation status.</CardDescription>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          <div className={settingsEmptyStateClassName}>
-            <ValidationBadge state={{ loading: true, data: null, error: null }} />
-            <p className="m-0 leading-[1.5] text-text-muted">Loading provider configuration…</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (providersState.error) {
-    return (
-      <Card className={`${surfaceCardClassName} flex flex-col gap-3`}>
-        <CardHeader>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Model providers</span>
-            <CardTitle className="m-0 text-2xl font-semibold text-text-heading">Provider setup</CardTitle>
-            <CardDescription className="m-0 leading-[1.5] text-text-muted">Settings could not load provider metadata.</CardDescription>
-          </div>
-        </CardHeader>
-
-        <CardContent className="flex flex-col gap-3">
-          <Badge variant="destructive" size="sm" radius="full" className={getStatusBadgeClassName("offline")}>
-            <StatusDot status="error" size="xs" className="size-2" />
-            <span>Provider list unavailable</span>
-          </Badge>
-          <p className="m-0 leading-[1.5] text-text-muted mono">{providersState.error}</p>
-          <Button type="button" variant="primary" onClick={() => void loadProviders()}>
-            Retry provider load
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className={settingsModelsStackClassName}>
       <Card className={settingsModelSplitPanelClassName}>
-        <div className="flex min-h-[600px] max-h-[calc(100vh-220px)] flex-col md:flex-row">
+        <div className="flex h-full min-h-[600px] flex-col md:flex-row">
           <section className={settingsModelPaneListClassName}>
             <div className="px-4 pt-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-tertiary">Providers</div>
             <div className="px-2 pb-2">
@@ -1524,11 +1354,15 @@ function ModelSettingsPanel() {
             </div>
 
             <div className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
-              {filteredProviders.length === 0 ? (
+              {providersState.loading ? (
+                <p className="px-2 py-2 text-[11px] text-text-muted">Loading providers…</p>
+              ) : providersState.error ? (
+                <p className="px-2 py-2 text-[11px] text-text-muted">Providers unavailable.</p>
+              ) : filteredProviders.length === 0 ? (
                 <p className="px-2 py-2 text-[11px] text-text-muted">No providers found.</p>
               ) : (
                 filteredProviders.map((provider) => {
-                  const readiness = formatProviderReadinessLabel(validationByProviderId[provider.id]);
+                  const isReady = validationByProviderId[provider.id]?.data?.valid === true;
                   const isActive = provider.id === selectedProviderId && !showCreateForm;
 
                   return (
@@ -1547,10 +1381,12 @@ function ModelSettingsPanel() {
                         {getProviderInitial(provider)}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-primary">{provider.displayName}</span>
-                      <span className="inline-flex items-center gap-1 text-[11px] text-text-muted">
-                        <StatusDot status={readiness.status} size="xs" className={statusDotGlyphClass(readiness.status)} />
-                        {readiness.label}
-                      </span>
+                      {isReady ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+                          <StatusDot status="success" size="xs" className="text-success" />
+                          Ready
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })
@@ -1570,7 +1406,27 @@ function ModelSettingsPanel() {
           </section>
 
           <section className={settingsModelPaneDetailClassName}>
-            {showCreateForm ? (
+            {providersState.loading ? (
+              <div className={settingsEmptyStateClassName}>
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-text-tertiary">Model providers</div>
+                  <div className="text-[22px] font-semibold text-text-heading">Provider setup</div>
+                  <p className="mt-1 text-sm text-text-muted">Loading provider configuration…</p>
+                </div>
+              </div>
+            ) : providersState.error ? (
+              <div className="flex flex-col gap-3">
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-text-tertiary">Model providers</div>
+                  <div className="text-[22px] font-semibold text-text-heading">Provider setup</div>
+                  <p className="mt-1 text-sm text-text-muted">Settings could not load provider metadata.</p>
+                </div>
+                <p className="m-0 leading-[1.5] text-text-muted mono">{providersState.error}</p>
+                <Button type="button" variant="primary" onClick={() => void loadProviders()}>
+                  Retry provider load
+                </Button>
+              </div>
+            ) : showCreateForm ? (
               <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
                 <div>
                   <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-text-tertiary">New provider</div>
@@ -1706,24 +1562,15 @@ function ModelSettingsPanel() {
                   </div>
                 </div>
 
-                {selectedValidation?.error ? (
-                  <p className="m-0 text-xs text-error mono">{selectedValidation.error}</p>
-                ) : selectedValidation?.data ? (
-                  selectedValidation.data.valid ? (
-                    <div className="flex items-center gap-2 text-xs text-text-muted">
-                      <StatusDot status="success" size="xs" />
-                      <span>Ready</span>
-                      <span>·</span>
-                      <span>{selectedValidation.data.availableModelCount} models</span>
-                      <span>·</span>
-                      <span>default {selectedValidation.data.defaultModelName ?? "none"}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 rounded-md border border-warning/20 bg-warning-subtle px-3 py-2 text-xs text-warning">
-                      <StatusDot status={selectedValidationMeta?.dotStatus ?? "warning"} size="xs" />
-                      <span>{selectedValidationMeta?.label}: {selectedValidationMeta?.guidance}</span>
-                    </div>
-                  )
+                {selectedValidation?.data?.valid ? (
+                  <div className="flex items-center gap-2 text-xs text-text-muted">
+                    <StatusDot status="success" size="xs" />
+                    <span>Ready</span>
+                    <span>·</span>
+                    <span>{selectedValidation.data.availableModelCount} models</span>
+                    <span>·</span>
+                    <span>default {selectedValidation.data.defaultModelName ?? "none"}</span>
+                  </div>
                 ) : null}
 
                 <div className="flex flex-col gap-3">
@@ -1783,7 +1630,7 @@ function ModelSettingsPanel() {
                         type="button"
                         onClick={() => void validateProvider(selectedProvider.id)}
                         disabled={selectedValidation?.loading}
-                        className="text-[11px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                        className="text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
                       >
                         {selectedValidation?.loading ? "Testing…" : "Test connection"}
                       </button>
@@ -1813,7 +1660,7 @@ function ModelSettingsPanel() {
                     <button
                       type="button"
                       onClick={() => selectedProviderId && void refreshProviderCatalog(selectedProviderId, { visible: true })}
-                      className="text-[11px] text-text-secondary hover:text-text-primary"
+                      className="text-[10px] text-text-secondary hover:text-text-primary"
                       disabled={isCatalogRefreshLoading}
                     >
                       {isCatalogRefreshLoading ? "Refreshing…" : modelCatalog.length > 0 ? "Refresh catalog" : "Load catalog"}
@@ -1826,75 +1673,6 @@ function ModelSettingsPanel() {
                     </p>
                   ) : null}
                   {modelsState.error ? <p className="m-0 text-xs text-error mono">{modelsState.error}</p> : null}
-
-                  {!modelsState.loading && !modelsState.error && !modelCatalog.length ? (
-                    <p className="m-0 text-xs text-text-muted">Add a model manually, or load the provider catalog if this provider supports model listing.</p>
-                  ) : null}
-
-                  <div className="flex flex-col gap-2 rounded-xl border border-border-subtle bg-surface-1 p-3">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] font-medium text-text-secondary">Manual model ID</span>
-                      <input
-                        type="text"
-                        value={manualModelName}
-                        onChange={(event) => setManualModelName(event.currentTarget.value)}
-                        placeholder={selectedProvider.type === "openai" ? "gpt-4.1-mini" : "openai/gpt-4.1-mini"}
-                        className="h-8 w-full rounded-md border border-border-subtle bg-surface-0 px-2.5 py-1 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                        disabled={modelSelectionBusyId != null}
-                      />
-                    </label>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="m-0 text-[11px] text-text-muted">Use this when catalog loading is unavailable or you already know the model ID.</p>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="h-7 px-3 text-xs"
-                        disabled={!manualModelName.trim() || modelSelectionBusyId != null}
-                        onClick={() => selectedProviderId && void addManualModel(selectedProviderId)}
-                      >
-                        {modelSelectionBusyId?.startsWith("manual:") ? "Adding…" : "Add model"}
-                      </Button>
-                    </div>
-                    {manualModelError ? <p className="m-0 text-[11px] text-error mono">{manualModelError}</p> : null}
-                  </div>
-
-                  {modelCatalog.length > 0 ? (
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-text-muted">⌕</span>
-                      <input
-                        type="text"
-                        value={modelSearch}
-                        onChange={(event) => setModelSearch(event.currentTarget.value)}
-                        placeholder="Search models..."
-                        className="h-8 w-full rounded-md border border-border-subtle bg-surface-0 py-1 pl-7 pr-2 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                      />
-                    </div>
-                  ) : null}
-
-                  {modelSearchResults.length > 0 ? (
-                    <div className="space-y-0.5 rounded-xl border border-border-subtle bg-surface-0 p-1" role="list" aria-label="Model search results">
-                      {modelSearchResults.map((model) => (
-                        <button
-                          key={model.id}
-                          type="button"
-                          onClick={() => selectedProviderId && void addSelectedModel(selectedProviderId, model.id)}
-                          disabled={modelSelectionBusyId != null}
-                          className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-1 disabled:opacity-60"
-                        >
-                          <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 text-xs font-bold text-text-primary">
-                            {model.modelName.charAt(0).toUpperCase()}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium text-text-primary">{model.displayName}</span>
-                            <span className="block truncate text-xs text-text-muted">{model.modelName}</span>
-                          </span>
-                          <span className="text-xs font-medium text-text-secondary">{modelSelectionBusyId === model.id ? "Adding…" : "Add"}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : normalizedModelSearch && modelCatalog.length > 0 ? (
-                    <p className="m-0 text-xs text-text-muted">No matching models in cache.</p>
-                  ) : null}
 
                   <div className="space-y-1" role="list" aria-label="Model list">
                     {selectedModels.map((model) => {
@@ -1932,6 +1710,88 @@ function ModelSettingsPanel() {
                   {modelCatalog.length > 0 && selectedModels.length === 0 && !normalizedModelSearch ? (
                     <p className="m-0 text-xs text-text-muted">No models added yet.</p>
                   ) : null}
+
+                  <div className="flex items-center gap-2 max-sm:flex-col max-sm:items-stretch">
+                    <div className="relative min-w-0 flex-1">
+                      {modelCatalog.length > 0 ? (
+                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-text-muted">⌕</span>
+                      ) : null}
+                      <input
+                        id="model-add-input"
+                        type="text"
+                        value={modelSearch}
+                        onChange={(event) => {
+                          setModelSearch(event.currentTarget.value);
+                          setIsModelSearchOpen(true);
+                          setManualModelError(null);
+                        }}
+                        onFocus={() => setIsModelSearchOpen(true)}
+                        onBlur={() => setIsModelSearchOpen(false)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && modelSearch.trim() && selectedProviderId && modelSelectionBusyId == null) {
+                            event.preventDefault();
+                            void addModelFromInput(selectedProviderId);
+                          }
+
+                          if (event.key === "ArrowDown" && modelSearchResults.length > 0) {
+                            event.preventDefault();
+                            setIsModelSearchOpen(true);
+                            setHighlightedModelResultIndex((current) => (current + 1) % modelSearchResults.length);
+                          }
+
+                          if (event.key === "ArrowUp" && modelSearchResults.length > 0) {
+                            event.preventDefault();
+                            setIsModelSearchOpen(true);
+                            setHighlightedModelResultIndex((current) => (current - 1 + modelSearchResults.length) % modelSearchResults.length);
+                          }
+                        }}
+                        role="combobox"
+                        aria-label="Add model"
+                        aria-expanded={isModelSearchOpen && modelSearchResults.length > 0}
+                        aria-controls="model-search-results"
+                        aria-describedby={manualModelError ? "model-add-error" : undefined}
+                        placeholder={modelCatalog.length > 0 ? "Search or enter model ID" : selectedProvider.type === "openai" ? "gpt-4.1-mini" : "openai/gpt-4.1-mini"}
+                        className={`h-8 w-full rounded-md border border-border-subtle bg-surface-0 py-1 pr-2.5 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 ${modelCatalog.length > 0 ? "pl-7" : "pl-2.5"}`}
+                        disabled={modelSelectionBusyId != null}
+                      />
+                      {isModelSearchOpen && modelSearchResults.length > 0 ? (
+                        <div id="model-search-results" className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-20 max-h-72 overflow-y-auto rounded-xl border border-border-subtle bg-surface-0 p-1 shadow-lg" role="listbox" aria-label="Model search results">
+                          {modelSearchResults.map((model, index) => (
+                            <button
+                              key={model.id}
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => selectedProviderId && void addSelectedModel(selectedProviderId, model.id)}
+                              disabled={modelSelectionBusyId != null}
+                              className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-1 disabled:opacity-60 data-[highlighted=true]:bg-surface-1"
+                              data-highlighted={index === highlightedModelResultIndex ? "true" : "false"}
+                              role="option"
+                              aria-selected={index === highlightedModelResultIndex}
+                            >
+                              <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 text-xs font-bold text-text-primary">
+                                {model.modelName.charAt(0).toUpperCase()}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium text-text-primary">{model.displayName}</span>
+                                <span className="block truncate text-xs text-text-muted">{model.modelName}</span>
+                              </span>
+                              <span className="text-xs font-medium text-text-secondary">{modelSelectionBusyId === model.id ? "Adding…" : "Add"}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-8 px-3 text-xs max-sm:w-full"
+                      disabled={!modelSearch.trim() || modelSelectionBusyId != null}
+                      onClick={() => selectedProviderId && void addModelFromInput(selectedProviderId)}
+                    >
+                      {modelSelectionBusyId != null ? "Adding…" : "Add"}
+                    </Button>
+                  </div>
+                  {manualModelError ? <p id="model-add-error" className="m-0 text-xs text-error mono" role="alert">{manualModelError}</p> : null}
                 </div>
               </div>
             ) : null}
