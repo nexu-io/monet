@@ -302,10 +302,7 @@ function SessionChatSurface({
           sessionTitle={session.title}
           sessionId={session.id}
           messageCount={messages.length}
-          workspacePath={session.workspacePath}
           activeTarget={activeProviderTarget}
-          isTargetOverridden={overrideProviderTarget !== null}
-          onChangeTarget={handleChangeProviderTarget}
         />
       )}
       composer={(
@@ -389,8 +386,6 @@ function EmptyChatConversation({
           sessionTitle={DEFAULT_SESSION_TITLE}
           messageCount={0}
           activeTarget={selectedProviderTarget}
-          isTargetOverridden={overrideProviderTarget !== null}
-          onChangeTarget={handleChangeProviderTarget}
         />
       )}
       composer={(

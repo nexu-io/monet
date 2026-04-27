@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Badge, Button, Card } from "@nexu-design/ui-web";
+import { Badge, Button, Card, TextLink } from "@nexu-design/ui-web";
 import { FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -54,7 +54,7 @@ const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
 const toolSummaryClassName = "flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden max-[960px]:flex-col max-[960px]:items-start";
 const markdownClassName = "leading-[1.6] text-text-primary [&_*:first-child]:mt-0 [&_*:last-child]:mb-0 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_li>ol]:my-1 [&_li>ul]:my-1";
 const internalToolLineClassName = "flex min-h-8 items-center gap-2 text-sm leading-[1.5] text-text-muted";
-const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted),var(--color-text-heading),var(--color-text-muted))] bg-[length:200%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_1.4s_ease-in-out_infinite]";
+const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted)_0%,var(--color-text-heading)_38%,var(--color-accent)_50%,var(--color-text-heading)_62%,var(--color-text-muted)_100%)] bg-[length:240%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_2.2s_ease-in-out_infinite]";
 
 function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
   switch (phase) {
@@ -233,6 +233,16 @@ function getSuccessfulWriteFileOutputPath(part: ToolPart) {
   return getStringField(part.output, "resolvedPath") ?? getStringField(part.output, "path");
 }
 
+function getPathDisplayName(path: string) {
+  const normalizedPath = path.trim().replace(/[\\/]+$/, "");
+
+  if (!normalizedPath) {
+    return path;
+  }
+
+  return normalizedPath.split(/[\\/]/).pop() ?? normalizedPath;
+}
+
 function getInternalToolIcon(toolName: string): LucideIcon {
   switch (toolName) {
     case "fetch_url":
@@ -258,6 +268,7 @@ function getInternalToolMessage(toolName: string, part: ToolPart) {
   const url = getStringField(part.input, "url");
   const path = getStringField(part.input, "path");
   const target = toolName === "fetch_url" ? url : path;
+  const displayTarget = toolName === "write_file" && target ? getPathDisplayName(target) : target;
   const destination = target ? ` ${target}` : "";
 
   if (part.state === "output-error" || part.state === "error") {
@@ -268,9 +279,9 @@ function getInternalToolMessage(toolName: string, part: ToolPart) {
       case "fetch_url":
         return withDetails(target ? `Couldn't fetch from ${target}` : "Couldn't fetch URL");
       case "read_file":
-        return withDetails(target ? `Couldn't read ${target}` : "Couldn't read file");
+        return withDetails(displayTarget ? `Couldn't read ${displayTarget}` : "Couldn't read file");
       case "write_file":
-        return withDetails(target ? `Couldn't write ${target}` : "Couldn't write file");
+        return withDetails(displayTarget ? `Couldn't write ${displayTarget}` : "Couldn't write file");
       default:
         return withDetails("Tool failed");
     }
@@ -281,25 +292,25 @@ function getInternalToolMessage(toolName: string, part: ToolPart) {
       case "fetch_url":
         return target ? `Fetched from ${target}.` : "Fetched URL.";
       case "read_file":
-        return target ? `Read ${target}.` : "Read file.";
+        return displayTarget ? `Read ${displayTarget}.` : "Read file.";
       case "write_file":
-        return target ? `Wrote ${target}.` : "Wrote file.";
+        return displayTarget ? `Wrote ${displayTarget}.` : "Wrote file.";
       default:
         return "Tool completed.";
     }
   }
 
   if (part.state === "approval-requested") {
-    return target ? `Ready to write ${target}.` : "Ready to write file.";
+    return displayTarget ? `Ready to write ${displayTarget}.` : "Ready to write file.";
   }
 
   switch (toolName) {
     case "fetch_url":
       return target ? `Fetching from ${target}.` : "Fetching URL.";
     case "read_file":
-      return target ? `Reading ${target}.` : "Reading file.";
+      return displayTarget ? `Reading ${displayTarget}.` : "Reading file.";
     case "write_file":
-      return target ? `Writing ${target}.` : "Writing file.";
+      return displayTarget ? `Writing ${displayTarget}.` : "Writing file.";
     default:
       return `${formatToolState(part.state)}.`;
   }
@@ -507,28 +518,36 @@ function renderPart(
     const isWriteFileCall = toolName === "write_file" && isWriteFileInput(part.input);
     const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
     const successfulWriteFilePath = toolName === "write_file" ? getSuccessfulWriteFileOutputPath(part) : null;
+    const successfulWriteFileName = successfulWriteFilePath ? getPathDisplayName(successfulWriteFilePath) : null;
     const toolErrorDetails = getToolErrorDetails(part);
 
     if (isInternalToolName(toolName)) {
       const Icon = getInternalToolIcon(toolName);
       const isExecuting = isExecutingToolState(part.state);
       const message = getInternalToolMessage(toolName, part);
+      const canOpenSuccessfulWriteFile = Boolean(successfulWriteFilePath && successfulWriteFileName && options.onOpenPath);
 
       return (
         <div key={`${part.type}-${index}`} className={internalToolLineClassName} data-tool-phase={toolStateMeta.phase}>
           <Icon aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
-          <span className={`${isExecuting ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={message}>{message}</span>
-          {successfulWriteFilePath && options.onOpenPath ? (
-            <button
-              type="button"
-              className="mono min-w-0 truncate rounded-md border border-border-subtle bg-surface-1 px-2 py-1 text-xs font-semibold text-accent transition hover:border-[hsl(var(--accent)/0.45)] hover:bg-[hsl(var(--accent)/0.08)] disabled:cursor-not-allowed disabled:opacity-60"
-              title={`${options.openPathLabel}: ${successfulWriteFilePath}`}
-              disabled={options.openingPath === successfulWriteFilePath}
-              onClick={() => options.onOpenPath?.(successfulWriteFilePath)}
-            >
-              {options.openingPath === successfulWriteFilePath ? "Opening…" : successfulWriteFilePath}
-            </button>
-          ) : null}
+          <span className={`${isExecuting ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={message}>
+            {canOpenSuccessfulWriteFile ? (
+              <>
+                Wrote{" "}
+                <TextLink asChild size="sm" className="mono align-baseline disabled:pointer-events-none disabled:opacity-60" showArrowUpRight={false}>
+                  <button
+                    type="button"
+                    title={`${options.openPathLabel}: ${successfulWriteFileName}`}
+                    disabled={options.openingPath === successfulWriteFilePath}
+                    onClick={() => options.onOpenPath?.(successfulWriteFilePath!)}
+                  >
+                    {options.openingPath === successfulWriteFilePath ? "Opening…" : successfulWriteFileName}
+                  </button>
+                </TextLink>
+                .
+              </>
+            ) : message}
+          </span>
           {toolErrorDetails ? <span className="min-w-0 truncate text-error" title={toolErrorDetails}>{toolErrorDetails}</span> : null}
           {part.state === "approval-requested" && canApprove ? (
             <span className="ml-1 inline-flex shrink-0 gap-2">
@@ -864,7 +883,7 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
 
     try {
       const result = await desktopApi.openPath({ path: targetPath });
-      setOpenPathFeedback(result.opened ? `Opened ${targetPath}` : result.error ?? `Unable to open ${targetPath}.`);
+      setOpenPathFeedback(result.opened ? null : result.error ?? `Unable to open ${targetPath}.`);
     } catch (error) {
       setOpenPathFeedback(error instanceof Error ? error.message : "Unable to open the written file.");
     } finally {
