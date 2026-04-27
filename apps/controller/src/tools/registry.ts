@@ -12,6 +12,14 @@ export interface RegisteredToolExecuteContext {
   readonly experimental_context?: unknown;
 }
 
+export interface RegisteredToolApprovalContext {
+  readonly toolCallId: string;
+  readonly messages: readonly unknown[];
+  readonly experimental_context?: unknown;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
+}
+
 export interface ToolMetadata {
   readonly name: string;
   readonly description: string;
@@ -35,6 +43,7 @@ export interface ToolExecutionHelpers {
 export interface RegisteredToolDefinition<TInput = unknown, TOutput = unknown> {
   readonly metadata: ToolMetadata;
   readonly inputSchema: unknown;
+  readonly needsApproval?: (input: TInput, context: RegisteredToolApprovalContext) => boolean | PromiseLike<boolean>;
   readonly execute: (input: TInput, context: RegisteredToolExecuteContext & ToolExecutionHelpers) => TOutput | Promise<TOutput>;
 }
 
@@ -100,7 +109,15 @@ export function createToolRegistry(
           const runtimeTool = tool({
             description: definition.metadata.description,
             inputSchema: definition.inputSchema as ToolFactoryOptions["inputSchema"],
-            needsApproval: definition.metadata.requiresConfirmation,
+            needsApproval: definition.needsApproval
+              ? async (input, approvalContext) => definition.needsApproval?.(input, {
+                toolCallId: approvalContext.toolCallId,
+                messages: approvalContext.messages,
+                experimental_context: approvalContext.experimental_context,
+                sessionId: context.sessionId,
+                sessionWorkspacePath: context.sessionWorkspacePath
+              }) ?? definition.metadata.requiresConfirmation
+              : definition.metadata.requiresConfirmation,
             onInputAvailable: ({ input, toolCallId }) => {
               const persistedToolCallId = context.chatStorage.startToolCall({
                 toolCallId,

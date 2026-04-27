@@ -695,6 +695,17 @@ export function createBuiltinToolDefinitions(
         path: z.string(),
         content: z.string()
       }).strict(),
+      async needsApproval(input, context) {
+        const normalizedInput = input as WriteFileInput;
+        const resolvedPath = await classifyFilesystemPath({
+          requestedPath: normalizedInput.path,
+          accessMode: "write",
+          sessionWorkspacePath: context.sessionWorkspacePath,
+          authorizedDirectories: getAllowedDirectories()
+        });
+
+        return resolvedPath.requiresConfirmation;
+      },
       async execute(input, context) {
         const normalizedInput = input as WriteFileInput;
         const contentSizeBytes = Buffer.byteLength(normalizedInput.content, "utf8");
