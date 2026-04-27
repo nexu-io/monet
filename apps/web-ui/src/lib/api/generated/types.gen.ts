@@ -261,6 +261,148 @@ export type DisconnectConnectorConnectionResponse = {
     status: 'not_connected';
 };
 
+export type ListLiveArtifactsResponse = {
+    artifacts: Array<{
+        id: string;
+        schemaVersion: 1;
+        sessionId: string | null;
+        createdByRunId: string | null;
+        createdByToolCallId: string | null;
+        title: string;
+        slug: string;
+        description: string | null;
+        status: 'draft' | 'active' | 'archived';
+        pinned: boolean;
+        refreshStatus: 'idle' | 'refreshing' | 'failed';
+        refreshStartedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+        lastRefreshedAt: string | null;
+        lastRefreshError: string | null;
+    }>;
+};
+
+/**
+ * A bounded JSON value for live artifact rendering and sanitized metadata.
+ */
+export type LiveArtifactJsonValue = string | number | boolean | null | Array<LiveArtifactJsonValue> | {
+    [key: string]: LiveArtifactJsonValue;
+};
+
+export type LiveArtifactResponse = {
+    artifact: {
+        id: string;
+        schemaVersion: 1;
+        sessionId: string | null;
+        createdByRunId: string | null;
+        createdByToolCallId: string | null;
+        title: string;
+        slug: string;
+        description: string | null;
+        status: 'draft' | 'active' | 'archived';
+        pinned: boolean;
+        refreshStatus: 'idle' | 'refreshing' | 'failed';
+        refreshStartedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+        lastRefreshedAt: string | null;
+        lastRefreshError: string | null;
+        tiles: Array<{
+            id: string;
+            artifactId: string;
+            schemaVersion: 1;
+            position: number;
+            title: string;
+            kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+            renderJson: {
+                kind: 'markdown';
+                markdown: string;
+            } | {
+                kind: 'metric';
+                label: string;
+                value: string;
+                caption?: string;
+                trend?: 'up' | 'down' | 'flat';
+            } | {
+                kind: 'list';
+                items: Array<{
+                    title: string;
+                    subtitle?: string;
+                    url?: string;
+                }>;
+            } | {
+                kind: 'table';
+                columns: Array<string>;
+                rows: Array<Array<string>>;
+            } | {
+                kind: 'link_card';
+                title: string;
+                url: string;
+                description?: string;
+                sourceLabel?: string;
+            } | {
+                kind: 'json';
+                value: LiveArtifactJsonValue;
+            };
+            provenanceJson: {
+                sources?: Array<{
+                    type: 'static' | 'tool' | 'connector_tool';
+                    label?: string;
+                    toolName?: string;
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    querySummary?: string;
+                    recordCount?: number;
+                    refreshedAt?: string;
+                }>;
+                notes?: Array<string>;
+                generatedAt?: string;
+            } | null;
+            sourceJson: {
+                type: 'tool' | 'connector_tool';
+                toolName: string;
+                input: {
+                    [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                connector?: {
+                    connectorId: string;
+                    connectorName: string;
+                    accountLabel: string | null;
+                    providerToolId: string | null;
+                };
+                refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                outputMapping: {
+                    preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                };
+            } | null;
+            refreshStatus: 'idle' | 'refreshing' | 'failed';
+            refreshStartedAt: string | null;
+            lastRefreshedAt: string | null;
+            lastError: string | null;
+            createdAt: string;
+            updatedAt: string;
+        }>;
+    };
+};
+
+export type UpdateLiveArtifactRequest = {
+    title?: string;
+    description?: string | null;
+    pinned?: boolean;
+    archived?: boolean;
+    status?: 'archived';
+};
+
+export type LiveArtifactRefreshDisabledResponse = ErrorResponse & {
+    disabled: true;
+};
+
 export type GetApiHealthData = {
     body?: never;
     path?: never;
@@ -1185,6 +1327,453 @@ export type DeleteApiConnectorsByConnectorIdConnectionResponses = {
 };
 
 export type DeleteApiConnectorsByConnectorIdConnectionResponse = DeleteApiConnectorsByConnectorIdConnectionResponses[keyof DeleteApiConnectorsByConnectorIdConnectionResponses];
+
+export type GetApiLiveArtifactsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        includeArchived?: 'true' | 'false';
+        sessionId?: string;
+        limit?: string;
+        offset?: string;
+    };
+    url: '/api/live-artifacts';
+};
+
+export type GetApiLiveArtifactsErrors = {
+    /**
+     * Query parameters are invalid.
+     */
+    400: ErrorResponse;
+};
+
+export type GetApiLiveArtifactsError = GetApiLiveArtifactsErrors[keyof GetApiLiveArtifactsErrors];
+
+export type GetApiLiveArtifactsResponses = {
+    /**
+     * Live artifacts fetched successfully.
+     */
+    200: ListLiveArtifactsResponse;
+};
+
+export type GetApiLiveArtifactsResponse = GetApiLiveArtifactsResponses[keyof GetApiLiveArtifactsResponses];
+
+export type PostApiLiveArtifactsData = {
+    body: {
+        title: string;
+        description?: string | null;
+        sessionId?: string | null;
+        tiles: Array<{
+            title: string;
+            kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+            renderJson: {
+                kind: 'markdown';
+                markdown: string;
+            } | {
+                kind: 'metric';
+                label: string;
+                value: string;
+                caption?: string;
+                trend?: 'up' | 'down' | 'flat';
+            } | {
+                kind: 'list';
+                items: Array<{
+                    title: string;
+                    subtitle?: string;
+                    url?: string;
+                }>;
+            } | {
+                kind: 'table';
+                columns: Array<string>;
+                rows: Array<Array<string>>;
+            } | {
+                kind: 'link_card';
+                title: string;
+                url: string;
+                description?: string;
+                sourceLabel?: string;
+            } | {
+                kind: 'json';
+                value: LiveArtifactJsonValue & (string | number | boolean | {
+                    [key: string]: unknown;
+                } | Array<unknown> | null);
+            };
+            provenanceJson?: {
+                sources?: Array<{
+                    type: 'static' | 'tool' | 'connector_tool';
+                    label?: string;
+                    toolName?: string;
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    querySummary?: string;
+                    recordCount?: number;
+                    refreshedAt?: string;
+                }>;
+                notes?: Array<string>;
+                generatedAt?: string;
+            } | null;
+            sourceJson?: {
+                type: 'tool' | 'connector_tool';
+                toolName: string;
+                input: {
+                    [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                connector?: {
+                    connectorId: string;
+                    connectorName: string;
+                    accountLabel: string | null;
+                    providerToolId: string | null;
+                };
+                refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                outputMapping: {
+                    preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                };
+            } | null;
+        }>;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/live-artifacts';
+};
+
+export type PostApiLiveArtifactsErrors = {
+    /**
+     * Request body is invalid.
+     */
+    400: ErrorResponse;
+    /**
+     * The live artifact could not be created.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiLiveArtifactsError = PostApiLiveArtifactsErrors[keyof PostApiLiveArtifactsErrors];
+
+export type PostApiLiveArtifactsResponses = {
+    /**
+     * Live artifact created successfully.
+     */
+    201: LiveArtifactResponse;
+};
+
+export type PostApiLiveArtifactsResponse = PostApiLiveArtifactsResponses[keyof PostApiLiveArtifactsResponses];
+
+export type GetApiLiveArtifactsByArtifactIdData = {
+    body?: never;
+    path: {
+        artifactId: string;
+    };
+    query?: never;
+    url: '/api/live-artifacts/{artifactId}';
+};
+
+export type GetApiLiveArtifactsByArtifactIdErrors = {
+    /**
+     * The requested live artifact was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The live artifact could not be loaded.
+     */
+    500: ErrorResponse;
+};
+
+export type GetApiLiveArtifactsByArtifactIdError = GetApiLiveArtifactsByArtifactIdErrors[keyof GetApiLiveArtifactsByArtifactIdErrors];
+
+export type GetApiLiveArtifactsByArtifactIdResponses = {
+    /**
+     * Live artifact fetched successfully.
+     */
+    200: LiveArtifactResponse & {
+        artifact?: {
+            id: string;
+            schemaVersion: 1;
+            sessionId: string | null;
+            createdByRunId: string | null;
+            createdByToolCallId: string | null;
+            title: string;
+            slug: string;
+            description: string | null;
+            status: 'draft' | 'active' | 'archived';
+            pinned: boolean;
+            refreshStatus: 'idle' | 'refreshing' | 'failed';
+            refreshStartedAt: string | null;
+            createdAt: string;
+            updatedAt: string;
+            lastRefreshedAt: string | null;
+            lastRefreshError: string | null;
+            tiles: Array<{
+                id: string;
+                artifactId: string;
+                schemaVersion: 1;
+                position: number;
+                title: string;
+                kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                renderJson: {
+                    kind: 'markdown';
+                    markdown: string;
+                } | {
+                    kind: 'metric';
+                    label: string;
+                    value: string;
+                    caption?: string;
+                    trend?: 'up' | 'down' | 'flat';
+                } | {
+                    kind: 'list';
+                    items: Array<{
+                        title: string;
+                        subtitle?: string;
+                        url?: string;
+                    }>;
+                } | {
+                    kind: 'table';
+                    columns: Array<string>;
+                    rows: Array<Array<string>>;
+                } | {
+                    kind: 'link_card';
+                    title: string;
+                    url: string;
+                    description?: string;
+                    sourceLabel?: string;
+                } | {
+                    kind: 'json';
+                    value: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                provenanceJson: {
+                    sources?: Array<{
+                        type: 'static' | 'tool' | 'connector_tool';
+                        label?: string;
+                        toolName?: string;
+                        connector?: {
+                            connectorId: string;
+                            connectorName: string;
+                            accountLabel: string | null;
+                            providerToolId: string | null;
+                        };
+                        querySummary?: string;
+                        recordCount?: number;
+                        refreshedAt?: string;
+                    }>;
+                    notes?: Array<string>;
+                    generatedAt?: string;
+                } | null;
+                sourceJson: {
+                    type: 'tool' | 'connector_tool';
+                    toolName: string;
+                    input: {
+                        [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                            [key: string]: unknown;
+                        } | Array<unknown> | null);
+                    };
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                    outputMapping: {
+                        preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    };
+                } | null;
+                refreshStatus: 'idle' | 'refreshing' | 'failed';
+                refreshStartedAt: string | null;
+                lastRefreshedAt: string | null;
+                lastError: string | null;
+                createdAt: string;
+                updatedAt: string;
+            }>;
+        };
+    };
+};
+
+export type GetApiLiveArtifactsByArtifactIdResponse = GetApiLiveArtifactsByArtifactIdResponses[keyof GetApiLiveArtifactsByArtifactIdResponses];
+
+export type PatchApiLiveArtifactsByArtifactIdData = {
+    body: UpdateLiveArtifactRequest;
+    path: {
+        artifactId: string;
+    };
+    query?: never;
+    url: '/api/live-artifacts/{artifactId}';
+};
+
+export type PatchApiLiveArtifactsByArtifactIdErrors = {
+    /**
+     * Request body is invalid.
+     */
+    400: ErrorResponse;
+    /**
+     * The requested live artifact was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The requested update conflicts with artifact state.
+     */
+    409: ErrorResponse;
+    /**
+     * The live artifact could not be updated.
+     */
+    500: ErrorResponse;
+};
+
+export type PatchApiLiveArtifactsByArtifactIdError = PatchApiLiveArtifactsByArtifactIdErrors[keyof PatchApiLiveArtifactsByArtifactIdErrors];
+
+export type PatchApiLiveArtifactsByArtifactIdResponses = {
+    /**
+     * Live artifact updated successfully.
+     */
+    200: LiveArtifactResponse & {
+        artifact?: {
+            id: string;
+            schemaVersion: 1;
+            sessionId: string | null;
+            createdByRunId: string | null;
+            createdByToolCallId: string | null;
+            title: string;
+            slug: string;
+            description: string | null;
+            status: 'draft' | 'active' | 'archived';
+            pinned: boolean;
+            refreshStatus: 'idle' | 'refreshing' | 'failed';
+            refreshStartedAt: string | null;
+            createdAt: string;
+            updatedAt: string;
+            lastRefreshedAt: string | null;
+            lastRefreshError: string | null;
+            tiles: Array<{
+                id: string;
+                artifactId: string;
+                schemaVersion: 1;
+                position: number;
+                title: string;
+                kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                renderJson: {
+                    kind: 'markdown';
+                    markdown: string;
+                } | {
+                    kind: 'metric';
+                    label: string;
+                    value: string;
+                    caption?: string;
+                    trend?: 'up' | 'down' | 'flat';
+                } | {
+                    kind: 'list';
+                    items: Array<{
+                        title: string;
+                        subtitle?: string;
+                        url?: string;
+                    }>;
+                } | {
+                    kind: 'table';
+                    columns: Array<string>;
+                    rows: Array<Array<string>>;
+                } | {
+                    kind: 'link_card';
+                    title: string;
+                    url: string;
+                    description?: string;
+                    sourceLabel?: string;
+                } | {
+                    kind: 'json';
+                    value: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                provenanceJson: {
+                    sources?: Array<{
+                        type: 'static' | 'tool' | 'connector_tool';
+                        label?: string;
+                        toolName?: string;
+                        connector?: {
+                            connectorId: string;
+                            connectorName: string;
+                            accountLabel: string | null;
+                            providerToolId: string | null;
+                        };
+                        querySummary?: string;
+                        recordCount?: number;
+                        refreshedAt?: string;
+                    }>;
+                    notes?: Array<string>;
+                    generatedAt?: string;
+                } | null;
+                sourceJson: {
+                    type: 'tool' | 'connector_tool';
+                    toolName: string;
+                    input: {
+                        [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                            [key: string]: unknown;
+                        } | Array<unknown> | null);
+                    };
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                    outputMapping: {
+                        preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    };
+                } | null;
+                refreshStatus: 'idle' | 'refreshing' | 'failed';
+                refreshStartedAt: string | null;
+                lastRefreshedAt: string | null;
+                lastError: string | null;
+                createdAt: string;
+                updatedAt: string;
+            }>;
+        };
+    };
+};
+
+export type PatchApiLiveArtifactsByArtifactIdResponse = PatchApiLiveArtifactsByArtifactIdResponses[keyof PatchApiLiveArtifactsByArtifactIdResponses];
+
+export type PostApiLiveArtifactsByArtifactIdRefreshData = {
+    body?: never;
+    path: {
+        artifactId: string;
+    };
+    query?: never;
+    url: '/api/live-artifacts/{artifactId}/refresh';
+};
+
+export type PostApiLiveArtifactsByArtifactIdRefreshErrors = {
+    /**
+     * Live artifact refresh is not enabled in this increment.
+     */
+    501: LiveArtifactRefreshDisabledResponse;
+};
+
+export type PostApiLiveArtifactsByArtifactIdRefreshError = PostApiLiveArtifactsByArtifactIdRefreshErrors[keyof PostApiLiveArtifactsByArtifactIdRefreshErrors];
+
+export type PostApiLiveArtifactsByArtifactIdTilesByTileIdRefreshData = {
+    body?: never;
+    path: {
+        artifactId: string;
+        tileId: string;
+    };
+    query?: never;
+    url: '/api/live-artifacts/{artifactId}/tiles/{tileId}/refresh';
+};
+
+export type PostApiLiveArtifactsByArtifactIdTilesByTileIdRefreshErrors = {
+    /**
+     * Live artifact tile refresh is not enabled in this increment.
+     */
+    501: LiveArtifactRefreshDisabledResponse;
+};
+
+export type PostApiLiveArtifactsByArtifactIdTilesByTileIdRefreshError = PostApiLiveArtifactsByArtifactIdTilesByTileIdRefreshErrors[keyof PostApiLiveArtifactsByArtifactIdTilesByTileIdRefreshErrors];
 
 export type ClientOptions = {
     baseUrl: `${string}://apps` | (string & {});

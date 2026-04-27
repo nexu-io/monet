@@ -96,9 +96,28 @@ export type LiveArtifactJsonValue =
   | LiveArtifactJsonValue[]
   | { [key: string]: LiveArtifactJsonValue };
 
-const jsonValueSchema: z.ZodType<LiveArtifactJsonValue> = z.lazy(() =>
-  z.union([z.string(), z.number().finite(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(jsonValueSchema)])
-);
+const jsonValueSchema: z.ZodType<LiveArtifactJsonValue> = z
+  .lazy(() =>
+    z.union([z.string(), z.number().finite(), z.boolean(), z.null(), z.array(jsonValueSchema), z.record(jsonValueSchema)])
+  )
+  .openapi("LiveArtifactJsonValue", {
+    description: "A bounded JSON value for live artifact rendering and sanitized metadata.",
+    type: ["string", "number", "boolean", "object", "array", "null"] as unknown as "object",
+    anyOf: [
+      { type: "string" },
+      { type: "number" },
+      { type: "boolean" },
+      { type: "null" as unknown as "object" },
+      {
+        type: "array",
+        items: { $ref: "#/components/schemas/LiveArtifactJsonValue" }
+      },
+      {
+        type: "object",
+        additionalProperties: { $ref: "#/components/schemas/LiveArtifactJsonValue" }
+      }
+    ]
+  });
 
 function getJsonDepth(value: LiveArtifactJsonValue): number {
   if (value === null || typeof value !== "object") {
