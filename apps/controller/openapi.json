@@ -21,6 +21,10 @@
     {
       "name": "Runs",
       "description": "Run lifecycle endpoints such as interruption."
+    },
+    {
+      "name": "Connectors",
+      "description": "External account connectors and connection status endpoints."
     }
   ],
   "components": {
@@ -691,6 +695,158 @@
         },
         "required": [
           "tools"
+        ]
+      },
+      "ConnectorToolPolicy": {
+        "type": "object",
+        "properties": {
+          "sideEffect": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "destructive",
+              "external_send"
+            ],
+            "example": "read"
+          },
+          "approval": {
+            "type": "string",
+            "enum": [
+              "never",
+              "first_use",
+              "always"
+            ],
+            "example": "first_use"
+          }
+        },
+        "required": [
+          "sideEffect",
+          "approval"
+        ]
+      },
+      "ConnectorStatus": {
+        "type": "string",
+        "enum": [
+          "unavailable",
+          "not_connected",
+          "connected",
+          "expired"
+        ],
+        "example": "not_connected"
+      },
+      "ConnectorProviderErrorCode": {
+        "type": "string",
+        "enum": [
+          "connection_missing",
+          "connection_expired",
+          "rate_limited",
+          "upstream_unavailable",
+          "invalid_arguments",
+          "forbidden",
+          "tool_not_found",
+          "provider_error"
+        ],
+        "example": "provider_error"
+      },
+      "ConnectorCatalogCard": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "github",
+              "notion",
+              "google_drive"
+            ],
+            "example": "github"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "GitHub"
+          },
+          "description": {
+            "type": "string",
+            "example": "Search repositories, issues, pull requests, commits, and releases."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "developer",
+              "productivity",
+              "files"
+            ],
+            "example": "developer"
+          },
+          "icon": {
+            "type": "string",
+            "example": "github"
+          },
+          "featuredTools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+            ]
+          },
+          "enabledByDefault": {
+            "type": "boolean",
+            "example": true
+          },
+          "minimumApprovalPolicy": {
+            "$ref": "#/components/schemas/ConnectorToolPolicy"
+          },
+          "capabilitySummaries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "Search and list repositories."
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectorStatus"
+          },
+          "connectedAccountLabel": {
+            "type": "string",
+            "example": "octocat"
+          },
+          "lastErrorCode": {
+            "$ref": "#/components/schemas/ConnectorProviderErrorCode"
+          },
+          "lastErrorMessage": {
+            "type": "string",
+            "example": "Connector provider is not configured."
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "description",
+          "category",
+          "icon",
+          "featuredTools",
+          "enabledByDefault",
+          "minimumApprovalPolicy",
+          "capabilitySummaries",
+          "status"
+        ]
+      },
+      "ListConnectorsResponse": {
+        "type": "object",
+        "properties": {
+          "connectors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorCatalogCard"
+            }
+          }
+        },
+        "required": [
+          "connectors"
         ]
       }
     },
@@ -1857,6 +2013,27 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ListToolsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connectors": {
+      "get": {
+        "tags": [
+          "Connectors"
+        ],
+        "summary": "List connectors",
+        "description": "Returns static connector catalog cards merged with connection status for this Monet install.",
+        "responses": {
+          "200": {
+            "description": "Connectors fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListConnectorsResponse"
                 }
               }
             }

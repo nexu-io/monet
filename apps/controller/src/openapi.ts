@@ -4,6 +4,41 @@ import { CONNECTOR_PROVIDER_ERROR_CODES } from "./connectors/errors";
 
 export const ConnectorProviderErrorCodeSchema = z.enum(CONNECTOR_PROVIDER_ERROR_CODES).openapi("ConnectorProviderErrorCode");
 
+export const ConnectorToolPolicySchema = z
+  .object({
+    sideEffect: z.enum(["read", "write", "destructive", "external_send"]).openapi({ example: "read" }),
+    approval: z.enum(["never", "first_use", "always"]).openapi({ example: "first_use" })
+  })
+  .openapi("ConnectorToolPolicy");
+
+export const ConnectorStatusSchema = z
+  .enum(["unavailable", "not_connected", "connected", "expired"])
+  .openapi("ConnectorStatus");
+
+export const ConnectorCatalogCardSchema = z
+  .object({
+    id: z.enum(["github", "notion", "google_drive"]).openapi({ example: "github" }),
+    displayName: z.string().openapi({ example: "GitHub" }),
+    description: z.string().openapi({ example: "Search repositories, issues, pull requests, commits, and releases." }),
+    category: z.enum(["developer", "productivity", "files"]).openapi({ example: "developer" }),
+    icon: z.string().openapi({ example: "github" }),
+    featuredTools: z.array(z.string()).openapi({ example: ["GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"] }),
+    enabledByDefault: z.boolean().openapi({ example: true }),
+    minimumApprovalPolicy: ConnectorToolPolicySchema,
+    capabilitySummaries: z.array(z.string()).openapi({ example: ["Search and list repositories."] }),
+    status: ConnectorStatusSchema.openapi({ example: "not_connected" }),
+    connectedAccountLabel: z.string().optional().openapi({ example: "octocat" }),
+    lastErrorCode: ConnectorProviderErrorCodeSchema.optional().openapi({ example: "provider_error" }),
+    lastErrorMessage: z.string().optional().openapi({ example: "Connector provider is not configured." })
+  })
+  .openapi("ConnectorCatalogCard");
+
+export const ListConnectorsResponseSchema = z
+  .object({
+    connectors: z.array(ConnectorCatalogCardSchema)
+  })
+  .openapi("ListConnectorsResponse");
+
 export const ErrorResponseSchema = z
   .object({
     error: z.string().openapi({ example: "unauthorized" }),

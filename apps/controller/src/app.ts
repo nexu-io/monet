@@ -1,12 +1,15 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
 import { createChatStorage } from "./chat-storage";
+import { ComposioConnectorProvider } from "./connectors/composio-provider";
+import { createConnectorService } from "./connectors/service";
 import { createRequestId, createLogger } from "./logger";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
 import { createProviderCredentialRegistry } from "./provider-credentials";
 import { createProviderRuntime } from "./provider-runtime";
 import { getRequestId, requestIdKey } from "./request-context";
 import { registerChatRoutes } from "./routes/chat";
+import { registerConnectorRoutes } from "./routes/connectors";
 import { registerHealthRoutes } from "./routes/health";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerRunRoutes } from "./routes/runs";
@@ -105,6 +108,11 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     openrouter: options.openrouter,
     providerCredentials
   });
+  const connectorProvider = new ComposioConnectorProvider({
+    config: options.connectorProvider.composio,
+    storage: chatStorage
+  });
+  const connectorService = createConnectorService({ provider: connectorProvider });
   const persistedAllowedDirectories = chatStorage.listAuthorizedDirectories().map((entry) => entry.path);
   const effectiveAllowedToolDirectories =
     options.allowedToolDirectoriesSource === "env"
@@ -219,6 +227,10 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       {
         name: "Tools",
         description: "In-process tool registry and confirmation endpoints."
+      },
+      {
+        name: "Connectors",
+        description: "External account connectors and connection status endpoints."
       }
     ]
   });
@@ -274,6 +286,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerProviderRoutes(app, { getChatStorage, providerCredentials, providerRuntime });
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });
+  registerConnectorRoutes(app, { connectorService, getChatStorage });
 
   return {
     app,

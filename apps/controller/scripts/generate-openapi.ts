@@ -16,6 +16,15 @@ async function main() {
     },
     bearerToken: "openapi-generation-token",
     databasePath: "/tmp/monet-openapi.sqlite",
+    connectorProvider: {
+      provider: "composio",
+      composio: {
+        apiKey: null,
+        baseUrl: "https://backend.composio.dev",
+        timeoutMs: null,
+        authConfigIds: {}
+      }
+    },
     features: {
       connectors: false
     },
@@ -56,6 +65,10 @@ async function main() {
       {
         name: "Runs",
         description: "Run lifecycle endpoints such as interruption."
+      },
+      {
+        name: "Connectors",
+        description: "External account connectors and connection status endpoints."
       }
     ]
   });
