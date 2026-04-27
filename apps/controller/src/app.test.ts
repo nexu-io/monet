@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { createControllerApp } from "./app";
 import { createChatStorage } from "./chat-storage";
+import { createControllerConfig } from "./config";
 import { createSessionWorkspaceService } from "./session-workspace-service";
 
 function createAppFixture() {
@@ -109,6 +110,86 @@ test("controller app keeps persisted authorized directories when env uses defaul
     assert.deepEqual(
       reopenedStorage.listAuthorizedDirectories().map((entry) => entry.path),
       [resolve(fixture.persistedDir)]
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("controller app exposes persisted authorized directories when default allowlist is empty", async () => {
+  const fixture = createAppFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    storage.replaceAuthorizedDirectories([fixture.persistedDir]);
+
+    const runtime = createControllerApp({
+      ...testControllerOptions,
+      allowedToolDirectories: [],
+      allowedToolDirectoriesSource: "default",
+      databasePath: fixture.databasePath,
+      sessionWorkspaceBaseDirectory: fixture.sessionWorkspaceBaseDirectory
+    });
+    const response = await runtime.app.request(
+      "http://127.0.0.1:42831/api/settings/authorized-directories",
+      {
+        headers: authorizedRequestHeaders
+      }
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      (await response.json()).authorizedDirectories.map((entry: { path: string }) => entry.path),
+      [resolve(fixture.persistedDir)]
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("controller app honors MONET_TOOL_ALLOWED_DIRECTORIES over persisted authorized directories", async () => {
+  const fixture = createAppFixture();
+  const envDir = join(fixture.fixtureDir, "env-workspace");
+  const secondEnvDir = join(fixture.fixtureDir, "second-env-workspace");
+  mkdirSync(envDir, { recursive: true });
+  mkdirSync(secondEnvDir, { recursive: true });
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    storage.replaceAuthorizedDirectories([fixture.persistedDir]);
+    const config = createControllerConfig({
+      MONET_CONTROLLER_BEARER_TOKEN: testControllerOptions.bearerToken,
+      MONET_DATABASE_PATH: fixture.databasePath,
+      MONET_SESSION_WORKSPACE_DIR: fixture.sessionWorkspaceBaseDirectory,
+      MONET_TOOL_ALLOWED_DIRECTORIES: `${envDir}, ${secondEnvDir}, ${envDir}`
+    });
+
+    const runtime = createControllerApp({
+      ...testControllerOptions,
+      allowedToolDirectories: config.allowedToolDirectories,
+      allowedToolDirectoriesSource: config.allowedToolDirectoriesSource,
+      databasePath: config.databasePath,
+      sessionWorkspaceBaseDirectory: config.sessionWorkspaceBaseDirectory
+    });
+    const response = await runtime.app.request(
+      "http://127.0.0.1:42831/api/settings/authorized-directories",
+      {
+        headers: authorizedRequestHeaders
+      }
+    );
+    const reopenedStorage = createStorage(fixture.databasePath);
+    const expectedDirectories = [resolve(envDir), resolve(secondEnvDir)];
+
+    assert.equal(config.allowedToolDirectoriesSource, "env");
+    assert.deepEqual(config.allowedToolDirectories, expectedDirectories);
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      (await response.json()).authorizedDirectories.map((entry: { path: string }) => entry.path),
+      expectedDirectories
+    );
+    assert.deepEqual(
+      reopenedStorage.listAuthorizedDirectories().map((entry) => entry.path),
+      expectedDirectories
     );
   } finally {
     fixture.cleanup();
