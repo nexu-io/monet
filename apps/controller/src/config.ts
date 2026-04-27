@@ -18,6 +18,7 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
+  readonly connectorProvider: ConnectorProviderConfig;
   readonly features: FeatureConfig;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
@@ -45,6 +46,19 @@ export interface OpenRouterProviderConfig {
   readonly apiKey: string | null;
   readonly baseUrl: string | null;
   readonly defaultModel: string;
+  readonly timeoutMs: number | null;
+}
+
+export type ConnectorProviderType = "composio";
+
+export interface ConnectorProviderConfig {
+  readonly provider: ConnectorProviderType;
+  readonly composio: ComposioProviderConfig;
+}
+
+export interface ComposioProviderConfig {
+  readonly apiKey: string | null;
+  readonly baseUrl: string;
   readonly timeoutMs: number | null;
 }
 
@@ -76,6 +90,14 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
     databasePath: resolveDatabasePath(env),
+    connectorProvider: {
+      provider: parseConnectorProvider(env.MONET_CONNECTOR_PROVIDER),
+      composio: {
+        apiKey: parseOptionalString(env.MONET_COMPOSIO_API_KEY) ?? parseOptionalString(env.COMPOSIO_API_KEY),
+        baseUrl: parseUrl(env.MONET_COMPOSIO_BASE_URL) ?? parseUrl(env.COMPOSIO_BASE_URL) ?? "https://backend.composio.dev",
+        timeoutMs: parseInteger(env.MONET_COMPOSIO_TIMEOUT_MS)
+      }
+    },
     openai: {
       apiKey: parseOptionalString(env.MONET_OPENAI_API_KEY) ?? parseOptionalString(env.OPENAI_API_KEY),
       baseUrl: parseUrl(env.MONET_OPENAI_BASE_URL) ?? parseUrl(env.OPENAI_BASE_URL),
@@ -89,6 +111,16 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
     }
   };
+}
+
+function parseConnectorProvider(value: string | undefined): ConnectorProviderType {
+  const normalized = value?.trim().toLowerCase() || "composio";
+
+  if (normalized !== "composio") {
+    throw new Error(`MONET_CONNECTOR_PROVIDER must be composio, received: ${value}`);
+  }
+
+  return normalized;
 }
 
 function resolveDatabasePath(env: NodeJS.ProcessEnv): string {

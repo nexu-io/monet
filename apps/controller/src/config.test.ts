@@ -41,3 +41,38 @@ test("uses explicit tool allowed directories when configured", () => {
   assert.deepEqual(config.allowedToolDirectories, [resolve("./one"), resolve("./two")]);
   assert.equal(config.allowedToolDirectoriesSource, "env");
 });
+
+test("loads Composio connector provider config from controller environment only", () => {
+  const config = createControllerConfig(
+    createEnv({
+      COMPOSIO_API_KEY: "ignored-upstream-key",
+      MONET_COMPOSIO_API_KEY: " monet-composio-key ",
+      MONET_COMPOSIO_BASE_URL: "https://api.example.test/composio/",
+      MONET_COMPOSIO_TIMEOUT_MS: "2500",
+      VITE_MONET_COMPOSIO_API_KEY: "renderer-key-must-not-be-read"
+    })
+  );
+
+  assert.equal(config.connectorProvider.provider, "composio");
+  assert.equal(config.connectorProvider.composio.apiKey, "monet-composio-key");
+  assert.equal(config.connectorProvider.composio.baseUrl, "https://api.example.test/composio");
+  assert.equal(config.connectorProvider.composio.timeoutMs, 2500);
+});
+
+test("falls back to the standard Composio environment key and default base URL", () => {
+  const config = createControllerConfig(
+    createEnv({
+      COMPOSIO_API_KEY: "standard-composio-key"
+    })
+  );
+
+  assert.equal(config.connectorProvider.composio.apiKey, "standard-composio-key");
+  assert.equal(config.connectorProvider.composio.baseUrl, "https://backend.composio.dev");
+});
+
+test("rejects unsupported connector providers", () => {
+  assert.throws(
+    () => createControllerConfig(createEnv({ MONET_CONNECTOR_PROVIDER: "pipedream" })),
+    /MONET_CONNECTOR_PROVIDER must be composio/
+  );
+});

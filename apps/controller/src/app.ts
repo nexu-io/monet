@@ -16,7 +16,13 @@ import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createBuiltinToolDefinitions } from "./tools/builtins";
 import { createToolRegistry } from "./tools/registry";
-import type { AgentRuntimeConfig, FeatureConfig, OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
+import type {
+  AgentRuntimeConfig,
+  ConnectorProviderConfig,
+  FeatureConfig,
+  OpenAIProviderConfig,
+  OpenRouterProviderConfig
+} from "./config";
 
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
@@ -25,6 +31,7 @@ export interface CreateControllerAppOptions {
   readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly databasePath: string;
+  readonly connectorProvider: ConnectorProviderConfig;
   readonly features: FeatureConfig;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;

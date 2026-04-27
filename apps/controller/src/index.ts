@@ -47,6 +47,7 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     allowedToolDirectoriesSource: config.allowedToolDirectoriesSource,
     agentRuntime: config.agentRuntime,
     bearerToken: config.bearerToken,
+    connectorProvider: config.connectorProvider,
     databasePath: config.databasePath,
     features: config.features,
     openai: config.openai,

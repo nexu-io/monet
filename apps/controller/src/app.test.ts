@@ -61,6 +61,14 @@ test("controller app keeps persisted authorized directories when env uses defaul
         maxToolCallsPerRun: 16
       },
       bearerToken: "test-token",
+      connectorProvider: {
+        provider: "composio",
+        composio: {
+          apiKey: null,
+          baseUrl: "https://backend.composio.dev",
+          timeoutMs: null
+        }
+      },
       databasePath: fixture.databasePath,
       features: {
         connectors: false
