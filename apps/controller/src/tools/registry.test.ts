@@ -486,6 +486,116 @@ test("tool registry composes connector tools at runtime and propagates abort sig
   }
 });
 
+test("connector runtime logs redact OAuth codes, tokens, provider API keys, raw arguments, and raw results", async () => {
+  const fixture = createTestStorage();
+  const previousPretty = process.env.MONET_LOG_PRETTY;
+  const previousLevel = process.env.MONET_LOG_LEVEL;
+  const previousLog = console.log;
+  const previousWarn = console.warn;
+  const previousError = console.error;
+  const messages: string[] = [];
+
+  process.env.MONET_LOG_PRETTY = "0";
+  process.env.MONET_LOG_LEVEL = "debug";
+  console.log = (message?: unknown) => {
+    messages.push(String(message));
+  };
+  console.warn = (message?: unknown) => {
+    messages.push(String(message));
+  };
+  console.error = (message?: unknown) => {
+    messages.push(String(message));
+  };
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "connector logging" }] }]
+    });
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "github_sensitive_tool",
+          description: "Connector tool with sensitive inputs and outputs.",
+          requiresConfirmation: true,
+          connector: {
+            connectorId: "github",
+            connectorName: "GitHub",
+            accountLabel: "octocat",
+            toolName: "Sensitive connector tool",
+            providerToolId: "GITHUB_SENSITIVE_TOOL",
+            approvalPolicy: { sideEffect: "write", approval: "always" }
+          }
+        },
+        inputSchema: { type: "object", additionalProperties: true } as never,
+        execute() {
+          return {
+            ok: true,
+            rawResult: "raw-tool-result-secret",
+            accessToken: "output-access-token-secret"
+          };
+        }
+      }
+    ]);
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      chatStorage: fixture.storage,
+      logger: createLogger("test", { providerApiKey: "provider-api-key-secret" })
+    });
+
+    const execute = (runtimeTools.github_sensitive_tool as { execute: (input: unknown, context: unknown) => Promise<unknown> }).execute;
+
+    await execute(
+      {
+        code: "oauth-code-secret",
+        accessToken: "input-access-token-secret",
+        refresh_token: "input-refresh-token-secret",
+        authorization: "Bearer input-bearer-token-secret",
+        rawArguments: { query: "raw-tool-argument-secret" }
+      },
+      {
+        toolCallId: "call_sdk_connector_logging",
+        messages: [],
+        abortSignal: new AbortController().signal,
+        experimental_context: undefined
+      }
+    );
+  } finally {
+    console.log = previousLog;
+    console.warn = previousWarn;
+    console.error = previousError;
+
+    if (previousPretty === undefined) {
+      delete process.env.MONET_LOG_PRETTY;
+    } else {
+      process.env.MONET_LOG_PRETTY = previousPretty;
+    }
+
+    if (previousLevel === undefined) {
+      delete process.env.MONET_LOG_LEVEL;
+    } else {
+      process.env.MONET_LOG_LEVEL = previousLevel;
+    }
+
+    fixture.cleanup();
+  }
+
+  const output = messages.join("\n");
+
+  assert.match(output, /connector\.tool\.execution_started/);
+  assert.match(output, /connector\.tool\.execution_completed/);
+  assert.match(output, /"connectorId":"github"/);
+  assert.match(output, /"toolName":"Sensitive connector tool"/);
+  assert.match(output, /\[REDACTED\]/);
+  assert.doesNotMatch(output, /oauth-code-secret/);
+  assert.doesNotMatch(output, /input-access-token-secret/);
+  assert.doesNotMatch(output, /input-refresh-token-secret/);
+  assert.doesNotMatch(output, /input-bearer-token-secret/);
+  assert.doesNotMatch(output, /provider-api-key-secret/);
+  assert.doesNotMatch(output, /raw-tool-argument-secret/);
+  assert.doesNotMatch(output, /raw-tool-result-secret/);
+  assert.doesNotMatch(output, /output-access-token-secret/);
+});
+
 test("tool registry persists connector approval metadata for connector tools", async () => {
   const fixture = createTestStorage();
 
