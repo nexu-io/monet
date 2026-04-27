@@ -461,9 +461,25 @@ Open workspace action:
 
 ## 12. Migration and Compatibility
 
-Existing sessions may not have workspaces. That is acceptable; create lazily when first needed.
+Relative file-tool paths now mean “inside the current session workspace.” A request like `write_file("hello.html")` must create or update:
+
+```txt
+<session-workspace-base>/<validated-session-id>/workspace/hello.html
+```
+
+and must not resolve against controller `cwd`, the repo root, the user's home directory, or the first authorized directory.
+
+Existing sessions may not have workspace directories yet. That is acceptable: derive the workspace path from the existing session ID, validate the ID with the filesystem-safe session ID rules, and create the directory lazily when a file tool or workspace-open action first needs it. This preserves stable paths across restarts without adding a migration that eagerly creates directories for every historical session.
 
 Existing authorized directories should keep working.
+
+Compatibility requirements:
+
+- Preserve persisted authorized directories across the migration.
+- Preserve `MONET_TOOL_ALLOWED_DIRECTORIES` behavior for deployments that intentionally grant external read/write scope.
+- Do not keep `process.cwd()` as an implicit default authorized directory once session workspace writes are available; the default external allowlist is `[]`.
+- External authorized-directory reads remain allowed, and external authorized-directory writes still require confirmation.
+- A workspace belonging to another session is not accessible by default. It is treated like any other external path unless the user explicitly authorizes it, and writes there require confirmation.
 
 Temporary compatibility path:
 

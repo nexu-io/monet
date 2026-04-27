@@ -64,6 +64,14 @@ From the repository root:
 - Desktop packaging is configured in `apps/desktop/package.json`: Electron Builder packages `apps/desktop/dist`, bundles controller, renderer, and migration assets into `app.asar`, runs native dependency alignment via `electron-builder install-app-deps`, and flips Electron fuses for packaged builds.
 - Managed desktop launches pin SQLite to `app.getPath('userData')/sqlite/monet.db`; on POSIX hosts Monet best-effort chmods the database directory to `0700` and the database, WAL, and SHM files to `0600`.
 
+## Session Workspaces and File Tools
+
+- Each session has a dedicated workspace for files the agent creates or reads during that chat. In desktop builds the workspace base is under the app user-data directory; local controller-only development falls back to `session-workspaces/` under the controller working directory unless `MONET_SESSION_WORKSPACE_DIR` or `MONET_USER_DATA_DIR` is set.
+- Relative `read_file` and `write_file` paths now resolve inside the current session workspace. For example, `write_file("hello.html")` writes to that session's workspace, not the repository root, controller `cwd`, home directory, or the first authorized directory.
+- Writes inside the current session workspace do not require confirmation. Reads and writes outside the workspace are denied unless the target is inside an authorized directory; authorized-directory writes still require confirmation.
+- Existing sessions are migration-compatible: they do not need pre-created workspace records. Monet derives a stable workspace path from the existing session ID and creates the directory lazily the first time a file operation or “Open workspace folder” action needs it.
+- Existing persisted authorized directories and `MONET_TOOL_ALLOWED_DIRECTORIES` remain supported for real user/project files. The unsafe historical fallback that treated `process.cwd()` as authorized by default has been removed, so external access must come from persisted settings or environment configuration.
+
 ## Release Notes
 
 - macOS signing/notarization settings live in `apps/desktop/package.json` and use entitlements from `apps/desktop/resources/`.
