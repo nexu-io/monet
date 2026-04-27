@@ -552,6 +552,10 @@ export interface ApplyLiveArtifactRefreshResultsInput {
     readonly renderJson: LiveArtifactRenderJson;
     readonly provenanceJson?: LiveArtifactProvenanceJson | null;
   }[];
+  readonly failedTiles?: readonly {
+    readonly tileId: string;
+    readonly errorMessage: string;
+  }[];
 }
 
 export interface StoredLiveArtifactRefresh {
@@ -1392,7 +1396,12 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         const updateTile = connection.prepare(
           `UPDATE live_artifact_tiles
            SET kind = ?, render_json = ?, provenance_json = ?, refresh_status = 'idle',
-               refresh_started_at = NULL, last_refreshed_at = ?, last_error = NULL, updated_at = ?
+                refresh_started_at = NULL, last_refreshed_at = ?, last_error = NULL, updated_at = ?
+            WHERE id = ? AND artifact_id = ?`
+        );
+        const failTile = connection.prepare(
+          `UPDATE live_artifact_tiles
+           SET refresh_status = 'failed', refresh_started_at = NULL, last_error = ?, updated_at = ?
            WHERE id = ? AND artifact_id = ?`
         );
 
@@ -1428,14 +1437,35 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
           }
         }
 
+        for (const failedTile of input.failedTiles ?? []) {
+          const result = failTile.run(
+            truncateLiveArtifactError(failedTile.errorMessage),
+            now,
+            failedTile.tileId,
+            input.artifactId
+          );
+
+          if (result.changes !== 1) {
+            throw new ChatStorageResolutionError({
+              message: `Unknown tileId for artifact: ${failedTile.tileId}`,
+              statusCode: 404,
+              errorCode: "not_found"
+            });
+          }
+        }
+
+        const failedCount = input.failedTiles?.length ?? 0;
+        const lastRefreshError = failedCount > 0
+          ? truncateLiveArtifactError(`${failedCount} tile${failedCount === 1 ? "" : "s"} failed to refresh.`)
+          : null;
         connection
           .prepare(
             `UPDATE live_artifacts
-             SET refresh_status = 'idle', refresh_started_at = NULL, last_refreshed_at = ?,
-                 last_refresh_error = NULL, updated_at = ?
-             WHERE id = ?`
+             SET refresh_status = ?, refresh_started_at = NULL, last_refreshed_at = ?,
+                  last_refresh_error = ?, updated_at = ?
+              WHERE id = ?`
           )
-          .run(now, now, input.artifactId);
+          .run(failedCount > 0 ? "failed" : "idle", now, lastRefreshError, now, input.artifactId);
 
         const artifact = getLiveArtifactOrThrow(connection, input.artifactId);
         connection.exec("COMMIT");

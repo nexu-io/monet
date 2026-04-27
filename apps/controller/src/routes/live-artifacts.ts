@@ -69,6 +69,20 @@ const LiveArtifactResponseSchema = z
   })
   .openapi("LiveArtifactResponse");
 
+const LiveArtifactRefreshFailureSchema = z.object({
+  tileId: z.string().openapi({ example: "til_123" }),
+  tileTitle: z.string().openapi({ example: "Recent invoices" }),
+  toolName: z.string().openapi({ example: "stripe_list_invoices" }),
+  error: z.string().openapi({ example: "Refresh tool is unavailable: stripe_list_invoices" })
+});
+
+const LiveArtifactRefreshResponseSchema = z
+  .object({
+    artifact: LiveArtifactWithTilesSchema,
+    failures: z.array(LiveArtifactRefreshFailureSchema)
+  })
+  .openapi("LiveArtifactRefreshResponse");
+
 const RefreshDisabledResponseSchema = ErrorResponseSchema.extend({
   disabled: z.literal(true).openapi({ example: true })
 }).openapi("LiveArtifactRefreshDisabledResponse");
@@ -274,7 +288,7 @@ const refreshLiveArtifactRoute = createRoute({
       description: "Live artifact refreshed successfully.",
       content: {
         "application/json": {
-          schema: LiveArtifactResponseSchema
+          schema: LiveArtifactRefreshResponseSchema
         }
       }
     },
@@ -450,7 +464,7 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
         abortSignal: context.req.raw.signal
       });
 
-      return context.json({ artifact: result.artifact }, 200);
+      return context.json({ artifact: result.artifact, failures: [...result.failures] }, 200);
     } catch (error) {
       if (error instanceof ChatStorageResolutionError) {
         return context.json(createErrorResponse(error.errorCode, error.message), error.statusCode === 404 ? 404 : 400);

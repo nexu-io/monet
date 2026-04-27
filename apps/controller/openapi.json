@@ -2034,6 +2034,688 @@
         },
         "additionalProperties": false
       },
+      "LiveArtifactRefreshResponse": {
+        "type": "object",
+        "properties": {
+          "artifact": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "schemaVersion": {
+                "type": "number",
+                "enum": [
+                  1
+                ]
+              },
+              "sessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "createdByRunId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "createdByToolCallId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "slug": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived"
+                ]
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "refreshStatus": {
+                "type": "string",
+                "enum": [
+                  "idle",
+                  "refreshing",
+                  "failed"
+                ]
+              },
+              "refreshStartedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "lastRefreshedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "lastRefreshError": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "tiles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "artifactId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "schemaVersion": {
+                      "type": "number",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "markdown",
+                        "metric",
+                        "list",
+                        "table",
+                        "link_card",
+                        "json"
+                      ]
+                    },
+                    "renderJson": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "markdown"
+                              ]
+                            },
+                            "markdown": {
+                              "type": "string",
+                              "minLength": 0,
+                              "maxLength": 20000
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "markdown"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "metric"
+                              ]
+                            },
+                            "label": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 120
+                            },
+                            "value": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "caption": {
+                              "type": "string",
+                              "minLength": 0,
+                              "maxLength": 500
+                            },
+                            "trend": {
+                              "type": "string",
+                              "enum": [
+                                "up",
+                                "down",
+                                "flat"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "label",
+                            "value"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "list"
+                              ]
+                            },
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 300
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "minLength": 0,
+                                    "maxLength": 700
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2000,
+                                    "format": "uri"
+                                  }
+                                },
+                                "required": [
+                                  "title"
+                                ]
+                              },
+                              "maxItems": 100
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "items"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "table"
+                              ]
+                            },
+                            "columns": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1000
+                              },
+                              "minItems": 1,
+                              "maxItems": 30
+                            },
+                            "rows": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 0,
+                                  "maxLength": 1000
+                                },
+                                "maxItems": 30
+                              },
+                              "maxItems": 200
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "columns",
+                            "rows"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "link_card"
+                              ]
+                            },
+                            "title": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 160
+                            },
+                            "url": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000,
+                              "format": "uri"
+                            },
+                            "description": {
+                              "type": "string",
+                              "minLength": 0,
+                              "maxLength": 1000
+                            },
+                            "sourceLabel": {
+                              "type": "string",
+                              "minLength": 0,
+                              "maxLength": 120
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "title",
+                            "url"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "json"
+                              ]
+                            },
+                            "value": {
+                              "allOf": [
+                                {
+                                  "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                },
+                                {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "object",
+                                    "array",
+                                    "null",
+                                    "null"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value"
+                          ]
+                        }
+                      ]
+                    },
+                    "provenanceJson": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "sources": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "static",
+                                  "tool",
+                                  "connector_tool"
+                                ]
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "toolName": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "connector": {
+                                "type": "object",
+                                "properties": {
+                                  "connectorId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "connectorName": {
+                                    "type": "string"
+                                  },
+                                  "accountLabel": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "providerToolId": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "minLength": 1,
+                                    "maxLength": 200
+                                  }
+                                },
+                                "required": [
+                                  "connectorId",
+                                  "connectorName",
+                                  "accountLabel",
+                                  "providerToolId"
+                                ]
+                              },
+                              "querySummary": {
+                                "type": "string"
+                              },
+                              "recordCount": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000
+                              },
+                              "refreshedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "type"
+                            ]
+                          },
+                          "maxItems": 20,
+                          "default": []
+                        },
+                        "notes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 20
+                        },
+                        "generatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "sourceJson": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tool",
+                            "connector_tool"
+                          ]
+                        },
+                        "toolName": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "input": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "allOf": [
+                              {
+                                "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                              },
+                              {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "object",
+                                  "array",
+                                  "null",
+                                  "null"
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "connector": {
+                          "type": "object",
+                          "properties": {
+                            "connectorId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "connectorName": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 120
+                            },
+                            "accountLabel": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "minLength": 0,
+                              "maxLength": 200
+                            },
+                            "providerToolId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "minLength": 1,
+                              "maxLength": 200
+                            }
+                          },
+                          "required": [
+                            "connectorId",
+                            "connectorName",
+                            "accountLabel",
+                            "providerToolId"
+                          ]
+                        },
+                        "refreshPermission": {
+                          "type": "string",
+                          "enum": [
+                            "manual_refresh_granted_for_read_only",
+                            "requires_confirmation"
+                          ]
+                        },
+                        "outputMapping": {
+                          "type": "object",
+                          "properties": {
+                            "preferredKind": {
+                              "type": "string",
+                              "enum": [
+                                "markdown",
+                                "metric",
+                                "list",
+                                "table",
+                                "link_card",
+                                "json"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "toolName",
+                        "input",
+                        "refreshPermission",
+                        "outputMapping"
+                      ]
+                    },
+                    "refreshStatus": {
+                      "type": "string",
+                      "enum": [
+                        "idle",
+                        "refreshing",
+                        "failed"
+                      ]
+                    },
+                    "refreshStartedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastRefreshedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "artifactId",
+                    "schemaVersion",
+                    "position",
+                    "title",
+                    "kind",
+                    "renderJson",
+                    "provenanceJson",
+                    "sourceJson",
+                    "refreshStatus",
+                    "refreshStartedAt",
+                    "lastRefreshedAt",
+                    "lastError",
+                    "createdAt",
+                    "updatedAt"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "schemaVersion",
+              "sessionId",
+              "createdByRunId",
+              "createdByToolCallId",
+              "title",
+              "slug",
+              "description",
+              "status",
+              "pinned",
+              "refreshStatus",
+              "refreshStartedAt",
+              "createdAt",
+              "updatedAt",
+              "lastRefreshedAt",
+              "lastRefreshError",
+              "tiles"
+            ]
+          },
+          "failures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tileId": {
+                  "type": "string",
+                  "example": "til_123"
+                },
+                "tileTitle": {
+                  "type": "string",
+                  "example": "Recent invoices"
+                },
+                "toolName": {
+                  "type": "string",
+                  "example": "stripe_list_invoices"
+                },
+                "error": {
+                  "type": "string",
+                  "example": "Refresh tool is unavailable: stripe_list_invoices"
+                }
+              },
+              "required": [
+                "tileId",
+                "tileTitle",
+                "toolName",
+                "error"
+              ]
+            }
+          }
+        },
+        "required": [
+          "artifact",
+          "failures"
+        ]
+      },
       "LiveArtifactRefreshDisabledResponse": {
         "allOf": [
           {
@@ -5811,6 +6493,46 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "Live artifact refreshed successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveArtifactRefreshResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The live artifact could not be refreshed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested live artifact was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The live artifact refresh failed unexpectedly.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "501": {
             "description": "Live artifact refresh is not enabled in this increment.",
             "content": {

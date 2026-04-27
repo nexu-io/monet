@@ -25,6 +25,14 @@ export interface RefreshLiveArtifactOptions {
 
 export interface RefreshLiveArtifactResult {
   readonly artifact: LiveArtifactWithTiles;
+  readonly failures: readonly LiveArtifactRefreshFailure[];
+}
+
+export interface LiveArtifactRefreshFailure {
+  readonly tileId: string;
+  readonly tileTitle: string;
+  readonly toolName: string;
+  readonly error: string;
 }
 
 export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): Promise<RefreshLiveArtifactResult> {
@@ -51,39 +59,43 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
       renderJson: LiveArtifactRenderJson;
       provenanceJson: LiveArtifactProvenanceJson | null;
     }>;
+    const failures = [] as LiveArtifactRefreshFailure[];
 
     for (const tile of artifact.tiles) {
       if (!isRefreshEligibleTile(tile)) {
         continue;
       }
 
-      const source = tile.sourceJson;
-      const definition = definitionsByName.get(source.toolName);
-      if (!definition) {
-        throw new Error(`Refresh tool is unavailable: ${source.toolName}`);
-      }
-      if (definition.metadata.requiresConfirmation) {
-        throw new Error(`Refresh tool requires confirmation: ${source.toolName}`);
-      }
-
-      const connectorMetadata = source.type === "connector_tool"
-        ? createConnectorAuditMetadata(source, definition)
-        : null;
-      const step = options.chatStorage.startLiveArtifactRefreshStep({
-        refreshId: refresh.id,
-        tileId: tile.id,
-        sourceType: source.type,
-        toolName: source.toolName,
-        input: source.input,
-        connectorMetadata
-      });
-
-      if (!options.chatStorage.markLiveArtifactRefreshStepRunning(step.id)) {
-        throw new Error(`Refresh step could not start for tile: ${tile.id}`);
-      }
-
-      let connectorExecutionMetadata: Parameters<ChatStorage["completeLiveArtifactRefreshStep"]>[0]["connectorExecutionMetadata"];
+      let stepId: string | null = null;
+      let source: LiveArtifactTileSource | null = null;
       try {
+        source = tile.sourceJson;
+        const definition = definitionsByName.get(source.toolName);
+        if (!definition) {
+          throw new Error(`Refresh tool is unavailable: ${source.toolName}`);
+        }
+        if (definition.metadata.requiresConfirmation) {
+          throw new Error(`Refresh tool requires confirmation: ${source.toolName}`);
+        }
+
+        const connectorMetadata = source.type === "connector_tool"
+          ? createConnectorAuditMetadata(source, definition)
+          : null;
+        const step = options.chatStorage.startLiveArtifactRefreshStep({
+          refreshId: refresh.id,
+          tileId: tile.id,
+          sourceType: source.type,
+          toolName: source.toolName,
+          input: source.input,
+          connectorMetadata
+        });
+        stepId = step.id;
+
+        if (!options.chatStorage.markLiveArtifactRefreshStepRunning(step.id)) {
+          throw new Error(`Refresh step could not start for tile: ${tile.id}`);
+        }
+
+        let connectorExecutionMetadata: Parameters<ChatStorage["completeLiveArtifactRefreshStep"]>[0]["connectorExecutionMetadata"];
         const output = await definition.execute(source.input, {
           toolCallId: step.id,
           persistedToolCallId: step.id,
@@ -113,20 +125,50 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
           provenanceJson: createRefreshProvenance(source)
         });
       } catch (error) {
-        options.chatStorage.failLiveArtifactRefreshStep({
-          stepId: step.id,
-          errorMessage: error instanceof Error ? error.message : "refresh_step_failed"
+        const message = error instanceof Error ? error.message : "refresh_step_failed";
+        if (stepId) {
+          options.chatStorage.failLiveArtifactRefreshStep({
+            stepId,
+            errorMessage: message
+          });
+        }
+        failures.push({
+          tileId: tile.id,
+          tileTitle: tile.title,
+          toolName: source?.toolName ?? "unknown",
+          error: message
         });
-        throw error;
+        options.logger.warn("live_artifacts.refresh_tile_failed", {
+          artifactId: artifact.id,
+          refreshId: refresh.id,
+          tileId: tile.id,
+          error: message
+        });
       }
     }
 
-    const updatedArtifact = refreshedTiles.length > 0
-      ? options.chatStorage.applyLiveArtifactRefreshResults({ artifactId: artifact.id, tiles: refreshedTiles })
+    const updatedArtifact = refreshedTiles.length > 0 || failures.length > 0
+      ? options.chatStorage.applyLiveArtifactRefreshResults({
+          artifactId: artifact.id,
+          tiles: refreshedTiles,
+          failedTiles: failures.map((failure) => ({
+            tileId: failure.tileId,
+            errorMessage: failure.error
+          }))
+        })
       : artifact;
-    options.chatStorage.completeLiveArtifactRefresh({ refreshId: refresh.id, status: "completed" });
+    const status = failures.length === 0
+      ? "completed"
+      : refreshedTiles.length > 0
+        ? "partial_failed"
+        : "failed";
+    options.chatStorage.completeLiveArtifactRefresh({
+      refreshId: refresh.id,
+      status,
+      errorMessage: failures.length > 0 ? `${failures.length} tile${failures.length === 1 ? "" : "s"} failed to refresh.` : null
+    });
 
-    return { artifact: updatedArtifact };
+    return { artifact: updatedArtifact, failures };
   } catch (error) {
     const message = error instanceof Error ? error.message : "live_artifact_refresh_failed";
     options.chatStorage.completeLiveArtifactRefresh({ refreshId: refresh.id, status: "failed", errorMessage: message });
