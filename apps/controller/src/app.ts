@@ -18,6 +18,7 @@ import { registerSessionRoutes } from "./routes/sessions";
 import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createBuiltinToolSource } from "./tools/builtins";
+import { createConnectorToolSource } from "./tools/connectors";
 import { createToolRegistry } from "./tools/registry";
 import type {
   AgentRuntimeConfig,
@@ -130,7 +131,8 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
         allowedDirectories: effectiveAllowedToolDirectories,
         getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
         getControllerPort: () => controllerPort
-      })
+      }),
+      ...(options.features.connectors ? [createConnectorToolSource({ provider: connectorProvider })] : [])
     ]
   });
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
