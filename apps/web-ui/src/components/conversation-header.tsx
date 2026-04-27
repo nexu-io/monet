@@ -31,7 +31,8 @@ export function ConversationHeader({
   const [workspaceFeedback, setWorkspaceFeedback] = useState<string | null>(null);
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false);
   const desktopApi = typeof window === "undefined" ? undefined : window.monetDesktop;
-  const canOpenWorkspace = Boolean(sessionId && desktopApi?.openWorkspaceDirectory);
+  const supportsOpenWorkspace = Boolean(desktopApi?.openWorkspaceDirectory);
+  const canOpenWorkspace = Boolean(sessionId && supportsOpenWorkspace);
   const isMacDesktop = desktopApi?.platform === "darwin";
   const openWorkspaceLabel = isMacDesktop ? "Open in Finder" : "Open workspace folder";
   const openingWorkspaceLabel = isMacDesktop ? "Opening Finder…" : "Opening…";
@@ -60,7 +61,14 @@ export function ConversationHeader({
 
     try {
       const result = await desktopApi.openWorkspaceDirectory({ sessionId });
-      setWorkspaceFeedback(result.opened ? `Opened workspace folder${isMacDesktop ? " in Finder" : ""}.` : result.error ?? "Unable to open workspace folder.");
+      if (result.opened) {
+        setWorkspaceFeedback(`Opened workspace folder${isMacDesktop ? " in Finder" : ""}.`);
+      } else {
+        const details = [result.errorDetails?.workspacePath, result.errorDetails?.nativeOpenFailureReason]
+          .filter(Boolean)
+          .join(" — ");
+        setWorkspaceFeedback([result.error ?? "Unable to open workspace folder.", details].filter(Boolean).join(" "));
+      }
     } catch (error) {
       setWorkspaceFeedback(error instanceof Error ? error.message : "Unable to open workspace folder.");
     } finally {
@@ -92,9 +100,11 @@ export function ConversationHeader({
               <Button type="button" variant="secondary" size="sm" disabled={!workspacePath} onClick={() => void copyWorkspacePath()}>
                 Copy path
               </Button>
-              <Button type="button" variant="secondary" size="sm" disabled={!canOpenWorkspace || isOpeningWorkspace} onClick={() => void openWorkspace()}>
-                {isOpeningWorkspace ? openingWorkspaceLabel : openWorkspaceLabel}
-              </Button>
+              {supportsOpenWorkspace ? (
+                <Button type="button" variant="secondary" size="sm" disabled={!canOpenWorkspace || isOpeningWorkspace} onClick={() => void openWorkspace()}>
+                  {isOpeningWorkspace ? openingWorkspaceLabel : openWorkspaceLabel}
+                </Button>
+              ) : null}
             </div>
           </div>
           {workspaceFeedback ? <p className="m-0 text-sm text-text-muted">{workspaceFeedback}</p> : null}
