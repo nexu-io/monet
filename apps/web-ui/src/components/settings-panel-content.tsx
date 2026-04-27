@@ -8,9 +8,20 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
+  InteractiveRow,
+  InteractiveRowContent,
+  InteractiveRowLeading,
+  InteractiveRowTrailing,
+  Input,
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  Separator,
   CardTitle,
-  StatusDot
+  StatusDot,
+  TextLink
 } from "@nexu-design/ui-web";
+import { Search, Trash2 } from "lucide-react";
 
 import type { Provider, ProviderModel, ValidateProviderResponse } from "../lib/api/generated/types.gen";
 import {
@@ -476,7 +487,7 @@ function GeneralSettingsPanel() {
 
           <label className={settingsSecretFieldClassName}>
             <span className="m-0 leading-[1.5] text-text-muted">Add a directory path manually</span>
-            <input
+            <Input
               type="text"
               value={directoryDraft}
               placeholder="/Users/example/Projects"
@@ -509,9 +520,9 @@ function GeneralSettingsPanel() {
             </div>
           ) : null}
 
-          <div className={settingsListStackClassName} role="list" aria-label="Authorized directories">
+          <div className={settingsListStackClassName} aria-label="Authorized directories">
             {authorizedDirectories.map((entry) => (
-              <div key={entry.path} className={settingsDirectoryItemClassName} role="listitem">
+              <Card key={entry.path} className={settingsDirectoryItemClassName}>
                 <span className={settingsDirectoryIconClassName} aria-hidden="true">
                   📁
                 </span>
@@ -527,7 +538,7 @@ function GeneralSettingsPanel() {
                 <Button type="button" variant="secondary" className="max-sm:col-span-full" disabled={directoryBusy} onClick={() => void removeDirectory(entry.path)}>
                   Revoke
                 </Button>
-              </div>
+              </Card>
             ))}
           </div>
 
@@ -547,34 +558,36 @@ function GeneralSettingsPanel() {
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3">
-          <ul className="grid list-none gap-2.5 p-0 m-0">
-            <li className="flex flex-col gap-1 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3">
-              <Card variant="muted" padding="sm" className={`${mutedSurfaceCardClassName} flex flex-col gap-1`}>
+          <div className="grid gap-2.5">
+            <Card variant="muted" padding="sm" className={`${mutedSurfaceCardClassName} flex flex-col gap-1`}>
                 <div className={settingsRowClassName}>
                   <strong>Application data path</strong>
                   <div className={settingsChipRowClassName}>
-                    <button
+                    <Button
+                      variant="link"
+                      size="inline"
                       type="button"
                       className={settingsInlineActionClassName}
                       disabled={!appPathsState.data?.userDataPath}
                       onClick={() => void copyPath(appPathsState.data?.userDataPath ?? "")}
                     >
                       Copy
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="link"
+                      size="inline"
                       type="button"
                       className={settingsInlineActionClassName}
                       disabled={!desktopApi?.openPath || !appPathsState.data?.userDataPath}
                       onClick={() => void openPath(appPathsState.data?.userDataPath ?? "")}
                     >
                       Reveal
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 <div className="m-0 leading-[1.5] text-text-muted mono">{appPathsState.data?.userDataPath ?? "Unavailable outside the desktop shell."}</div>
-              </Card>
-            </li>
-          </ul>
+            </Card>
+          </div>
 
           {appPathsState.loading ? <p className="m-0 leading-[1.5] text-text-muted">Loading app paths…</p> : null}
           {appPathsState.error ? <p className="m-0 leading-[1.5] text-text-muted">{appPathsState.error}</p> : null}
@@ -592,9 +605,11 @@ function GeneralSettingsPanel() {
         </CardHeader>
 
         <CardContent className="flex flex-col gap-3">
-          <div className={settingsThemeOptionsClassName} role="list" aria-label="Theme options">
+          <div className={settingsThemeOptionsClassName} aria-label="Theme options">
             {themeOptions.map((option) => (
-              <button
+              <Button
+                variant="ghost"
+                size="inline"
                 key={option.value}
                 type="button"
                 className={settingsThemeOptionClassName}
@@ -606,7 +621,7 @@ function GeneralSettingsPanel() {
                   <strong>{option.label}</strong>
                   <span className="m-0 leading-[1.5] text-text-muted">{option.detail}</span>
                 </div>
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -1343,13 +1358,14 @@ function ModelSettingsPanel() {
             <div className="px-4 pt-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-tertiary">Providers</div>
             <div className="px-2 pb-2">
               <div className="relative">
-                <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-text-muted">⌕</span>
-                <input
+                <Input
                   type="text"
                   placeholder="Search providers"
                   value={providerSearch}
                   onChange={(e) => setProviderSearch(e.currentTarget.value)}
-                  className="h-7 w-full rounded-lg border border-border-subtle bg-surface-0 py-1 pl-7 pr-2 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                  className="h-7 min-h-7 w-full rounded-lg border border-border-subtle bg-surface-0 py-1 text-[11px] text-text-primary outline-none focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/20"
+                  leadingIcon={<Search className="size-3.5 text-text-muted" strokeWidth={1.8} />}
+                  inputClassName="placeholder:text-text-muted"
                 />
               </div>
             </div>
@@ -1367,42 +1383,45 @@ function ModelSettingsPanel() {
                   const isActive = provider.id === selectedProviderId && !showCreateForm;
 
                   return (
-                    <button
+                    <InteractiveRow
+                      tone="subtle"
                       key={provider.id}
                       type="button"
                       onClick={() => {
                         setSelectedProviderId(provider.id);
                         setIsCreatingProvider(false);
                       }}
-                      className={`flex w-full items-center gap-2 rounded-xl px-3 py-1.5 text-left transition-colors ${
-                        isActive ? "bg-surface-0" : "hover:bg-surface-1"
+                      className={`items-center gap-2 rounded-xl border-transparent px-3 py-1.5 ${
+                        isActive ? "bg-surface-2" : "hover:bg-surface-1"
                       }`}
                     >
-                      <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 font-semibold">
+                      <InteractiveRowLeading className="flex size-6 items-center justify-center rounded-md border border-border-subtle bg-surface-0 font-semibold">
                         {getProviderInitial(provider)}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-primary">{provider.displayName}</span>
+                      </InteractiveRowLeading>
+                      <InteractiveRowContent className="truncate text-[12px] font-medium text-text-primary">{provider.displayName}</InteractiveRowContent>
                       {isReady ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-text-muted">
+                        <InteractiveRowTrailing className="inline-flex items-center gap-1 text-[11px] text-text-muted">
                           <StatusDot status="success" size="xs" className="text-success" />
                           Ready
-                        </span>
+                        </InteractiveRowTrailing>
                       ) : null}
-                    </button>
+                    </InteractiveRow>
                   );
                 })
               )}
             </div>
 
-            <div className="shrink-0 border-t border-border-subtle px-2 py-2">
-              <button
+            <Separator className="bg-border-subtle" />
+            <div className="shrink-0 px-2 py-2">
+              <InteractiveRow
+                tone="subtle"
                 type="button"
                 onClick={handleAddProvider}
-                className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border-strong px-3 py-1.5 text-left transition-colors hover:bg-surface-1"
+                className="items-center gap-2 rounded-xl border-dashed border-border-strong px-3 py-1.5 hover:bg-surface-1"
               >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-dashed border-border-strong bg-surface-0 text-text-secondary">＋</span>
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-text-secondary">Add provider</span>
-              </button>
+                <InteractiveRowLeading className="flex size-6 items-center justify-center rounded-md border border-dashed border-border-strong bg-surface-0 text-text-secondary">＋</InteractiveRowLeading>
+                <InteractiveRowContent className="truncate text-[12px] font-medium text-text-secondary">Add provider</InteractiveRowContent>
+              </InteractiveRow>
             </div>
           </section>
 
@@ -1438,7 +1457,9 @@ function ModelSettingsPanel() {
                 <div>
                   <label className="mb-1 block text-sm font-medium text-text-primary">Compatibility</label>
                   <div className="flex items-center gap-2">
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="inline"
                       type="button"
                       onClick={() => setCreateProviderDraft((draft) => ({ ...draft, type: "openai" }))}
                       className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -1447,9 +1468,11 @@ function ModelSettingsPanel() {
                       disabled={createProviderBusy}
                     >
                       OpenAI
-                    </button>
+                    </Button>
 
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="inline"
                       type="button"
                       onClick={() => setCreateProviderDraft((draft) => ({ ...draft, type: "openrouter" }))}
                       className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
@@ -1460,13 +1483,13 @@ function ModelSettingsPanel() {
                       disabled={createProviderBusy}
                     >
                       OpenRouter
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 <label className={settingsSecretFieldClassName}>
                   <span className="m-0 text-sm font-medium text-text-primary">Display name</span>
-                  <input
+                  <Input
                     type="text"
                     value={createProviderDraft.displayName}
                     onChange={(event) => {
@@ -1481,7 +1504,7 @@ function ModelSettingsPanel() {
 
                 <label className={settingsSecretFieldClassName}>
                   <span className="m-0 text-sm font-medium text-text-primary">API proxy URL</span>
-                  <input
+                  <Input
                     type="url"
                     value={createProviderDraft.baseUrl}
                     onChange={(event) => {
@@ -1496,7 +1519,7 @@ function ModelSettingsPanel() {
 
                 <label className={settingsSecretFieldClassName}>
                   <span className="m-0 text-sm font-medium text-text-primary">Timeout (ms)</span>
-                  <input
+                  <Input
                     type="number"
                     value={createProviderDraft.timeoutMs}
                     onChange={(event) => {
@@ -1545,21 +1568,25 @@ function ModelSettingsPanel() {
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
-                    <a
+                    <TextLink
+                      variant="muted"
+                      size="xs"
                       className="text-xs text-text-secondary hover:text-text-primary"
                       href={getProviderDocsUrl(selectedProvider)}
                       target="_blank"
                       rel="noreferrer"
                     >
                       Get API key
-                    </a>
-                    <button
+                    </TextLink>
+                    <Button
+                      variant="destructive"
+                      size="xs"
                       type="button"
                       onClick={() => void deleteProvider(selectedProvider.id)}
-                      className="text-xs text-text-secondary hover:text-error"
+                      leadingIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
                     >
                       Delete
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
@@ -1578,11 +1605,12 @@ function ModelSettingsPanel() {
                   <div className="flex flex-col sm:flex-row gap-3">
                     <label className={`${settingsSecretFieldClassName} flex-1`}>
                       <span className="text-[11px] font-medium text-text-secondary">API proxy URL</span>
-                      <input
+                      <Input
                         type="text"
                         value={providerBaseUrlInput}
                         onChange={(event) => setProviderBaseUrlInput(event.currentTarget.value)}
                         placeholder={selectedProvider.type === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1"}
+                        size="sm"
                         className={`${settingsSecretInputClassName} h-8 text-xs`}
                         disabled={secretBusyAction != null}
                       />
@@ -1590,11 +1618,12 @@ function ModelSettingsPanel() {
 
                     <label className={`${settingsSecretFieldClassName} flex-1`}>
                       <span className="text-[11px] font-medium text-text-secondary">API key</span>
-                      <input
+                      <Input
                         type="password"
                         value={secretInput}
                         onChange={(event) => setSecretInput(event.currentTarget.value)}
                         placeholder={selectedProviderSecretStatus?.hasSecret ? "••••••••••••••••" : (selectedProvider.type === "openai" ? "sk-..." : "or-...")}
+                        size="sm"
                         className={`${settingsSecretInputClassName} h-8 text-xs`}
                         autoComplete="off"
                         spellCheck={false}
@@ -1614,27 +1643,31 @@ function ModelSettingsPanel() {
                       {selectedProviderSecretStatus?.hasSecret ? (
                         <>
                           <span className="text-border-subtle">|</span>
-                          <button
+                          <Button
+                            variant="link"
+                            size="inline"
                             type="button"
                             onClick={() => void clearProviderSecret()}
                             disabled={!secretStorageState.data?.available || secretBusyAction != null}
                             className="text-text-secondary hover:text-text-primary disabled:opacity-50"
                           >
                             Clear
-                          </button>
+                          </Button>
                         </>
                       ) : null}
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="xs"
                         type="button"
                         onClick={() => void validateProvider(selectedProvider.id)}
                         disabled={selectedValidation?.loading}
-                        className="text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+                        className="text-xs disabled:opacity-50"
                       >
                         {selectedValidation?.loading ? "Testing…" : "Test connection"}
-                      </button>
+                      </Button>
                       <Button
                         type="button"
                         variant="primary"
@@ -1651,21 +1684,23 @@ function ModelSettingsPanel() {
                   {secretStorageState.error ? <p className="m-0 text-[11px] text-error">{secretStorageState.error}</p> : null}
                 </div>
 
-                <div className="border-t border-border-subtle" />
+                <Separator className="bg-border-subtle" />
 
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-tertiary">
                       Models
                     </div>
-                    <button
+                    <Button
+                      variant="secondary"
+                      size="xs"
                       type="button"
                       onClick={() => selectedProviderId && void refreshProviderCatalog(selectedProviderId, { visible: true })}
-                      className="text-[10px] text-text-secondary hover:text-text-primary"
+                      className="text-xs"
                       disabled={isCatalogRefreshLoading}
                     >
                       {isCatalogRefreshLoading ? "Refreshing…" : modelCatalog.length > 0 ? "Refresh catalog" : "Load catalog"}
-                    </button>
+                    </Button>
                   </div>
 
                   {modelsState.loading ? (
@@ -1675,12 +1710,12 @@ function ModelSettingsPanel() {
                   ) : null}
                   {modelsState.error ? <p className="m-0 text-xs text-error mono">{modelsState.error}</p> : null}
 
-                  <div className="space-y-1" role="list" aria-label="Model list">
+                  <div className="space-y-1" aria-label="Model list">
                     {selectedModels.map((model) => {
                       const isDefault = model.modelName === selectedProvider.defaultModelName;
 
                       return (
-                        <div key={model.id} className="group/model flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-surface-1" role="listitem">
+                        <Card key={model.id} className="group/model flex items-center gap-3 rounded-xl border-transparent bg-transparent px-3 py-2 text-left shadow-none transition-colors hover:bg-surface-1">
                           <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 text-xs font-bold text-text-primary">
                             {model.modelName.charAt(0).toUpperCase()}
                           </span>
@@ -1695,16 +1730,18 @@ function ModelSettingsPanel() {
                             {isDefault ? (
                               <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-sm bg-success-subtle text-success">✓</span>
                             ) : null}
-                            <button
+                            <Button
+                              variant="link"
+                              size="inline"
                               type="button"
                               onClick={() => selectedProviderId && void removeSelectedModel(selectedProviderId, model.id)}
                               disabled={modelSelectionBusyId != null}
                               className="ml-1 text-xs text-text-muted hover:text-error disabled:opacity-50"
                             >
                               {modelSelectionBusyId === model.id ? "Removing…" : "Remove"}
-                            </button>
+                            </Button>
                           </span>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>
@@ -1713,75 +1750,74 @@ function ModelSettingsPanel() {
                   ) : null}
 
                   <div className="flex items-center gap-2 max-sm:flex-col max-sm:items-stretch">
-                    <div className="relative min-w-0 flex-1">
-                      {modelCatalog.length > 0 ? (
-                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-text-muted">⌕</span>
-                      ) : null}
-                      <input
-                        id="model-add-input"
-                        type="text"
-                        value={modelSearch}
-                        onChange={(event) => {
-                          setModelSearch(event.currentTarget.value);
-                          setIsModelSearchOpen(true);
-                          setManualModelError(null);
-                        }}
-                        onFocus={() => setIsModelSearchOpen(true)}
-                        onBlur={() => setIsModelSearchOpen(false)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && modelSearch.trim() && selectedProviderId && modelSelectionBusyId == null) {
-                            event.preventDefault();
-                            void addModelFromInput(selectedProviderId);
-                          }
+                    <Popover open={isModelSearchOpen && modelSearchResults.length > 0} onOpenChange={setIsModelSearchOpen}>
+                      <PopoverAnchor asChild>
+                        <div className="relative min-w-0 flex-1">
+                          <Input
+                            id="model-add-input"
+                            type="text"
+                            value={modelSearch}
+                            onChange={(event) => {
+                              setModelSearch(event.currentTarget.value);
+                              setIsModelSearchOpen(true);
+                              setManualModelError(null);
+                            }}
+                            onFocus={() => setIsModelSearchOpen(true)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" && modelSearch.trim() && selectedProviderId && modelSelectionBusyId == null) {
+                                event.preventDefault();
+                                void addModelFromInput(selectedProviderId);
+                              }
 
-                          if (event.key === "ArrowDown" && modelSearchResults.length > 0) {
-                            event.preventDefault();
-                            setIsModelSearchOpen(true);
-                            setHighlightedModelResultIndex((current) => (current + 1) % modelSearchResults.length);
-                          }
+                              if (event.key === "ArrowDown" && modelSearchResults.length > 0) {
+                                event.preventDefault();
+                                setIsModelSearchOpen(true);
+                                setHighlightedModelResultIndex((current) => (current + 1) % modelSearchResults.length);
+                              }
 
-                          if (event.key === "ArrowUp" && modelSearchResults.length > 0) {
-                            event.preventDefault();
-                            setIsModelSearchOpen(true);
-                            setHighlightedModelResultIndex((current) => (current - 1 + modelSearchResults.length) % modelSearchResults.length);
-                          }
-                        }}
-                        role="combobox"
-                        aria-label="Add model"
-                        aria-expanded={isModelSearchOpen && modelSearchResults.length > 0}
-                        aria-controls="model-search-results"
-                        aria-describedby={manualModelError ? "model-add-error" : undefined}
-                        placeholder={modelCatalog.length > 0 ? "Search or enter model ID" : selectedProvider.type === "openai" ? "gpt-4.1-mini" : "openai/gpt-4.1-mini"}
-                        className={`h-8 w-full rounded-md border border-border-subtle bg-surface-0 py-1 pr-2.5 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 ${modelCatalog.length > 0 ? "pl-7" : "pl-2.5"}`}
-                        disabled={modelSelectionBusyId != null}
-                      />
-                      {isModelSearchOpen && modelSearchResults.length > 0 ? (
-                        <div id="model-search-results" className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-20 max-h-72 overflow-y-auto rounded-xl border border-border-subtle bg-surface-0 p-1 shadow-lg" role="listbox" aria-label="Model search results">
-                          {modelSearchResults.map((model, index) => (
-                            <button
-                              key={model.id}
-                              type="button"
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => selectedProviderId && void addSelectedModel(selectedProviderId, model.id)}
-                              disabled={modelSelectionBusyId != null}
-                              className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-1 disabled:opacity-60 data-[highlighted=true]:bg-surface-1"
-                              data-highlighted={index === highlightedModelResultIndex ? "true" : "false"}
-                              role="option"
-                              aria-selected={index === highlightedModelResultIndex}
-                            >
-                              <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-0 text-xs font-bold text-text-primary">
-                                {model.modelName.charAt(0).toUpperCase()}
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium text-text-primary">{model.displayName}</span>
-                                <span className="block truncate text-xs text-text-muted">{model.modelName}</span>
-                              </span>
-                              <span className="text-xs font-medium text-text-secondary">{modelSelectionBusyId === model.id ? "Adding…" : "Add"}</span>
-                            </button>
-                          ))}
+                              if (event.key === "ArrowUp" && modelSearchResults.length > 0) {
+                                event.preventDefault();
+                                setIsModelSearchOpen(true);
+                                setHighlightedModelResultIndex((current) => (current - 1 + modelSearchResults.length) % modelSearchResults.length);
+                              }
+                            }}
+                            role="combobox"
+                            aria-label="Add model"
+                            aria-expanded={isModelSearchOpen && modelSearchResults.length > 0}
+                            aria-describedby={manualModelError ? "model-add-error" : undefined}
+                            placeholder={modelCatalog.length > 0 ? "Search or enter model ID" : selectedProvider.type === "openai" ? "gpt-4.1-mini" : "openai/gpt-4.1-mini"}
+                            size="sm"
+                            className="h-8 w-full rounded-md border border-border-subtle bg-surface-0 py-1 pr-2.5 text-xs text-text-primary outline-none focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/20"
+                            leadingIcon={modelCatalog.length > 0 ? <Search className="size-3.5 text-text-muted" strokeWidth={1.8} /> : undefined}
+                            inputClassName="placeholder:text-text-muted"
+                            disabled={modelSelectionBusyId != null}
+                          />
                         </div>
-                      ) : null}
-                    </div>
+                      </PopoverAnchor>
+                      <PopoverContent className="z-20 max-h-72 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1" align="start" onOpenAutoFocus={(event) => event.preventDefault()}>
+                        {modelSearchResults.map((model, index) => (
+                          <InteractiveRow
+                            tone="subtle"
+                            key={model.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => selectedProviderId && void addSelectedModel(selectedProviderId, model.id)}
+                            disabled={modelSelectionBusyId != null}
+                            className="items-center gap-3 rounded-lg px-2.5 py-2 disabled:opacity-60 data-[highlighted=true]:bg-surface-1"
+                            data-highlighted={index === highlightedModelResultIndex ? "true" : "false"}
+                          >
+                            <InteractiveRowLeading className="flex size-7 items-center justify-center rounded-md border border-border-subtle bg-surface-0 text-xs font-bold text-text-primary">
+                              {model.modelName.charAt(0).toUpperCase()}
+                            </InteractiveRowLeading>
+                            <InteractiveRowContent>
+                              <span className="block truncate text-sm font-medium text-text-primary">{model.displayName}</span>
+                              <span className="block truncate text-xs text-text-muted">{model.modelName}</span>
+                            </InteractiveRowContent>
+                            <InteractiveRowTrailing className="text-xs font-medium text-text-secondary">{modelSelectionBusyId === model.id ? "Adding…" : "Add"}</InteractiveRowTrailing>
+                          </InteractiveRow>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
                     <Button
                       type="button"
                       variant="secondary"

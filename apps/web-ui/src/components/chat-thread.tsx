@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Badge, Button, Card, TextLink } from "@nexu-design/ui-web";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  Badge,
+  Button,
+  Card,
+  TextLink
+} from "@nexu-design/ui-web";
 import { FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -450,10 +459,16 @@ function renderPart(
 
   if (isReasoningPart(part)) {
     return (
-      <details key={`${part.type}-${index}`} className="flex flex-col gap-1.5 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-3 [&>summary]:cursor-pointer [&>summary]:font-semibold [&>summary]:text-text-heading">
-        <summary>{part.label ?? "Reasoning"}</summary>
-        <p className="m-0 whitespace-pre-wrap text-text-secondary">{part.text}</p>
-      </details>
+      <Accordion key={`${part.type}-${index}`} type="single" collapsible className="rounded-lg border border-border-subtle bg-surface-2">
+        <AccordionItem value="reasoning" className="border-b-0">
+          <AccordionTrigger className="px-3.5 py-3 text-base font-semibold text-text-heading">
+            {part.label ?? "Reasoning"}
+          </AccordionTrigger>
+          <AccordionContent className="px-3.5 pb-3 text-base text-text-secondary">
+            <p className="m-0 whitespace-pre-wrap">{part.text}</p>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     );
   }
 
@@ -486,11 +501,11 @@ function renderPart(
     }
 
     return (
-      <a key={`${part.type}-${index}`} className={partCardClassName} href={safeUrl}>
+      <TextLink key={`${part.type}-${index}`} className={partCardClassName} href={safeUrl}>
         <span className={partLabelClassName}>Source URL</span>
         <strong className={`${partTitleClassName} [overflow-wrap:anywhere]`}>{part.title ?? part.url}</strong>
         <span>{part.host ?? part.url}</span>
-      </a>
+      </TextLink>
     );
   }
 
@@ -535,14 +550,16 @@ function renderPart(
               <>
                 Wrote{" "}
                 <TextLink asChild size="sm" className="mono align-baseline disabled:pointer-events-none disabled:opacity-60" showArrowUpRight={false}>
-                  <button
+                  <Button
+                    variant="link"
+                    size="inline"
                     type="button"
                     title={`${options.openPathLabel}: ${successfulWriteFileName}`}
                     disabled={options.openingPath === successfulWriteFilePath}
                     onClick={() => options.onOpenPath?.(successfulWriteFilePath!)}
                   >
                     {options.openingPath === successfulWriteFilePath ? "Opening…" : successfulWriteFileName}
-                  </button>
+                  </Button>
                 </TextLink>
                 .
               </>
@@ -590,17 +607,21 @@ function renderPart(
     }
 
     return (
-      <details key={`${part.type}-${index}`} className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
-        <summary className={toolSummaryClassName}>
-          <div className="flex flex-col gap-1">
-            <span className={partLabelClassName}>Tool call</span>
-            <strong className={partTitleClassName}>{toolName}</strong>
-            <span className="text-sm text-text-muted">Details collapsed</span>
-          </div>
-          <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
-        </summary>
+      <Accordion key={`${part.type}-${index}`} type="single" collapsible className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
+        <AccordionItem value="tool" className="border-b-0">
+          <AccordionTrigger className={toolSummaryClassName}>
+            <div className="flex w-full items-start justify-between gap-3 max-[960px]:flex-col max-[960px]:items-start">
+              <div className="flex flex-col gap-1">
+                <span className={partLabelClassName}>Tool call</span>
+                <strong className={partTitleClassName}>{toolName}</strong>
+                <span className="text-sm text-text-muted">Details collapsed</span>
+              </div>
+              <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
+            </div>
+          </AccordionTrigger>
 
-        <div className="mt-3 flex flex-col gap-3">
+        <AccordionContent className="mt-3 px-0 pb-0 text-base text-text-secondary">
+        <div className="flex flex-col gap-3">
           {isWriteFileCall ? (
             <>
               <div className={toolSectionClassName}>
@@ -687,7 +708,9 @@ function renderPart(
             </div>
           ) : null}
         </div>
-      </details>
+        </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     );
   }
 
