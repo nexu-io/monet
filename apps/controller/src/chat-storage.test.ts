@@ -143,6 +143,149 @@ test("storage has no runtime provider/model bootstrap by default", () => {
   }
 });
 
+test("live artifact refresh audit persists parent and connector step metadata before execution", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: "Audit test",
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        },
+        sourceJson: {
+          type: "connector_tool",
+          toolName: "stripe_get_balance",
+          input: {
+            account_id: "acct_123",
+            limit: 1
+          },
+          connector: {
+            connectorId: "stripe",
+            connectorName: "Stripe",
+            accountLabel: "Acme Stripe",
+            providerToolId: "stripe.get_balance"
+          },
+          refreshPermission: "manual_refresh_granted_for_read_only",
+          outputMapping: {
+            preferredKind: "metric"
+          }
+        }
+      }]
+    });
+    const tile = artifact.tiles[0];
+    assert.ok(tile);
+
+    const refresh = storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+    const step = storage.startLiveArtifactRefreshStep({
+      refreshId: refresh.id,
+      tileId: tile.id,
+      sourceType: "connector_tool",
+      toolName: "stripe_get_balance",
+      input: {
+        account_id: "acct_123",
+        api_key: "sk_test_secret"
+      },
+      connectorMetadata: {
+        connectorId: "stripe",
+        connectorName: "Stripe",
+        connectorAccountLabel: "Acme Stripe",
+        connectorToolName: "Get balance",
+        connectorProviderToolId: "stripe.get_balance",
+        connectorArgumentsSummary: 'account_id=acct_123, {"api_key":"sk_test_secret"}',
+        connectorApprovalPolicy: {
+          readOnlyHint: true,
+          scopes: ["read"]
+        },
+        approvalBasis: "manual_refresh_granted_for_read_only"
+      }
+    });
+
+    assert.equal(refresh.artifactId, artifact.id);
+    assert.equal(refresh.status, "running");
+    assert.equal(step.refreshId, refresh.id);
+    assert.equal(step.tileId, tile.id);
+    assert.equal(step.sourceType, "connector_tool");
+    assert.equal(step.connectorId, "stripe");
+    assert.equal(step.connectorProviderToolId, "stripe.get_balance");
+    assert.equal(step.status, "pending");
+    assert.equal(step.approvalBasis, "manual_refresh_granted_for_read_only");
+    assert.equal((step.input as { api_key?: string }).api_key, "[redacted]");
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const persistedStep = connection
+        .prepare("SELECT input_json, connector_arguments_summary, connector_approval_policy_json, status FROM live_artifact_refresh_steps WHERE id = ?")
+        .get(step.id) as { input_json: string; connector_arguments_summary: string; connector_approval_policy_json: string; status: string };
+
+      assert.doesNotMatch(persistedStep.input_json, /sk_test_secret/);
+      assert.doesNotMatch(persistedStep.connector_arguments_summary, /sk_test_secret/);
+      assert.deepEqual(JSON.parse(persistedStep.connector_approval_policy_json), {
+        readOnlyHint: true,
+        scopes: ["read"]
+      });
+      assert.equal(persistedStep.status, "pending");
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact connector refresh steps require persisted audit metadata", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Summary",
+        kind: "markdown",
+        renderJson: {
+          kind: "markdown",
+          markdown: "Ready"
+        }
+      }]
+    });
+    const refresh = storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+
+    assert.throws(
+      () => storage.startLiveArtifactRefreshStep({
+        refreshId: refresh.id,
+        tileId: artifact.tiles[0]!.id,
+        sourceType: "connector_tool",
+        toolName: "gmail_search",
+        input: {
+          query: "from:example"
+        }
+      }),
+      (error: unknown) => error instanceof ChatStorageResolutionError && error.errorCode === "audit_required"
+    );
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const row = connection
+        .prepare("SELECT COUNT(*) AS count FROM live_artifact_refresh_steps WHERE refresh_id = ?")
+        .get(refresh.id) as { count: number };
+
+      assert.equal(row.count, 0);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("monet install id is generated once, persisted, and reused as an opaque UUID", () => {
   const fixture = createStorageFixture();
 

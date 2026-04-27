@@ -6,6 +6,7 @@ import { createId as createCuid2 } from "@paralleldrive/cuid2";
 import type { UIMessage } from "ai";
 import type { ConnectorId } from "./connectors/catalog";
 import {
+  LIVE_ARTIFACT_LIMITS,
   LIVE_ARTIFACT_SCHEMA_VERSION,
   LiveArtifactCreateInputSchema,
   LiveArtifactCreateTileInputSchema,
@@ -18,7 +19,7 @@ import {
   type LiveArtifactTile,
   type LiveArtifactWithTiles
 } from "./live-artifacts/schema";
-import { sanitizeToolCallPersistenceValue } from "./tool-call-redaction";
+import { redactSensitiveToolCallText, sanitizeToolCallPersistenceValue } from "./tool-call-redaction";
 
 const DEFAULT_SESSION_TITLE = "New chat";
 const CURRENT_UI_MESSAGE_SCHEMA_VERSION = "v1";
@@ -241,6 +242,41 @@ interface LiveArtifactTileRow {
   readonly last_error: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+}
+
+interface LiveArtifactRefreshRow {
+  readonly id: string;
+  readonly artifact_id: string;
+  readonly scope: "artifact" | "tile";
+  readonly requested_tile_id: string | null;
+  readonly status: "running" | "completed" | "partial_failed" | "failed";
+  readonly trigger: "manual";
+  readonly started_at: string;
+  readonly ended_at: string | null;
+  readonly error_message: string | null;
+}
+
+interface LiveArtifactRefreshStepRow {
+  readonly id: string;
+  readonly refresh_id: string;
+  readonly tile_id: string | null;
+  readonly source_type: "tool" | "connector_tool";
+  readonly tool_name: string;
+  readonly input_json: string;
+  readonly connector_id: string | null;
+  readonly connector_name: string | null;
+  readonly connector_account_label: string | null;
+  readonly connector_tool_name: string | null;
+  readonly connector_provider_tool_id: string | null;
+  readonly connector_arguments_summary: string | null;
+  readonly connector_approval_policy_json: string | null;
+  readonly approval_basis: string | null;
+  readonly connector_provider_execution_id: string | null;
+  readonly connector_provider_execution_metadata_json: string | null;
+  readonly status: "pending" | "running" | "completed" | "failed" | "skipped";
+  readonly error_message: string | null;
+  readonly started_at: string;
+  readonly ended_at: string | null;
 }
 
 export interface StoredSession {
@@ -506,6 +542,67 @@ export interface ReplaceLiveArtifactTilesInput {
   readonly tiles: readonly LiveArtifactCreateTileInput[];
 }
 
+export interface StoredLiveArtifactRefresh {
+  readonly id: string;
+  readonly artifactId: string;
+  readonly scope: "artifact" | "tile";
+  readonly requestedTileId: string | null;
+  readonly status: "running" | "completed" | "partial_failed" | "failed";
+  readonly trigger: "manual";
+  readonly startedAt: string;
+  readonly endedAt: string | null;
+  readonly errorMessage: string | null;
+}
+
+export interface LiveArtifactRefreshStepConnectorMetadataInput {
+  readonly connectorId: string;
+  readonly connectorName: string;
+  readonly connectorAccountLabel: string | null;
+  readonly connectorToolName: string;
+  readonly connectorProviderToolId: string;
+  readonly connectorArgumentsSummary: string;
+  readonly connectorApprovalPolicy: unknown;
+  readonly approvalBasis: string;
+}
+
+export interface StoredLiveArtifactRefreshStep {
+  readonly id: string;
+  readonly refreshId: string;
+  readonly tileId: string | null;
+  readonly sourceType: "tool" | "connector_tool";
+  readonly toolName: string;
+  readonly input: unknown;
+  readonly connectorId: string | null;
+  readonly connectorName: string | null;
+  readonly connectorAccountLabel: string | null;
+  readonly connectorToolName: string | null;
+  readonly connectorProviderToolId: string | null;
+  readonly connectorArgumentsSummary: string | null;
+  readonly connectorApprovalPolicy: unknown;
+  readonly approvalBasis: string | null;
+  readonly connectorProviderExecutionId: string | null;
+  readonly connectorProviderExecutionMetadata: unknown;
+  readonly status: "pending" | "running" | "completed" | "failed" | "skipped";
+  readonly errorMessage: string | null;
+  readonly startedAt: string;
+  readonly endedAt: string | null;
+}
+
+export interface StartLiveArtifactRefreshInput {
+  readonly artifactId: string;
+  readonly scope: "artifact" | "tile";
+  readonly requestedTileId?: string | null;
+}
+
+export interface StartLiveArtifactRefreshStepInput {
+  readonly refreshId: string;
+  readonly tileId?: string | null;
+  readonly sourceType: "tool" | "connector_tool";
+  readonly toolName: string;
+  readonly input: unknown;
+  readonly connectorMetadata?: LiveArtifactRefreshStepConnectorMetadataInput | null;
+}
+
 export class ChatStorageResolutionError extends Error {
   readonly statusCode: number;
   readonly errorCode: string;
@@ -544,6 +641,15 @@ export interface ChatStorage {
   archiveLiveArtifact(artifactId: string): LiveArtifactWithTiles;
   pinLiveArtifact(artifactId: string, pinned: boolean): LiveArtifactWithTiles;
   replaceLiveArtifactTiles(input: ReplaceLiveArtifactTilesInput): LiveArtifactWithTiles;
+  startLiveArtifactRefresh(input: StartLiveArtifactRefreshInput): StoredLiveArtifactRefresh;
+  startLiveArtifactRefreshStep(input: StartLiveArtifactRefreshStepInput): StoredLiveArtifactRefreshStep;
+  markLiveArtifactRefreshStepRunning(stepId: string): boolean;
+  completeLiveArtifactRefreshStep(options: {
+    stepId: string;
+    connectorExecutionMetadata?: ToolCallConnectorExecutionMetadataInput;
+  }): void;
+  failLiveArtifactRefreshStep(options: { stepId: string; errorMessage: string }): void;
+  completeLiveArtifactRefresh(options: { refreshId: string; status: "completed" | "partial_failed" | "failed"; errorMessage?: string | null }): void;
   listProviders(): StoredProvider[];
   createProvider(input: CreateProviderInput): StoredProvider;
   updateProvider(providerId: string, input: UpdateProviderInput): StoredProvider;
@@ -1252,6 +1358,191 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       }
 
       return getLiveArtifactOrThrow(connection, input.artifactId);
+    },
+
+    startLiveArtifactRefresh(input) {
+      const artifact = getLiveArtifactRow(connection, input.artifactId);
+
+      if (!artifact) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown artifactId: ${input.artifactId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const requestedTileId = input.requestedTileId?.trim() || null;
+
+      if (input.scope === "tile") {
+        if (!requestedTileId) {
+          throw new ChatStorageResolutionError({
+            message: "Tile refresh audit records require requestedTileId.",
+            errorCode: "invalid_request"
+          });
+        }
+
+        assertLiveArtifactTileBelongsToArtifact(connection, input.artifactId, requestedTileId);
+      } else if (requestedTileId !== null) {
+        throw new ChatStorageResolutionError({
+          message: "Whole-artifact refresh audit records cannot include requestedTileId.",
+          errorCode: "invalid_request"
+        });
+      }
+
+      const refreshId = createPrefixedId("lar");
+      const now = new Date().toISOString();
+
+      connection
+        .prepare(
+          `INSERT INTO live_artifact_refreshes (id, artifact_id, scope, requested_tile_id, status, trigger, started_at, ended_at, error_message)
+           VALUES (?, ?, ?, ?, 'running', 'manual', ?, NULL, NULL)`
+        )
+        .run(refreshId, input.artifactId, input.scope, requestedTileId, now);
+
+      return getLiveArtifactRefreshOrThrow(connection, refreshId);
+    },
+
+    startLiveArtifactRefreshStep(input) {
+      const refresh = getLiveArtifactRefreshRow(connection, input.refreshId);
+
+      if (!refresh) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown live artifact refreshId: ${input.refreshId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      if (refresh.status !== "running") {
+        throw new ChatStorageResolutionError({
+          message: "Live artifact refresh steps can only be created for running refreshes.",
+          statusCode: 409,
+          errorCode: "invalid_state"
+        });
+      }
+
+      const tileId = input.tileId?.trim() || null;
+      const toolName = input.toolName.trim();
+
+      if (!toolName) {
+        throw new ChatStorageResolutionError({
+          message: "Live artifact refresh steps require toolName.",
+          errorCode: "invalid_request"
+        });
+      }
+
+      if (tileId !== null) {
+        assertLiveArtifactTileBelongsToArtifact(connection, refresh.artifact_id, tileId);
+      }
+
+      if (input.sourceType === "connector_tool" && !input.connectorMetadata) {
+        throw new ChatStorageResolutionError({
+          message: "Connector refresh steps require connector audit metadata before execution.",
+          errorCode: "audit_required"
+        });
+      }
+
+      if (input.sourceType === "tool" && input.connectorMetadata) {
+        throw new ChatStorageResolutionError({
+          message: "Non-connector refresh steps cannot include connector audit metadata.",
+          errorCode: "invalid_request"
+        });
+      }
+
+      const stepId = createPrefixedId("lrs");
+      const now = new Date().toISOString();
+      const metadata = input.connectorMetadata ?? null;
+
+      connection
+        .prepare(
+          `INSERT INTO live_artifact_refresh_steps (
+             id, refresh_id, tile_id, source_type, tool_name, input_json,
+             connector_id, connector_name, connector_account_label, connector_tool_name,
+             connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json,
+             approval_basis, connector_provider_execution_id, connector_provider_execution_metadata_json,
+             status, error_message, started_at, ended_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'pending', NULL, ?, NULL)`
+        )
+        .run(
+          stepId,
+          input.refreshId,
+          tileId,
+          input.sourceType,
+          toolName,
+          serializeToolCallPayload(input.input),
+          metadata?.connectorId ?? null,
+          metadata?.connectorName ?? null,
+          metadata?.connectorAccountLabel ?? null,
+          metadata?.connectorToolName ?? null,
+          metadata?.connectorProviderToolId ?? null,
+          metadata?.connectorArgumentsSummary ? redactSensitiveToolCallText(metadata.connectorArgumentsSummary) : null,
+          metadata ? serializeToolCallPayload(metadata.connectorApprovalPolicy) : null,
+          metadata?.approvalBasis ?? null,
+          now
+        );
+
+      return getLiveArtifactRefreshStepOrThrow(connection, stepId);
+    },
+
+    markLiveArtifactRefreshStepRunning(stepId) {
+      connection
+        .prepare(
+          `UPDATE live_artifact_refresh_steps
+           SET status = 'running', error_message = NULL, ended_at = NULL
+           WHERE id = ? AND status = 'pending'`
+        )
+        .run(stepId);
+
+      const row = getLiveArtifactRefreshStepRow(connection, stepId);
+      return row?.status === "running";
+    },
+
+    completeLiveArtifactRefreshStep({ stepId, connectorExecutionMetadata }) {
+      const endedAt = new Date().toISOString();
+      const providerExecutionMetadataJson = connectorExecutionMetadata?.providerExecutionMetadata
+        ? serializeToolCallPayload(connectorExecutionMetadata.providerExecutionMetadata)
+        : null;
+
+      connection
+        .prepare(
+          `UPDATE live_artifact_refresh_steps
+           SET status = 'completed',
+               connector_provider_execution_id = COALESCE(?, connector_provider_execution_id),
+               connector_provider_execution_metadata_json = COALESCE(?, connector_provider_execution_metadata_json),
+               error_message = NULL,
+               ended_at = ?
+           WHERE id = ?`
+        )
+        .run(
+          connectorExecutionMetadata?.providerExecutionId?.trim() || null,
+          providerExecutionMetadataJson,
+          endedAt,
+          stepId
+        );
+    },
+
+    failLiveArtifactRefreshStep({ stepId, errorMessage }) {
+      const endedAt = new Date().toISOString();
+
+      connection
+        .prepare(
+          `UPDATE live_artifact_refresh_steps
+           SET status = 'failed', error_message = ?, ended_at = ?
+           WHERE id = ?`
+        )
+        .run(truncateLiveArtifactError(errorMessage), endedAt, stepId);
+    },
+
+    completeLiveArtifactRefresh({ refreshId, status, errorMessage }) {
+      const endedAt = new Date().toISOString();
+
+      connection
+        .prepare(
+          `UPDATE live_artifact_refreshes
+           SET status = ?, error_message = ?, ended_at = ?
+           WHERE id = ?`
+        )
+        .run(status, errorMessage ? truncateLiveArtifactError(errorMessage) : null, endedAt, refreshId);
     },
 
     listProviders() {
@@ -2405,6 +2696,30 @@ function listLiveArtifactTiles(connection: DatabaseSync, artifactId: string): Li
   return rows.map(mapLiveArtifactTileRow);
 }
 
+function getLiveArtifactTileRow(connection: DatabaseSync, tileId: string) {
+  return connection
+    .prepare(
+      `SELECT id, artifact_id, schema_version, position, title, kind, render_json, provenance_json, source_json,
+              refresh_status, refresh_started_at, last_refreshed_at, last_error, created_at, updated_at
+       FROM live_artifact_tiles
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(tileId) as LiveArtifactTileRow | undefined;
+}
+
+function assertLiveArtifactTileBelongsToArtifact(connection: DatabaseSync, artifactId: string, tileId: string): void {
+  const row = getLiveArtifactTileRow(connection, tileId);
+
+  if (!row || row.artifact_id !== artifactId) {
+    throw new ChatStorageResolutionError({
+      message: `Unknown tileId for artifact: ${tileId}`,
+      statusCode: 404,
+      errorCode: "not_found"
+    });
+  }
+}
+
 function insertLiveArtifactTiles(
   connection: DatabaseSync,
   artifactId: string,
@@ -2477,6 +2792,104 @@ function mapLiveArtifactTileRow(row: LiveArtifactTileRow): LiveArtifactTile {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   });
+}
+
+function getLiveArtifactRefreshRow(connection: DatabaseSync, refreshId: string) {
+  return connection
+    .prepare(
+      `SELECT id, artifact_id, scope, requested_tile_id, status, trigger, started_at, ended_at, error_message
+       FROM live_artifact_refreshes
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(refreshId) as LiveArtifactRefreshRow | undefined;
+}
+
+function getLiveArtifactRefreshOrThrow(connection: DatabaseSync, refreshId: string): StoredLiveArtifactRefresh {
+  const row = getLiveArtifactRefreshRow(connection, refreshId);
+
+  if (!row) {
+    throw new ChatStorageResolutionError({
+      message: `Unknown live artifact refreshId: ${refreshId}`,
+      statusCode: 404,
+      errorCode: "not_found"
+    });
+  }
+
+  return mapLiveArtifactRefreshRow(row);
+}
+
+function mapLiveArtifactRefreshRow(row: LiveArtifactRefreshRow): StoredLiveArtifactRefresh {
+  return {
+    id: row.id,
+    artifactId: row.artifact_id,
+    scope: row.scope,
+    requestedTileId: row.requested_tile_id,
+    status: row.status,
+    trigger: row.trigger,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    errorMessage: row.error_message
+  };
+}
+
+function getLiveArtifactRefreshStepRow(connection: DatabaseSync, stepId: string) {
+  return connection
+    .prepare(
+      `SELECT id, refresh_id, tile_id, source_type, tool_name, input_json,
+              connector_id, connector_name, connector_account_label, connector_tool_name,
+              connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json,
+              approval_basis, connector_provider_execution_id, connector_provider_execution_metadata_json,
+              status, error_message, started_at, ended_at
+       FROM live_artifact_refresh_steps
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(stepId) as LiveArtifactRefreshStepRow | undefined;
+}
+
+function getLiveArtifactRefreshStepOrThrow(connection: DatabaseSync, stepId: string): StoredLiveArtifactRefreshStep {
+  const row = getLiveArtifactRefreshStepRow(connection, stepId);
+
+  if (!row) {
+    throw new ChatStorageResolutionError({
+      message: `Unknown live artifact refresh stepId: ${stepId}`,
+      statusCode: 404,
+      errorCode: "not_found"
+    });
+  }
+
+  return mapLiveArtifactRefreshStepRow(row);
+}
+
+function mapLiveArtifactRefreshStepRow(row: LiveArtifactRefreshStepRow): StoredLiveArtifactRefreshStep {
+  return {
+    id: row.id,
+    refreshId: row.refresh_id,
+    tileId: row.tile_id,
+    sourceType: row.source_type,
+    toolName: row.tool_name,
+    input: JSON.parse(row.input_json) as unknown,
+    connectorId: row.connector_id,
+    connectorName: row.connector_name,
+    connectorAccountLabel: row.connector_account_label,
+    connectorToolName: row.connector_tool_name,
+    connectorProviderToolId: row.connector_provider_tool_id,
+    connectorArgumentsSummary: row.connector_arguments_summary,
+    connectorApprovalPolicy: row.connector_approval_policy_json === null ? null : (JSON.parse(row.connector_approval_policy_json) as unknown),
+    approvalBasis: row.approval_basis,
+    connectorProviderExecutionId: row.connector_provider_execution_id,
+    connectorProviderExecutionMetadata: row.connector_provider_execution_metadata_json === null ? null : (JSON.parse(row.connector_provider_execution_metadata_json) as unknown),
+    status: row.status,
+    errorMessage: row.error_message,
+    startedAt: row.started_at,
+    endedAt: row.ended_at
+  };
+}
+
+function truncateLiveArtifactError(message: string): string {
+  const normalized = message.trim() || "Live artifact refresh failed.";
+  return normalized.length > LIVE_ARTIFACT_LIMITS.error ? `${normalized.slice(0, LIVE_ARTIFACT_LIMITS.error - 1)}…` : normalized;
 }
 
 function parseLiveArtifactUpdateInput(input: UpdateLiveArtifactInput, existing: LiveArtifactRow): { title: string; description: string | null } {
