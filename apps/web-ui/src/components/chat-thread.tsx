@@ -21,6 +21,10 @@ import { Streamdown } from "streamdown";
 import "katex/dist/katex.min.css";
 import "streamdown/styles.css";
 
+import githubIconUrl from "../assets/connectors/github.svg";
+import googleDriveIconUrl from "../assets/connectors/google-drive.svg";
+import notionIconUrl from "../assets/connectors/notion.svg";
+
 type ChatMessage = UIMessage;
 const WRITE_FILE_PREVIEW_MAX_LINES = 24;
 const WRITE_FILE_PREVIEW_MAX_CHARS = 1_200;
@@ -60,26 +64,9 @@ const partLabelClassName = "text-xs font-semibold uppercase tracking-[0.08em] te
 const toolSectionClassName = "flex flex-col gap-1.5";
 const toolPreClassName = "m-0 overflow-auto whitespace-pre-wrap rounded-md bg-surface-0 p-2.5 font-mono text-sm text-text-secondary";
 const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
-const toolSummaryClassName = "flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden max-[960px]:flex-col max-[960px]:items-start";
 const markdownClassName = "leading-[1.6] text-text-primary [&_*:first-child]:mt-0 [&_*:last-child]:mb-0 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_li>ol]:my-1 [&_li>ul]:my-1";
 const internalToolLineClassName = "flex min-h-8 items-center gap-2 text-sm leading-[1.5] text-text-muted";
 const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted)_0%,var(--color-text-heading)_38%,var(--color-accent)_50%,var(--color-text-heading)_62%,var(--color-text-muted)_100%)] bg-[length:240%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_2.2s_ease-in-out_infinite]";
-
-function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
-  switch (phase) {
-    case "awaiting-confirm":
-      return `${partCardClassName} border-[hsl(var(--accent)/0.4)] bg-[hsl(var(--accent)/0.06)]`;
-    case "preparing":
-    case "running":
-      return `${partCardClassName} border-[hsl(var(--warning)/0.35)]`;
-    case "completed":
-      return `${partCardClassName} border-[hsl(var(--success)/0.35)]`;
-    case "failed":
-      return `${partCardClassName} border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.05)]`;
-    default:
-      return partCardClassName;
-  }
-}
 
 function formatToolState(state: string) {
   switch (state) {
@@ -252,6 +239,24 @@ function getPathDisplayName(path: string) {
   return normalizedPath.split(/[\\/]/).pop() ?? normalizedPath;
 }
 
+function getConnectorIconUrl(toolName: string) {
+  const normalized = toolName.toLowerCase();
+  
+  if (normalized.includes("github")) {
+    return githubIconUrl;
+  }
+  
+  if (normalized.includes("notion")) {
+    return notionIconUrl;
+  }
+  
+  if (normalized.includes("google_drive") || normalized.includes("googledrive") || normalized.includes("gdrive")) {
+    return googleDriveIconUrl;
+  }
+  
+  return null;
+}
+
 function getInternalToolIcon(toolName: string): LucideIcon {
   switch (toolName) {
     case "fetch_url":
@@ -271,6 +276,28 @@ function isInternalToolName(toolName: string) {
 
 function isExecutingToolState(state: ToolPart["state"]) {
   return state === "input-streaming" || state === "input-available" || state === "running";
+}
+
+function getConnectorToolDescription(part: ToolPart) {
+  if (part.state === "output-error" || part.state === "error") {
+    const errorDetails = getToolErrorDetails(part);
+    return errorDetails ? `Failed: ${errorDetails}` : "Tool failed.";
+  }
+
+  if (part.state === "output-available") {
+    return "Tool completed.";
+  }
+
+  const entries = getToolInputEntries(part.input);
+  if (entries.length > 0) {
+    return entries.map(e => `${e.key}: ${e.value}`).join(", ");
+  }
+
+  if (part.input !== undefined && part.input !== null) {
+    return formatToolInputValue(part.input);
+  }
+
+  return `${formatToolState(part.state)}.`;
 }
 
 function getInternalToolMessage(toolName: string, part: ToolPart) {
@@ -535,6 +562,7 @@ function renderPart(
     const successfulWriteFilePath = toolName === "write_file" ? getSuccessfulWriteFileOutputPath(part) : null;
     const successfulWriteFileName = successfulWriteFilePath ? getPathDisplayName(successfulWriteFilePath) : null;
     const toolErrorDetails = getToolErrorDetails(part);
+    const connectorIconUrl = getConnectorIconUrl(toolName);
 
     if (isInternalToolName(toolName)) {
       const Icon = getInternalToolIcon(toolName);
@@ -607,20 +635,26 @@ function renderPart(
     }
 
     return (
-      <Accordion key={`${part.type}-${index}`} type="single" collapsible className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
+      <Accordion key={`${part.type}-${index}`} type="single" collapsible className="flex flex-col" data-tool-phase={toolStateMeta.phase}>
         <AccordionItem value="tool" className="border-b-0">
-          <AccordionTrigger className={toolSummaryClassName}>
-            <div className="flex w-full items-start justify-between gap-3 max-[960px]:flex-col max-[960px]:items-start">
-              <div className="flex flex-col gap-1">
-                <span className={partLabelClassName}>Tool call</span>
-                <strong className={partTitleClassName}>{toolName}</strong>
-                <span className="text-sm text-text-muted">Details collapsed</span>
+          <AccordionTrigger className="flex min-h-8 cursor-pointer items-center justify-between gap-3 py-1 text-sm hover:no-underline [&>span]:min-w-0">
+            <div className="flex w-full min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                {connectorIconUrl ? (
+                  <img src={connectorIconUrl} alt={`${toolName} icon`} className="size-4 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Wrench aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
+                )}
+                <strong className="truncate font-medium text-text-heading">{toolName}</strong>
+                <span className={`${isExecutingToolState(part.state) ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={getConnectorToolDescription(part)}>
+                  {getConnectorToolDescription(part)}
+                </span>
               </div>
-              <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
+              <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full" className="shrink-0">{toolStateMeta.label}</Badge>
             </div>
           </AccordionTrigger>
 
-        <AccordionContent className="mt-3 px-0 pb-0 text-base text-text-secondary">
+        <AccordionContent className="mt-2 px-0 pb-0 text-base text-text-secondary">
         <div className="flex flex-col gap-3">
           {isWriteFileCall ? (
             <>

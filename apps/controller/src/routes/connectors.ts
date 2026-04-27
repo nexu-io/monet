@@ -310,6 +310,20 @@ export function registerConnectorRoutes(
   app: ControllerApp,
   options: { connectorService: ConnectorService; getChatStorage: () => ChatStorage }
 ) {
+  app.get("/connectors", (context) => {
+    const status = context.req.query("connector_oauth")?.trim();
+    const connectorId = context.req.query("connector_id")?.trim();
+    const title = status === "connected" ? "Connector connected" : status === "pending" ? "Connector authorization pending" : "Connector authorization finished";
+    const message =
+      status === "connected"
+        ? `${connectorId ? `${connectorId} is connected. ` : ""}Return to Monet to continue.`
+        : status === "pending"
+          ? `${connectorId ? `${connectorId} authorization is pending. ` : ""}Return to Monet to refresh connector status.`
+          : "Return to Monet to check connector status.";
+
+    return context.html(createConnectorOAuthReturnPage(title, message), 200);
+  });
+
   app.get("/connectors/oauth/callback/:connectorId", async (context) => {
     const storage = options.getChatStorage();
     const connectorId = context.req.param("connectorId");
@@ -530,4 +544,54 @@ function redirectToConnectors(context: Context, status: "connected" | "pending" 
     : `/connectors?connector_oauth=${status}`;
 
   return context.redirect(target, 302);
+}
+
+function createConnectorOAuthReturnPage(title: string, message: string) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: Canvas; color: CanvasText; }
+      main { max-width: 34rem; padding: 2rem; text-align: center; }
+      h1 { margin: 0 0 0.75rem; font-size: 1.5rem; }
+      p { margin: 0; color: color-mix(in srgb, CanvasText 72%, transparent); line-height: 1.5; }
+      .hint { margin-top: 0.75rem; font-size: 0.875rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(message)}</p>
+      <p class="hint">This tab will try to close automatically. If it stays open, you can close it safely.</p>
+    </main>
+    <script>
+      window.setTimeout(() => {
+        window.close();
+      }, 1200);
+    </script>
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>'"]/g, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case "'":
+        return "&#39;";
+      case '"':
+        return "&quot;";
+      default:
+        return character;
+    }
+  });
 }

@@ -45,17 +45,19 @@ function formatSessionPreview(updatedAt: string) {
 }
 
 export function AppShell({
-  children,
   pathname,
   header,
   composer,
-  onDesktopStopShortcut
+  contentClassName,
+  onDesktopStopShortcut,
+  children
 }: {
-  children: ReactNode;
   pathname: string;
   header?: ReactNode;
   composer?: ReactNode;
+  contentClassName?: string;
   onDesktopStopShortcut?: () => void;
+  children: ReactNode;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -270,7 +272,7 @@ export function AppShell({
       >
         {header ? <div className="border-b border-border-subtle bg-app-canvas px-[var(--app-page-padding-x)] pt-5 pb-4">{header}</div> : null}
         <div className="min-h-0 overflow-auto" data-chat-scroll-container="true">
-          <div className="mx-auto flex max-w-[var(--app-content-max-width)] flex-col gap-[var(--app-section-gap)] px-[var(--app-page-padding-x)] pt-6 pb-8">{children}</div>
+          <div className={`mx-auto flex max-w-[var(--app-content-max-width)] flex-col gap-[var(--app-section-gap)] px-[var(--app-page-padding-x)] pt-6 pb-8 ${contentClassName ?? ""}`}>{children}</div>
         </div>
         {composer ? (
           <div className="bg-app-canvas [&>*]:mx-auto [&>*]:mb-4 [&>*]:max-w-[var(--app-content-max-width)] [&>*]:px-[var(--app-page-padding-x)] [&>*]:pt-4 [&>*]:pb-5">

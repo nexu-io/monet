@@ -747,7 +747,14 @@ function ConnectorSettingsPanel() {
 
       setSettingsState({ loading: false, data: settings, error: null });
       applySettingsToDraft(settings);
-      setFeedback(apiKeyOverride === null ? "Composio API key cleared." : "Connector provider settings saved.");
+      const discoveredConnectorCount = Object.keys(settings.authConfigIds).length;
+      setFeedback(
+        apiKeyOverride === null
+          ? "Composio API key cleared."
+          : discoveredConnectorCount > 0
+            ? `Connector provider settings saved. ${discoveredConnectorCount} auth config${discoveredConnectorCount === 1 ? "" : "s"} available.`
+            : "Connector provider settings saved. No matching auth configs were discovered."
+      );
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Unable to save connector provider settings.");
     } finally {
@@ -778,53 +785,55 @@ function ConnectorSettingsPanel() {
 
           <label className={settingsSecretFieldClassName}>
             <span className="text-sm font-medium text-text-heading">Composio API key</span>
-            <input
+            <Input
               className={`${settingsSecretInputClassName} mono`}
               type="password"
               value={apiKeyDraft}
               placeholder={apiKeyConfigured ? "Saved key is hidden. Enter a new key to replace it." : "Enter your Composio API key"}
               autoComplete="off"
-              onChange={(event) => setApiKeyDraft(event.target.value)}
+              onChange={(event) => setApiKeyDraft(event.currentTarget.value)}
             />
             <span className="text-xs text-text-muted">Leaving this blank preserves the currently saved key.</span>
           </label>
 
           <label className={settingsSecretFieldClassName}>
             <span className="text-sm font-medium text-text-heading">Composio base URL</span>
-            <input
+            <Input
               className={`${settingsSecretInputClassName} mono`}
               type="url"
               value={baseUrlDraft}
-              onChange={(event) => setBaseUrlDraft(event.target.value)}
+              onChange={(event) => setBaseUrlDraft(event.currentTarget.value)}
             />
           </label>
 
           <label className={settingsSecretFieldClassName}>
             <span className="text-sm font-medium text-text-heading">Request timeout (ms)</span>
-            <input
+            <Input
               className={`${settingsSecretInputClassName} mono`}
               type="number"
               min="1"
               value={timeoutMsDraft}
               placeholder="Default"
-              onChange={(event) => setTimeoutMsDraft(event.target.value)}
+              onChange={(event) => setTimeoutMsDraft(event.currentTarget.value)}
             />
           </label>
 
           <div className="flex flex-col gap-3">
             <div>
               <h3 className="m-0 text-sm font-semibold text-text-heading">Auth config IDs</h3>
-              <p className="m-0 text-sm text-text-muted">Create auth configs in Composio for each connector, then paste their IDs here.</p>
+              <p className="m-0 text-sm text-text-muted">
+                Monet auto-discovers matching Composio auth configs from your API key. Paste IDs only to override the detected values.
+              </p>
             </div>
             {connectorAuthConfigFields.map((field) => (
               <label key={field.id} className={settingsSecretFieldClassName}>
                 <span className="text-sm font-medium text-text-heading">{field.label}</span>
-                <input
+                <Input
                   className={`${settingsSecretInputClassName} mono`}
                   type="text"
                   value={authConfigDraft[field.id]}
                   placeholder={field.placeholder}
-                  onChange={(event) => setAuthConfigDraft((current) => ({ ...current, [field.id]: event.target.value }))}
+                  onChange={(event) => setAuthConfigDraft((current) => ({ ...current, [field.id]: event.currentTarget.value }))}
                 />
               </label>
             ))}

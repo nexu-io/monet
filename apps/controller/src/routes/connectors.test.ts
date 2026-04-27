@@ -412,6 +412,42 @@ test("connector OAuth callback validates state before redirecting back to connec
   assert.equal(replayResponse.headers.get("location"), "/connectors?connector_oauth=error");
 });
 
+test("connector OAuth return route renders browser handoff page", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+
+  registerConnectorRoutes(app, {
+    connectorService: {
+      listConnectors() {
+        throw new Error("not used in OAuth return route test");
+      },
+      getConnector() {
+        throw new Error("not used in OAuth return route test");
+      },
+      getConnection() {
+        throw new Error("not used in OAuth return route test");
+      },
+      startConnection() {
+        throw new Error("not used in OAuth return route test");
+      },
+      completeConnection() {
+        throw new Error("not used in OAuth return route test");
+      },
+      disconnect() {
+        throw new Error("not used in OAuth return route test");
+      }
+    } as never,
+    getChatStorage: () => ({}) as never
+  });
+
+  const response = await app.request("http://127.0.0.1:42831/connectors?connector_oauth=connected&connector_id=github");
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /text\/html/);
+  const body = await response.text();
+  assert.match(body, /Return to Monet to continue/);
+  assert.match(body, /window\.close\(\)/);
+});
+
 test("connector OAuth callback persists metadata, consumes state, rejects replay, and returns safely", async () => {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-connector-callback-tests-"));
 

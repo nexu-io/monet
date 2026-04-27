@@ -32,6 +32,8 @@ type ConnectorStorage = Pick<ChatStorage, "createConnectorOAuthState" | "getConn
 interface ComposioConnectedAccountResponse {
   readonly id?: unknown;
   readonly nanoid?: unknown;
+  readonly connected_account_id?: unknown;
+  readonly connectedAccountId?: unknown;
   readonly status?: unknown;
   readonly state?: unknown;
   readonly redirect_url?: unknown;
@@ -85,6 +87,21 @@ interface ComposioToolExecuteResponse {
   readonly logId?: unknown;
 }
 
+interface ComposioAuthConfigListResponse {
+  readonly items?: unknown;
+  readonly data?: unknown;
+}
+
+interface ComposioAuthConfigResponse {
+  readonly id?: unknown;
+  readonly status?: unknown;
+  readonly toolkit?: {
+    readonly slug?: unknown;
+  };
+  readonly toolkit_slug?: unknown;
+  readonly toolkitSlug?: unknown;
+}
+
 export interface ComposioConnectorProviderOptions {
   readonly config: ComposioProviderConfig;
   readonly storage: ConnectorStorage;
@@ -92,14 +109,47 @@ export interface ComposioConnectorProviderOptions {
 
 export class ComposioConnectorProvider implements ConnectorProvider {
   private readonly storage: ConnectorStorage;
+  private authConfigDiscoveryCache: Partial<Record<ConnectorId, string>> | null = null;
+  private authConfigDiscoveryCacheKey: string | null = null;
 
   constructor(options: ComposioConnectorProviderOptions) {
     void options.config;
     this.storage = options.storage;
   }
 
-  private getProviderConfig() {
+  private getProviderConfig(): ComposioProviderConfig {
     return this.storage.getConnectorProviderComposioSettings();
+  }
+
+  private async getEffectiveProviderConfig(): Promise<ComposioProviderConfig> {
+    const providerConfig = this.getProviderConfig();
+
+    if (!providerConfig.apiKey || hasConfiguredAuthConfigIds(providerConfig.authConfigIds)) {
+      return providerConfig;
+    }
+
+    const cacheKey = `${providerConfig.baseUrl}|${providerConfig.apiKey}`;
+    if (this.authConfigDiscoveryCache && this.authConfigDiscoveryCacheKey === cacheKey) {
+      return {
+        ...providerConfig,
+        authConfigIds: {
+          ...this.authConfigDiscoveryCache,
+          ...providerConfig.authConfigIds
+        }
+      };
+    }
+
+    const discoveredAuthConfigIds = await discoverComposioAuthConfigIds(providerConfig);
+    this.authConfigDiscoveryCache = discoveredAuthConfigIds;
+    this.authConfigDiscoveryCacheKey = cacheKey;
+
+    return {
+      ...providerConfig,
+      authConfigIds: {
+        ...discoveredAuthConfigIds,
+        ...providerConfig.authConfigIds
+      }
+    };
   }
 
   async listConnectors(): Promise<readonly ConnectorCatalogItem[]> {
@@ -107,7 +157,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async getConnectionStatus(input: ConnectorConnectionInput): Promise<ConnectorConnectionStatus> {
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = await this.getEffectiveProviderConfig();
 
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
@@ -173,7 +223,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async connect(input: ConnectorCreateConnectionInput): Promise<ConnectorConnectionStart> {
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = await this.getEffectiveProviderConfig();
 
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
@@ -221,7 +271,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async completeConnection(input: ConnectorCompleteConnectionInput): Promise<ConnectorReconciledConnection> {
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = await this.getEffectiveProviderConfig();
 
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
@@ -256,7 +306,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async disconnect(input: ConnectorConnectionInput): Promise<void> {
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = await this.getEffectiveProviderConfig();
 
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
@@ -295,7 +345,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async listTools(input: ConnectorListToolsInput): Promise<readonly ConnectorToolDefinition[]> {
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = await this.getEffectiveProviderConfig();
 
     const catalogItems = getCatalogItemsForToolListing(input.connectorId);
 
@@ -333,7 +383,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async executeTool(input: ConnectorExecuteToolInput): Promise<ConnectorToolResult> {
-    const providerConfig = this.getProviderConfig();
+    const providerConfig = await this.getEffectiveProviderConfig();
 
     const allowedTool = getCatalogItemForProviderTool(input.toolId);
 
@@ -405,13 +455,15 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     input: { authConfigId: string; userId: string; state: string; redirectUrl?: string },
     abortSignal: AbortSignal | undefined
   ): Promise<ComposioConnectedAccountResponse> {
-    return this.requestJson("/api/v3/connected_accounts", {
+    return this.requestJson("/api/v3.1/connected_accounts/link", {
       method: "POST",
       body: JSON.stringify({
         auth_config_id: input.authConfigId,
         user_id: input.userId,
-        state: input.state,
-        ...(input.redirectUrl ? { callback_url: input.redirectUrl } : {})
+        connection_data: {
+          state_prefix: input.state
+        },
+        ...(input.redirectUrl ? { callback_url: appendOAuthStateToCallbackUrl(input.redirectUrl, input.state) } : {})
       }),
       ...(abortSignal ? { abortSignal } : {})
     });
@@ -460,7 +512,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   private async requestTools(providerConnectorId: string, abortSignal: AbortSignal | undefined): Promise<readonly ComposioToolResponse[]> {
-    const searchParams = new URLSearchParams({ toolkit_slug: providerConnectorId, limit: "1000" });
+    const searchParams = new URLSearchParams({ toolkit_slug: providerConnectorId.toLowerCase(), limit: "1000" });
     const response = await this.requestJson<ComposioToolListResponse>(`/api/v3.1/tools?${searchParams.toString()}`, {
       method: "GET",
       ...(abortSignal ? { abortSignal } : {})
@@ -504,10 +556,12 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     }
 
     const signal = combineAbortSignal(input.abortSignal, providerConfig.timeoutMs);
-    const response = await fetch(`${providerConfig.baseUrl}${path}`, {
+    const response = await fetch(`${providerConfig.baseUrl.replace(/\/+$/, "")}${path}`, {
       method: input.method,
       headers: {
+        accept: "application/json",
         "content-type": "application/json",
+        "user-agent": "Monet/0.1 ComposioConnectorProvider",
         "x-api-key": providerConfig.apiKey
       },
       ...(input.body ? { body: input.body } : {}),
@@ -515,7 +569,11 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     });
 
     if (!response.ok) {
-      throw createConnectorProviderError(mapComposioHttpStatus(response.status), { statusCode: response.status });
+      const message = await getComposioErrorMessage(response);
+      throw createConnectorProviderError(mapComposioHttpStatus(response.status), {
+        ...(message ? { message } : {}),
+        statusCode: response.status
+      });
     }
 
     return response;
@@ -548,6 +606,83 @@ function getCatalogItemForProviderTool(
   }
 
   return undefined;
+}
+
+function hasConfiguredAuthConfigIds(authConfigIds: Partial<Record<ConnectorId, string>>): boolean {
+  return listConnectorCatalog().every((catalogItem) => Boolean(authConfigIds[catalogItem.id]));
+}
+
+async function discoverComposioAuthConfigIds(providerConfig: ComposioProviderConfig): Promise<Partial<Record<ConnectorId, string>>> {
+  if (!providerConfig.apiKey) {
+    return {};
+  }
+
+  try {
+    const signal = combineAbortSignal(undefined, providerConfig.timeoutMs);
+    const response = await fetch(`${providerConfig.baseUrl.replace(/\/+$/, "")}/api/v3/auth_configs`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "user-agent": "Monet/0.1 ComposioAuthConfigDiscovery",
+        "x-api-key": providerConfig.apiKey
+      },
+      ...(signal ? { signal } : {})
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    const payload = (await response.json()) as ComposioAuthConfigListResponse;
+    const items = Array.isArray(payload.items) ? payload.items : Array.isArray(payload.data) ? payload.data : [];
+    const discovered: Partial<Record<ConnectorId, string>> = {};
+    const connectorByToolkitSlug = createConnectorByToolkitSlugMap();
+
+    for (const item of items) {
+      if (!isComposioAuthConfigResponse(item)) {
+        continue;
+      }
+
+      const authConfigId = getString(item.id);
+      const toolkitSlug = getString(item.toolkit?.slug) ?? getString(item.toolkit_slug) ?? getString(item.toolkitSlug);
+      const connectorId = toolkitSlug ? connectorByToolkitSlug.get(normalizeComposioToolkitSlug(toolkitSlug)) : undefined;
+      const status = getString(item.status)?.toUpperCase();
+
+      if (!authConfigId || !connectorId || discovered[connectorId] || (status && status !== "ENABLED")) {
+        continue;
+      }
+
+      discovered[connectorId] = authConfigId;
+    }
+
+    return discovered;
+  } catch {
+    return {};
+  }
+}
+
+function createConnectorByToolkitSlugMap(): Map<string, ConnectorId> {
+  const connectorByToolkitSlug = new Map<string, ConnectorId>();
+
+  for (const connector of listConnectorCatalog()) {
+    connectorByToolkitSlug.set(normalizeComposioToolkitSlug(connector.providerConnectorId), connector.id);
+    connectorByToolkitSlug.set(normalizeComposioToolkitSlug(connector.id), connector.id);
+  }
+
+  connectorByToolkitSlug.set("googledrive", "google_drive");
+  connectorByToolkitSlug.set("gdrive", "google_drive");
+  connectorByToolkitSlug.set("drive", "google_drive");
+
+  return connectorByToolkitSlug;
+}
+
+function isComposioAuthConfigResponse(value: unknown): value is ComposioAuthConfigResponse {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizeComposioToolkitSlug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function mapComposioToolDefinition(
@@ -586,7 +721,7 @@ function getComposioInputSchema(providerTool: ComposioToolResponse): ConnectorTo
 
 function isToolFromToolkit(providerTool: ComposioToolResponse, providerConnectorId: string): boolean {
   const toolkitSlug = getString(providerTool.toolkit?.slug);
-  return !toolkitSlug || toolkitSlug === providerConnectorId;
+  return !toolkitSlug || normalizeComposioToolkitSlug(toolkitSlug) === normalizeComposioToolkitSlug(providerConnectorId);
 }
 
 function isComposioToolResponse(value: unknown): value is ComposioToolResponse {
@@ -784,7 +919,18 @@ function parseLastError(value: string | null): { code?: ConnectorConnectionStatu
 }
 
 function getComposioConnectionId(response: ComposioConnectedAccountResponse): string | undefined {
-  return getString(response.id) ?? getString(response.nanoid);
+  return getString(response.id) ?? getString(response.nanoid) ?? getString(response.connected_account_id) ?? getString(response.connectedAccountId);
+}
+
+function appendOAuthStateToCallbackUrl(callbackUrl: string, state: string): string {
+  try {
+    const url = new URL(callbackUrl);
+    url.searchParams.set("state", state);
+    return url.toString();
+  } catch {
+    const separator = callbackUrl.includes("?") ? "&" : "?";
+    return `${callbackUrl}${separator}state=${encodeURIComponent(state)}`;
+  }
 }
 
 function getComposioAccountId(response: ComposioConnectedAccountResponse): string | undefined {
@@ -830,6 +976,10 @@ function getString(value: unknown): string | undefined {
 }
 
 function mapComposioHttpStatus(status: number): ConnectorProviderErrorCode {
+  if (status === 400 || status === 422) {
+    return "invalid_arguments";
+  }
+
   if (status === 401) {
     return "connection_expired";
   }
@@ -851,6 +1001,31 @@ function mapComposioHttpStatus(status: number): ConnectorProviderErrorCode {
   }
 
   return "provider_error";
+}
+
+async function getComposioErrorMessage(response: Response): Promise<string | undefined> {
+  try {
+    const rawBody = await response.text();
+
+    if (!rawBody.trim()) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(rawBody) as unknown;
+      const record = getRecord(parsed);
+      const message = getString(record?.message) ?? getString(record?.error) ?? getString(record?.detail);
+      const suggestedFix = getString(record?.suggested_fix) ?? getString(record?.suggestedFix);
+      const errors = Array.isArray(record?.errors) ? record.errors.filter((value): value is string => typeof value === "string") : [];
+      const details = [message, suggestedFix, ...errors].filter((value): value is string => Boolean(value && value.trim()));
+
+      return details.length ? `Connector provider request failed: ${details.join(" ")}` : undefined;
+    } catch {
+      return rawBody.length <= 500 ? `Connector provider request failed: ${rawBody}` : undefined;
+    }
+  } catch {
+    return undefined;
+  }
 }
 
 function mapComposioExecutionError(error: unknown): ConnectorProviderErrorCode {

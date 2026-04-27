@@ -161,16 +161,19 @@ describe("ConnectorsPage", () => {
     cleanup();
   });
 
-  it("renders connector cards with status badges and connect/reconnect/manage states", async () => {
+  it("renders connector cards with status icons and connect/reconnect/manage states", async () => {
     renderConnectorsPage();
 
     expect(await screen.findByRole("heading", { name: "GitHub" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Notion" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Google Drive" })).toBeInTheDocument();
 
-    expect(screen.getByText("Not connected")).toBeInTheDocument();
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByText("Needs reconnect")).toBeInTheDocument();
+    expect(screen.getByLabelText("Not connected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Connected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Needs reconnect")).toBeInTheDocument();
+    expect(screen.queryByText("Capabilities")).not.toBeInTheDocument();
+    expect(screen.queryByText("Browse repositories")).not.toBeInTheDocument();
+    expect(screen.queryByText("List Repositories")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Manage Notion" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Reconnect Google Drive" })).toBeEnabled();

@@ -280,6 +280,51 @@ test("controller app exposes connectors API routes", async () => {
   }
 });
 
+test("controller app auto-discovers Composio auth config IDs when settings are saved", async (t) => {
+  const fixture = createAppFixture();
+  const fetchMock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    assert.equal(String(input), "https://composio.test/api/v3/auth_configs");
+    assert.equal((init?.headers as Record<string, string> | undefined)?.["x-api-key"], "test-composio-api-key");
+
+    return new Response(
+      JSON.stringify({
+        items: [
+          { id: "ac_github", status: "ENABLED", toolkit: { slug: "github" } },
+          { id: "ac_notion", status: "ENABLED", toolkit: { slug: "notion" } },
+          { id: "ac_drive", status: "ENABLED", toolkit: { slug: "googledrive" } },
+          { id: "ac_disabled", status: "DISABLED", toolkit: { slug: "github" } }
+        ]
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  });
+
+  try {
+    const { app } = createControllerApp(createControllerAppOptions(fixture));
+    const response = await app.request("http://127.0.0.1:42831/api/settings/connectors/composio", {
+      method: "PUT",
+      headers: {
+        ...authorizedRequestHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        apiKey: "test-composio-api-key",
+        baseUrl: "https://composio.test"
+      })
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json() as { authConfigIds: Record<string, string> }).authConfigIds, {
+      github: "ac_github",
+      notion: "ac_notion",
+      google_drive: "ac_drive"
+    });
+    assert.equal(fetchMock.mock.callCount(), 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("controller app includes ConnectorToolSource in chat runtime tools", async () => {
   const fixture = createAppFixture();
 
