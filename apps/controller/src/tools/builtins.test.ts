@@ -338,12 +338,22 @@ test("runtime tools pick up authorized directory updates after creation", async 
       logger: createLogger("test")
     }) as Record<string, { execute: (input: unknown, context: unknown) => Promise<unknown> }>;
     const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
 
     const firstResult = (await readFileTool.execute(
       { path: join(firstWorkspaceDir, "first.txt") },
       createExecutionContext()
     )) as { content: string };
     assert.equal(firstResult.content, "first");
+
+    await writeFileTool.execute(
+      {
+        path: join(firstWorkspaceDir, "first-write.txt"),
+        content: "first write"
+      },
+      createExecutionContext()
+    );
+    assert.equal(readFileSync(join(firstWorkspaceDir, "first-write.txt"), "utf8"), "first write");
 
     allowedDirectories = [secondWorkspaceDir];
 
@@ -357,11 +367,31 @@ test("runtime tools pick up authorized directory updates after creation", async 
       /outside the authorized directories|No authorized directories are currently available/
     );
 
+    await assert.rejects(
+      writeFileTool.execute(
+        {
+          path: join(firstWorkspaceDir, "blocked-write.txt"),
+          content: "blocked"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+
     const secondResult = (await readFileTool.execute(
       { path: join(secondWorkspaceDir, "second.txt") },
       createExecutionContext()
     )) as { content: string };
     assert.equal(secondResult.content, "second");
+
+    await writeFileTool.execute(
+      {
+        path: join(secondWorkspaceDir, "second-write.txt"),
+        content: "second write"
+      },
+      createExecutionContext()
+    );
+    assert.equal(readFileSync(join(secondWorkspaceDir, "second-write.txt"), "utf8"), "second write");
   } finally {
     fixture.cleanup();
   }
