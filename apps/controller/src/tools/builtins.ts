@@ -688,7 +688,7 @@ export function createBuiltinToolDefinitions(
     {
       metadata: {
         name: "write_file",
-        description: "Writes a UTF-8 text file inside an authorized directory.",
+        description: "Writes a UTF-8 text file inside the session workspace or an authorized directory.",
         requiresConfirmation: true
       },
       inputSchema: z.object({
@@ -697,7 +697,7 @@ export function createBuiltinToolDefinitions(
       }).strict(),
       async needsApproval(input, context) {
         const normalizedInput = input as WriteFileInput;
-        const resolvedPath = await classifyFilesystemPath({
+        const resolvedPath = await assertFilesystemPathAllowed({
           requestedPath: normalizedInput.path,
           accessMode: "write",
           sessionWorkspacePath: context.sessionWorkspacePath,

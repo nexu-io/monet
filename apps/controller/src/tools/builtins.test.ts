@@ -138,10 +138,59 @@ test("builtin tool registry exposes fetch/read/write tools", () => {
     },
     {
       name: "write_file",
-      description: "Writes a UTF-8 text file inside an authorized directory.",
+      description: "Writes a UTF-8 text file inside the session workspace or an authorized directory.",
       requiresConfirmation: true
     }
   ]);
+});
+
+test("write_file approval is dynamic by path zone", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const authorizedDir = join(fixture.fixtureDir, "authorized-external");
+    mkdirSync(authorizedDir, { recursive: true });
+
+    const writeFileDefinition = createBuiltinToolDefinitions({
+      allowedDirectories: [authorizedDir]
+    }).find((definition) => definition.metadata.name === "write_file");
+
+    assert.ok(writeFileDefinition?.needsApproval);
+
+    const approvalContext = {
+      toolCallId: "call_sdk_approval",
+      messages: [],
+      experimental_context: undefined,
+      sessionId: "ses_test",
+      sessionWorkspacePath: fixture.workspaceDir
+    };
+
+    assert.equal(
+      await writeFileDefinition.needsApproval(
+        { path: "workspace-output.txt", content: "workspace" },
+        approvalContext
+      ),
+      false
+    );
+
+    assert.equal(
+      await writeFileDefinition.needsApproval(
+        { path: join(authorizedDir, "authorized-output.txt"), content: "authorized" },
+        approvalContext
+      ),
+      true
+    );
+
+    await assert.rejects(
+      writeFileDefinition.needsApproval(
+        { path: join(fixture.fixtureDir, "outside-output.txt"), content: "blocked" },
+        approvalContext
+      ),
+      /outside the authorized directories or session workspace/
+    );
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test("read_file and write_file operate inside authorized directories", async () => {
