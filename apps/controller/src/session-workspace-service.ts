@@ -1,4 +1,4 @@
-import { chmod, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 const safeWorkspaceSessionIdPattern = /^ses_[a-z0-9]+$/;
@@ -53,8 +53,12 @@ export function createSessionWorkspaceService(
     },
 
     async deleteWorkspace(sessionId) {
-      const workspacePath = getWorkspacePath(sessionId);
-      assertPathInsideBase(workspacePath, baseDirectory);
+      const workspacePath = await getVerifiedWorkspaceDeletionTarget(sessionId, getWorkspacePath, baseDirectory);
+
+      if (workspacePath === null) {
+        return;
+      }
+
       await rm(workspacePath, { recursive: true, force: true });
     },
 
@@ -69,6 +73,31 @@ export function createSessionWorkspaceService(
       };
     }
   };
+}
+
+async function getVerifiedWorkspaceDeletionTarget(
+  sessionId: string,
+  getWorkspacePath: (sessionId: string) => string,
+  baseDirectory: string
+): Promise<string | null> {
+  const workspacePath = getWorkspacePath(sessionId);
+  assertPathInsideBase(workspacePath, baseDirectory);
+
+  let canonicalWorkspacePath: string;
+  try {
+    canonicalWorkspacePath = await realpath(workspacePath);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  const canonicalBaseDirectory = await realpath(baseDirectory);
+  assertPathInsideBase(canonicalWorkspacePath, canonicalBaseDirectory);
+
+  return canonicalWorkspacePath;
 }
 
 async function applyRestrictiveDirectoryPermissions(workspacePath: string): Promise<void> {

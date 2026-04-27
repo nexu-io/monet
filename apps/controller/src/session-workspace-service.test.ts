@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -97,4 +97,25 @@ test("keeps workspace paths stable across service restarts", async (t) => {
 
   assert.equal(restartedPath, firstPath);
   assert.equal(await restartedService.ensureWorkspace("ses_restart1"), firstPath);
+});
+
+test("deleteWorkspace refuses to recursively remove paths that escape the configured base", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  const outsideDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+    await rm(outsideDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const escapedWorkspacePath = join(outsideDirectory, "workspace");
+  await mkdir(escapedWorkspacePath, { recursive: true });
+  await writeFile(join(escapedWorkspacePath, "keep.txt"), "keep");
+  await symlink(outsideDirectory, join(baseDirectory, "ses_escape1"), "dir");
+
+  await assert.rejects(
+    service.deleteWorkspace("ses_escape1"),
+    /Refusing to use session workspace path outside configured base/
+  );
+  await access(join(escapedWorkspacePath, "keep.txt"));
 });
