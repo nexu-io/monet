@@ -5,6 +5,7 @@ import { schema } from "./schema";
 
 export const databasePackageName = "@monet/database";
 
+export * from "./connector-persistence-safety";
 export * from "./schema";
 
 export interface CreateDatabaseOptions {
