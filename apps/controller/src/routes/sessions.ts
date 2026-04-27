@@ -7,6 +7,7 @@ import {
   CreateSessionRequestSchema,
   ErrorResponseSchema,
   ListSessionsResponseSchema,
+  OpenWorkspaceDirectoryResponseSchema,
   SessionDetailSchema,
   SessionSchema,
   UpdateSessionRequestSchema,
@@ -252,6 +253,44 @@ const deleteSessionRoute = createRoute({
   }
 });
 
+const openWorkspaceDirectoryRoute = createRoute({
+  method: "post",
+  path: "/api/sessions/{sessionId}/workspace/open",
+  tags: ["Sessions"],
+  summary: "Open session workspace directory",
+  description:
+    "Validates the session, derives its workspace path server-side, and ensures the workspace directory exists before desktop opening.",
+  request: {
+    params: sessionIdParamSchema
+  },
+  responses: {
+    200: {
+      description: "Session workspace directory is ready to open.",
+      content: {
+        "application/json": {
+          schema: OpenWorkspaceDirectoryResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "The requested session was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The session workspace directory could not be prepared.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
 function createSessionMutationErrorResponse(error: unknown) {
   if (error instanceof ChatStorageResolutionError) {
     if (error.statusCode === 422) {
@@ -409,6 +448,27 @@ export function registerSessionRoutes(
       await options.sessionWorkspaceService.deleteWorkspace(sessionId);
 
       return context.body(null, 204);
+    } catch (error) {
+      const response = createSessionLookupErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(openWorkspaceDirectoryRoute, async (context) => {
+    const sessionId = context.req.valid("param").sessionId;
+
+    try {
+      options.getChatStorage().getSessionDetail(sessionId);
+      const workspacePath = await options.sessionWorkspaceService.ensureWorkspace(sessionId);
+
+      return context.json(
+        {
+          ok: true as const,
+          workspacePath
+        },
+        200
+      );
     } catch (error) {
       const response = createSessionLookupErrorResponse(error);
 

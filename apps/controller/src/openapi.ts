@@ -74,6 +74,15 @@ export const ArchiveSessionResponseSchema = z
   })
   .openapi("ArchiveSessionResponse");
 
+export const OpenWorkspaceDirectoryResponseSchema = z
+  .object({
+    ok: z.literal(true).openapi({ example: true }),
+    workspacePath: z.string().openapi({
+      example: "/Users/example/Library/Application Support/Monet/session-workspaces/ses_abc123/workspace"
+    })
+  })
+  .openapi("OpenWorkspaceDirectoryResponse");
+
 export const ProviderSchema = z
   .object({
     id: z.string().openapi({ example: "pro_123" }),

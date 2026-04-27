@@ -129,3 +129,93 @@ test("delete session route recursively removes the session workspace", async () 
     fixture.cleanup();
   }
 });
+
+test("open workspace route validates the session and creates its workspace", async () => {
+  const fixture = createFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const sessionWorkspaceService = createSessionWorkspaceService({ baseDirectory: fixture.workspaceDir });
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    registerSessionRoutes(app, {
+      getChatStorage: () => storage,
+      sessionWorkspaceService
+    });
+    const session = storage.createSession({});
+    const expectedWorkspacePath = sessionWorkspaceService.getWorkspacePath(session.id);
+
+    assert.equal(existsSync(expectedWorkspacePath), false);
+
+    const response = await app.request(`http://127.0.0.1:42831/api/sessions/${session.id}/workspace/open`, {
+      method: "POST"
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      ok: true,
+      workspacePath: expectedWorkspacePath
+    });
+    assert.equal(existsSync(expectedWorkspacePath), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("open workspace route rejects unknown sessions", async () => {
+  const fixture = createFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const sessionWorkspaceService = createSessionWorkspaceService({ baseDirectory: fixture.workspaceDir });
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    registerSessionRoutes(app, {
+      getChatStorage: () => storage,
+      sessionWorkspaceService
+    });
+
+    const response = await app.request("http://127.0.0.1:42831/api/sessions/ses_missing/workspace/open", {
+      method: "POST"
+    });
+
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), {
+      error: "not_found",
+      message: "Unknown sessionId: ses_missing"
+    });
+    assert.equal(existsSync(join(fixture.workspaceDir, "ses_missing", "workspace")), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("open workspace route derives workspace path server-side and ignores renderer paths", async () => {
+  const fixture = createFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const sessionWorkspaceService = createSessionWorkspaceService({ baseDirectory: fixture.workspaceDir });
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    registerSessionRoutes(app, {
+      getChatStorage: () => storage,
+      sessionWorkspaceService
+    });
+    const session = storage.createSession({});
+    const rendererSuppliedPath = join(fixture.workspaceDir, "renderer-supplied");
+    const expectedWorkspacePath = sessionWorkspaceService.getWorkspacePath(session.id);
+
+    const response = await app.request(`http://127.0.0.1:42831/api/sessions/${session.id}/workspace/open`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ path: rendererSuppliedPath })
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as { workspacePath: string }).workspacePath, expectedWorkspacePath);
+    assert.equal(existsSync(expectedWorkspacePath), true);
+    assert.equal(existsSync(rendererSuppliedPath), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
