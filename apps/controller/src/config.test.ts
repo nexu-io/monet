@@ -27,7 +27,7 @@ test("allows both loopback web dev origins by default", () => {
 test("uses an empty tool allowed directory list by default", () => {
   const config = createControllerConfig(createEnv());
 
-  assert.deepEqual(config.allowedToolDirectories, []);
+  assert.equal(config.allowedToolDirectories.length, 0);
   assert.equal(config.allowedToolDirectories.includes(resolve(process.cwd())), false);
   assert.equal(config.allowedToolDirectoriesSource, "default");
 });
