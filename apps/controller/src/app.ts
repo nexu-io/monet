@@ -92,6 +92,16 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   const sessionWorkspaceService = createSessionWorkspaceService({
     baseDirectory: options.sessionWorkspaceBaseDirectory
   });
+  void sessionWorkspaceService
+    .cleanupOrphanWorkspaces({
+      activeSessionIds: chatStorage.listSessions().map((session) => session.id),
+      logger: controllerLogger.child({ component: "session_workspaces" })
+    })
+    .catch((error) => {
+      controllerLogger.error("session_workspaces.orphan_cleanup_failed", error, {
+        baseDirectory: sessionWorkspaceService.baseDirectory
+      });
+    });
   const providerCredentials = createProviderCredentialRegistry({
     openai: options.openai,
     openrouter: options.openrouter

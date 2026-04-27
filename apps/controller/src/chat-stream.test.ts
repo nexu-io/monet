@@ -86,6 +86,9 @@ test("chat stream threads session workspace context into runtime tools", async (
           return this.getWorkspacePath(sessionId);
         },
         async deleteWorkspace() {},
+        async cleanupOrphanWorkspaces() {
+          return { scannedCount: 0, deletedCount: 0, skippedCount: 0 };
+        },
         async listWorkspaceMetadata(sessionId: string) {
           return {
             sessionId,

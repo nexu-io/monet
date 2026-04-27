@@ -1,5 +1,8 @@
-import { chmod, mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
+
+import type { Logger } from "./logger";
 
 const safeWorkspaceSessionIdPattern = /^ses_[a-z0-9]+$/;
 const workspaceDirectoryMode = 0o700;
@@ -18,11 +21,23 @@ export interface SessionWorkspaceMetadata {
   readonly updatedAt: string | null;
 }
 
+export interface CleanupOrphanWorkspacesResult {
+  readonly scannedCount: number;
+  readonly deletedCount: number;
+  readonly skippedCount: number;
+}
+
+export interface CleanupOrphanWorkspacesOptions {
+  readonly activeSessionIds: readonly string[];
+  readonly logger?: Pick<Logger, "debug" | "info" | "warn">;
+}
+
 export interface SessionWorkspaceService {
   readonly baseDirectory: string;
   getWorkspacePath(sessionId: string): string;
   ensureWorkspace(sessionId: string): Promise<string>;
   deleteWorkspace(sessionId: string): Promise<void>;
+  cleanupOrphanWorkspaces(options: CleanupOrphanWorkspacesOptions): Promise<CleanupOrphanWorkspacesResult>;
   listWorkspaceMetadata(sessionId: string): Promise<SessionWorkspaceMetadata>;
 }
 
@@ -62,6 +77,90 @@ export function createSessionWorkspaceService(
       await rm(workspacePath, { recursive: true, force: true });
     },
 
+    async cleanupOrphanWorkspaces({ activeSessionIds, logger }) {
+      const activeSessionIdSet = new Set(activeSessionIds);
+      let scannedCount = 0;
+      let deletedCount = 0;
+      let skippedCount = 0;
+
+      let entries: Dirent[];
+      try {
+        entries = await readdir(baseDirectory, { withFileTypes: true });
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          logger?.info("session_workspaces.orphan_cleanup_skipped", {
+            baseDirectory,
+            reason: "base_directory_missing"
+          });
+          return { scannedCount, deletedCount, skippedCount };
+        }
+
+        throw error;
+      }
+
+      for (const entry of entries) {
+        scannedCount += 1;
+        const sessionId = entry.name;
+        const sessionDirectory = join(baseDirectory, sessionId);
+
+        if (!entry.isDirectory()) {
+          skippedCount += 1;
+          logger?.debug("session_workspaces.orphan_cleanup_skipped_entry", {
+            sessionDirectory,
+            reason: "not_directory"
+          });
+          continue;
+        }
+
+        if (!safeWorkspaceSessionIdPattern.test(sessionId)) {
+          skippedCount += 1;
+          logger?.warn("session_workspaces.orphan_cleanup_skipped_entry", {
+            sessionDirectory,
+            reason: "invalid_session_directory_name"
+          });
+          continue;
+        }
+
+        if (activeSessionIdSet.has(sessionId)) {
+          skippedCount += 1;
+          logger?.debug("session_workspaces.orphan_cleanup_skipped_entry", {
+            sessionId,
+            sessionDirectory,
+            reason: "active_session"
+          });
+          continue;
+        }
+
+        const workspacePath = await getConservativeOrphanWorkspaceDeletionTarget(sessionId, getWorkspacePath, baseDirectory);
+
+        if (workspacePath === null) {
+          skippedCount += 1;
+          logger?.warn("session_workspaces.orphan_cleanup_skipped_entry", {
+            sessionId,
+            sessionDirectory,
+            reason: "workspace_missing_or_not_plain_directory"
+          });
+          continue;
+        }
+
+        await rm(workspacePath, { recursive: true, force: true });
+        deletedCount += 1;
+        logger?.info("session_workspaces.orphan_cleanup_deleted", {
+          sessionId,
+          workspacePath
+        });
+      }
+
+      logger?.info("session_workspaces.orphan_cleanup_completed", {
+        baseDirectory,
+        scannedCount,
+        deletedCount,
+        skippedCount
+      });
+
+      return { scannedCount, deletedCount, skippedCount };
+    },
+
     async listWorkspaceMetadata(sessionId) {
       const workspacePath = getWorkspacePath(sessionId);
       const metadata = await collectWorkspaceMetadata(workspacePath);
@@ -73,6 +172,36 @@ export function createSessionWorkspaceService(
       };
     }
   };
+}
+
+async function getConservativeOrphanWorkspaceDeletionTarget(
+  sessionId: string,
+  getWorkspacePath: (sessionId: string) => string,
+  baseDirectory: string
+): Promise<string | null> {
+  const workspacePath = getWorkspacePath(sessionId);
+  assertPathInsideBase(workspacePath, baseDirectory);
+
+  let workspaceStats: Awaited<ReturnType<typeof lstat>>;
+  try {
+    workspaceStats = await lstat(workspacePath);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  if (!workspaceStats.isDirectory() || workspaceStats.isSymbolicLink()) {
+    return null;
+  }
+
+  const canonicalWorkspacePath = await realpath(workspacePath);
+  const canonicalBaseDirectory = await realpath(baseDirectory);
+  assertPathInsideBase(canonicalWorkspacePath, canonicalBaseDirectory);
+
+  return workspacePath;
 }
 
 async function getVerifiedWorkspaceDeletionTarget(
