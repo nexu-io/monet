@@ -115,6 +115,8 @@ export interface ToolCallRecord {
   connectorProviderToolId: string | null;
   connectorArgumentsSummary: string | null;
   connectorApprovalPolicyJson: string | null;
+  connectorProviderExecutionId: string | null;
+  connectorProviderExecutionMetadataJson: string | null;
   status: ToolCallStatus;
   errorMessage: string | null;
   startedAt: string;

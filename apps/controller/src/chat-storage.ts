@@ -166,6 +166,8 @@ interface ToolCallRow {
   readonly connector_provider_tool_id: string | null;
   readonly connector_arguments_summary: string | null;
   readonly connector_approval_policy_json: string | null;
+  readonly connector_provider_execution_id: string | null;
+  readonly connector_provider_execution_metadata_json: string | null;
   readonly status: string;
   readonly error_message: string | null;
   readonly started_at: string;
@@ -251,6 +253,11 @@ export interface ToolCallConnectorMetadataInput {
   readonly connectorProviderToolId: string;
   readonly connectorArgumentsSummary: string;
   readonly connectorApprovalPolicy: unknown;
+}
+
+export interface ToolCallConnectorExecutionMetadataInput {
+  readonly providerExecutionId?: string | null;
+  readonly providerExecutionMetadata?: Record<string, unknown> | null;
 }
 
 export interface StoredAuthorizedDirectory {
@@ -446,6 +453,7 @@ export interface ChatStorage {
   completeToolCall(options: {
     toolCallId: string;
     output: unknown;
+    connectorExecutionMetadata?: ToolCallConnectorExecutionMetadataInput;
   }): {
     outputSizeBytes: number;
     outputTruncated: boolean;
@@ -1520,11 +1528,13 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
              connector_provider_tool_id,
              connector_arguments_summary,
              connector_approval_policy_json,
+             connector_provider_execution_id,
+             connector_provider_execution_metadata_json,
              status,
              error_message,
              started_at,
              ended_at
-           ) VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL)
+           ) VALUES (?, ?, ?, ?, NULL, 0, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'pending', NULL, ?, NULL)
             ON CONFLICT(id) DO UPDATE SET
               run_id = excluded.run_id,
               tool_name = excluded.tool_name,
@@ -1535,7 +1545,9 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
               connector_tool_name = excluded.connector_tool_name,
               connector_provider_tool_id = excluded.connector_provider_tool_id,
               connector_arguments_summary = excluded.connector_arguments_summary,
-              connector_approval_policy_json = excluded.connector_approval_policy_json`
+              connector_approval_policy_json = excluded.connector_approval_policy_json,
+              connector_provider_execution_id = NULL,
+              connector_provider_execution_metadata_json = NULL`
         )
         .run(
           persistedToolCallId,
@@ -1638,9 +1650,12 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       return "confirmed";
     },
 
-    completeToolCall({ toolCallId, output }) {
+    completeToolCall({ toolCallId, output, connectorExecutionMetadata }) {
       const endedAt = new Date().toISOString();
       const serializedOutput = serializeToolCallOutput(output);
+      const providerExecutionMetadataJson = connectorExecutionMetadata?.providerExecutionMetadata
+        ? serializeToolCallPayload(connectorExecutionMetadata.providerExecutionMetadata)
+        : null;
 
       connection
         .prepare(
@@ -1649,14 +1664,18 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
                output_json = ?,
                output_truncated = ?,
                output_size_bytes = ?,
+               connector_provider_execution_id = COALESCE(?, connector_provider_execution_id),
+               connector_provider_execution_metadata_json = COALESCE(?, connector_provider_execution_metadata_json),
                error_message = NULL,
                ended_at = ?
-           WHERE id = ?`
+            WHERE id = ?`
         )
         .run(
           serializedOutput.value,
           serializedOutput.outputTruncated ? 1 : 0,
           serializedOutput.outputSizeBytes,
+          connectorExecutionMetadata?.providerExecutionId?.trim() || null,
+          providerExecutionMetadataJson,
           endedAt,
           toolCallId
         );
@@ -1860,7 +1879,7 @@ function getRunRow(connection: DatabaseSync, runId: string) {
 function getToolCallRow(connection: DatabaseSync, toolCallId: string) {
   return connection
     .prepare(
-      `SELECT id, run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, approval_decision, approval_decided_at, confirmation_token_hash, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, status, error_message, started_at, ended_at
+      `SELECT id, run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, approval_decision, approval_decided_at, confirmation_token_hash, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, connector_provider_execution_id, connector_provider_execution_metadata_json, status, error_message, started_at, ended_at
        FROM tool_calls
        WHERE id = ?
        LIMIT 1`

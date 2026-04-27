@@ -43,6 +43,12 @@ export type ToolSourceContext = ToolExecutionContext;
 
 export interface ToolExecutionHelpers {
   readonly persistedToolCallId: string;
+  readonly setConnectorExecutionMetadata: (metadata: ConnectorExecutionMetadata) => void;
+}
+
+export interface ConnectorExecutionMetadata {
+  readonly providerExecutionId?: string | null;
+  readonly providerExecutionMetadata?: Record<string, unknown> | null;
 }
 
 export interface RegisteredToolDefinition<TInput = unknown, TOutput = unknown> {
@@ -214,6 +220,7 @@ export function createToolRegistry(
               const startedAt = Date.now();
               const persistedToolCallId = executionContext.toolCallId;
               const toolCallMetadata = createToolCallMetadata(definition.metadata, input);
+              let connectorExecutionMetadata: ConnectorExecutionMetadata | undefined;
 
               context.chatStorage.startToolCall({
                 toolCallId: persistedToolCallId,
@@ -240,11 +247,15 @@ export function createToolRegistry(
                   messages: executionContext.messages,
                   abortSignal: executionContext.abortSignal ?? new AbortController().signal,
                   experimental_context: executionContext.experimental_context,
-                  persistedToolCallId
+                  persistedToolCallId,
+                  setConnectorExecutionMetadata(metadata) {
+                    connectorExecutionMetadata = metadata;
+                  }
                 });
                 const completion = context.chatStorage.completeToolCall({
                   toolCallId: persistedToolCallId,
-                  output
+                  output,
+                  ...(connectorExecutionMetadata ? { connectorExecutionMetadata } : {})
                 });
 
                 context.logger.info("tool.execution_completed", {

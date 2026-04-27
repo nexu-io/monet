@@ -33,6 +33,8 @@ export const toolCalls = sqliteTable(
     connectorProviderToolId: text("connector_provider_tool_id"),
     connectorArgumentsSummary: text("connector_arguments_summary"),
     connectorApprovalPolicyJson: text("connector_approval_policy_json"),
+    connectorProviderExecutionId: text("connector_provider_execution_id"),
+    connectorProviderExecutionMetadataJson: text("connector_provider_execution_metadata_json"),
     status: text("status").$type<ToolCallStatus>().notNull(),
     errorMessage: text("error_message"),
     startedAt: text("started_at").notNull(),

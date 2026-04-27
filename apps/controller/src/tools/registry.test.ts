@@ -23,6 +23,8 @@ interface ToolCallRow {
   readonly connector_provider_tool_id: string | null;
   readonly connector_arguments_summary: string | null;
   readonly connector_approval_policy_json: string | null;
+  readonly connector_provider_execution_id: string | null;
+  readonly connector_provider_execution_metadata_json: string | null;
   readonly status: string;
   readonly error_message: string | null;
   readonly started_at: string;
@@ -90,7 +92,7 @@ function getToolCalls(databasePath: string) {
   try {
     return connection
       .prepare(
-        `SELECT run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, status, error_message, started_at, ended_at
+        `SELECT run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, connector_provider_execution_id, connector_provider_execution_metadata_json, status, error_message, started_at, ended_at
          FROM tool_calls
          ORDER BY started_at ASC`
       )
@@ -354,7 +356,12 @@ test("tool registry persists connector approval metadata for connector tools", a
           },
           additionalProperties: false
         } as never,
-        execute() {
+        execute(_input, context) {
+          context.setConnectorExecutionMetadata({
+            providerExecutionId: "provider-exec-123",
+            providerExecutionMetadata: { sessionInfo: { id: "session-1" } }
+          });
+
           return { ok: true };
         }
       }
@@ -387,6 +394,8 @@ test("tool registry persists connector approval metadata for connector tools", a
     assert.equal(row?.connector_provider_tool_id, "GITHUB_LIST_PULL_REQUESTS");
     assert.equal(row?.connector_arguments_summary, "object(owner:string(length:5),repo:string(length:10),limit:number)");
     assert.equal(row?.connector_approval_policy_json, '{"sideEffect":"read","approval":"first_use"}');
+    assert.equal(row?.connector_provider_execution_id, "provider-exec-123");
+    assert.equal(row?.connector_provider_execution_metadata_json, '{"sessionInfo":{"id":"session-1"}}');
   } finally {
     fixture.cleanup();
   }

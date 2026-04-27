@@ -99,6 +99,13 @@ function toRegisteredToolDefinition(options: ConnectorRegisteredToolOptions): Re
         abortSignal: context.abortSignal
       });
 
+      if (result.providerExecutionId || result.metadata) {
+        context.setConnectorExecutionMetadata({
+          providerExecutionId: result.providerExecutionId ?? null,
+          providerExecutionMetadata: result.metadata ?? null
+        });
+      }
+
       return result.output;
     }
   };

@@ -207,6 +207,7 @@ test("connector tool execution dispatches prefixed tools through the provider", 
   const source = createConnectorToolSource({ provider });
   const abortController = new AbortController();
   const tools = await source.resolveTools(createToolSourceContext());
+  let connectorExecutionMetadata: unknown;
 
   assert.equal(tools[0]?.metadata.name, "github_get_repository");
 
@@ -216,11 +217,18 @@ test("connector tool execution dispatches prefixed tools through the provider", 
       toolCallId: "tool-call-1",
       messages: [],
       abortSignal: abortController.signal,
-      persistedToolCallId: "tool-call-1"
+      persistedToolCallId: "tool-call-1",
+      setConnectorExecutionMetadata(metadata) {
+        connectorExecutionMetadata = metadata;
+      }
     }
   );
 
   assert.deepEqual(output, { fullName: "monet/connectors" });
+  assert.deepEqual(connectorExecutionMetadata, {
+    providerExecutionId: "provider-exec-1",
+    providerExecutionMetadata: null
+  });
   assert.equal(executeToolInputs.length, 1);
   assert.deepEqual(executeToolInputs[0], {
     userId: "monet-install-id",
