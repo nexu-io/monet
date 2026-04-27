@@ -595,6 +595,93 @@ test("file tools isolate session workspaces by default across relative and absol
   }
 });
 
+test("file tools access another session workspace only when explicitly authorized and require write confirmation", async () => {
+  const fixture = createTestFixture();
+
+  try {
+    const sessionAWorkspaceDir = join(fixture.fixtureDir, "session-a-workspace");
+    const sessionBWorkspaceDir = join(fixture.fixtureDir, "session-b-workspace");
+    mkdirSync(sessionAWorkspaceDir, { recursive: true });
+    mkdirSync(sessionBWorkspaceDir, { recursive: true });
+    writeFileSync(join(sessionBWorkspaceDir, "shared.txt"), "from session B", "utf8");
+
+    const blockedSessionATools = createRuntimeTools(sessionAWorkspaceDir, fixture.storage, {
+      allowedDirectories: []
+    });
+    await assert.rejects(
+      blockedSessionATools.read_file!.execute(
+        { path: join(sessionBWorkspaceDir, "shared.txt") },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+    await assert.rejects(
+      blockedSessionATools.write_file!.execute(
+        {
+          path: join(sessionBWorkspaceDir, "created-by-a.txt"),
+          content: "blocked"
+        },
+        createExecutionContext()
+      ),
+      /outside the authorized directories|No authorized directories are currently available/
+    );
+
+    const authorizedSessionATools = createRuntimeTools(sessionAWorkspaceDir, fixture.storage, {
+      allowedDirectories: [sessionBWorkspaceDir]
+    });
+    const realSessionBWorkspaceDir = realpathSync(sessionBWorkspaceDir);
+
+    const authorizedRead = (await authorizedSessionATools.read_file!.execute(
+      { path: join(sessionBWorkspaceDir, "shared.txt") },
+      createExecutionContext()
+    )) as { content: string; requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
+    assert.equal(authorizedRead.content, "from session B");
+    assert.equal(authorizedRead.requestedPath, join(sessionBWorkspaceDir, "shared.txt"));
+    assert.equal(authorizedRead.resolvedPath, join(realSessionBWorkspaceDir, "shared.txt"));
+    assert.equal(authorizedRead.pathZone, "authorized_directory");
+    assert.equal(authorizedRead.requiresConfirmation, false);
+
+    const authorizedWrite = (await authorizedSessionATools.write_file!.execute(
+      {
+        path: join(sessionBWorkspaceDir, "created-by-a.txt"),
+        content: "created by session A with authorization"
+      },
+      createExecutionContext()
+    )) as { requestedPath: string; resolvedPath: string; pathZone: string; requiresConfirmation: boolean };
+    assert.equal(authorizedWrite.requestedPath, join(sessionBWorkspaceDir, "created-by-a.txt"));
+    assert.equal(authorizedWrite.resolvedPath, join(realSessionBWorkspaceDir, "created-by-a.txt"));
+    assert.equal(authorizedWrite.pathZone, "authorized_directory");
+    assert.equal(authorizedWrite.requiresConfirmation, true);
+    assert.equal(
+      readFileSync(join(sessionBWorkspaceDir, "created-by-a.txt"), "utf8"),
+      "created by session A with authorization"
+    );
+
+    const writeFileDefinition = createBuiltinToolDefinitions({
+      allowedDirectories: [sessionBWorkspaceDir]
+    }).find((definition) => definition.metadata.name === "write_file");
+    assert.ok(writeFileDefinition?.needsApproval);
+    assert.equal(
+      await writeFileDefinition.needsApproval(
+        {
+          path: join(sessionBWorkspaceDir, "approval-required.txt"),
+          content: "approval required"
+        },
+        {
+          toolCallId: "call_sdk_cross_session_approval",
+          messages: [],
+          experimental_context: undefined,
+          sessionId: "session-a",
+          sessionWorkspacePath: sessionAWorkspaceDir
+        }
+      ),
+      true
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("read_file and write_file reject relative path traversal escapes", async () => {
   const fixture = createTestFixture();
 
