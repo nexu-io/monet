@@ -60,9 +60,12 @@ const liveArtifactToolMetadata = [
 const [listLiveArtifactsMetadata, createLiveArtifactMetadata, updateLiveArtifactMetadata] = liveArtifactToolMetadata;
 
 function summarizeArtifact(artifact: LiveArtifact) {
+  const artifactUrl = artifactUrlFor(artifact.id);
+
   return {
     id: artifact.id,
-    url: artifactUrlFor(artifact.id),
+    url: artifactUrl,
+    artifactUrl,
     title: artifact.title,
     description: artifact.description,
     status: artifact.status,
@@ -70,6 +73,37 @@ function summarizeArtifact(artifact: LiveArtifact) {
     refreshStatus: artifact.refreshStatus,
     updatedAt: artifact.updatedAt,
     lastRefreshedAt: artifact.lastRefreshedAt
+  };
+}
+
+function summarizeProvenanceMetadata(artifact: LiveArtifactWithTiles) {
+  const sources = artifact.tiles.flatMap((tile) => (tile.provenanceJson?.sources ?? []).map((source) => ({
+    tileId: tile.id,
+    tileTitle: tile.title,
+    type: source.type,
+    ...(source.label !== undefined ? { label: source.label } : {}),
+    ...(source.toolName !== undefined ? { toolName: source.toolName } : {}),
+    ...(source.connector !== undefined
+      ? {
+        connector: {
+          connectorId: source.connector.connectorId,
+          connectorName: source.connector.connectorName,
+          accountLabel: source.connector.accountLabel,
+          providerToolId: source.connector.providerToolId
+        }
+      }
+      : {}),
+    ...(source.querySummary !== undefined ? { querySummary: source.querySummary } : {}),
+    ...(source.recordCount !== undefined ? { recordCount: source.recordCount } : {}),
+    ...(source.refreshedAt !== undefined ? { refreshedAt: source.refreshedAt } : {})
+  })));
+
+  return {
+    createdByRunId: artifact.createdByRunId,
+    createdByToolCallId: artifact.createdByToolCallId,
+    tileCount: artifact.tiles.length,
+    sourceCount: sources.length,
+    sources: sources.slice(0, 10)
   };
 }
 
@@ -132,6 +166,9 @@ export function createLiveArtifactToolDefinitions(
         });
 
         return {
+          artifactId: artifact.id,
+          artifactUrl: artifactUrlFor(artifact.id),
+          provenance: summarizeProvenanceMetadata(artifact),
           artifact: summarizeArtifactWithTiles(artifact)
         };
       }
@@ -160,6 +197,9 @@ export function createLiveArtifactToolDefinitions(
           : artifact;
 
         return {
+          artifactId: updatedArtifact.id,
+          artifactUrl: artifactUrlFor(updatedArtifact.id),
+          provenance: summarizeProvenanceMetadata(updatedArtifact),
           artifact: summarizeArtifactWithTiles(updatedArtifact)
         };
       }
