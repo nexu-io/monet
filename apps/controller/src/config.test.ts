@@ -24,10 +24,10 @@ test("allows both loopback web dev origins by default", () => {
   assert.ok(config.allowedOrigins.includes("http://localhost:42832"));
 });
 
-test("authorizes the current working directory by default", () => {
+test("uses an empty tool allowed directory list by default", () => {
   const config = createControllerConfig(createEnv());
 
-  assert.deepEqual(config.allowedToolDirectories, [resolve(process.cwd())]);
+  assert.deepEqual(config.allowedToolDirectories, []);
   assert.equal(config.allowedToolDirectoriesSource, "default");
 });
 
