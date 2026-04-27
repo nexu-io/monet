@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -82,6 +82,13 @@ interface ProviderModelRow {
 
 interface AuthorizedDirectoryRow {
   readonly path: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+interface LocalAppSettingRow {
+  readonly key: string;
+  readonly value: string;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -293,6 +300,7 @@ export class ChatStorageResolutionError extends Error {
 }
 
 export interface ChatStorage {
+  getMonetInstallId(): string;
   listAuthorizedDirectories(): StoredAuthorizedDirectory[];
   replaceAuthorizedDirectories(paths: readonly string[]): StoredAuthorizedDirectory[];
   listSessions(): StoredSession[];
@@ -371,9 +379,14 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
   connection.exec("PRAGMA foreign_keys = ON");
 
   bootstrapSchema(connection);
+  ensureMonetInstallId(connection);
   ensureSqliteFilePermissions(options.databasePath);
 
   return {
+    getMonetInstallId() {
+      return getMonetInstallId(connection);
+    },
+
     listAuthorizedDirectories() {
       const rows = connection
         .prepare(
@@ -1554,6 +1567,48 @@ function getToolCallRow(connection: DatabaseSync, toolCallId: string) {
        LIMIT 1`
     )
     .get(toolCallId) as ToolCallRow | undefined;
+}
+
+function ensureMonetInstallId(connection: DatabaseSync): string {
+  const existingInstallId = getMonetInstallIdRow(connection)?.value.trim();
+
+  if (existingInstallId) {
+    return existingInstallId;
+  }
+
+  const now = new Date().toISOString();
+  const installId = randomUUID();
+
+  connection
+    .prepare(
+      `INSERT INTO local_app_settings (key, value, created_at, updated_at)
+       VALUES ('monet_install_id', ?, ?, ?)
+       ON CONFLICT(key) DO NOTHING`
+    )
+    .run(installId, now, now);
+
+  return getMonetInstallId(connection);
+}
+
+function getMonetInstallId(connection: DatabaseSync): string {
+  const installId = getMonetInstallIdRow(connection)?.value.trim();
+
+  if (!installId) {
+    return ensureMonetInstallId(connection);
+  }
+
+  return installId;
+}
+
+function getMonetInstallIdRow(connection: DatabaseSync) {
+  return connection
+    .prepare(
+      `SELECT key, value, created_at, updated_at
+       FROM local_app_settings
+       WHERE key = 'monet_install_id'
+       LIMIT 1`
+    )
+    .get() as LocalAppSettingRow | undefined;
 }
 
 function bootstrapSchema(connection: DatabaseSync) {

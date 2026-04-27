@@ -143,6 +143,35 @@ test("storage has no runtime provider/model bootstrap by default", () => {
   }
 });
 
+test("monet install id is generated once and persisted as an opaque UUID", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const installId = storage.getMonetInstallId();
+
+    assert.match(installId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+
+    const reopenedStorage = createStorage(fixture.databasePath);
+    assert.equal(reopenedStorage.getMonetInstallId(), installId);
+
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      const rows = connection.prepare(`SELECT key, value FROM local_app_settings`).all() as Array<{ key: string; value: string }>;
+
+      assert.deepEqual(
+        rows.map((row) => ({ key: row.key, value: row.value })),
+        [{ key: "monet_install_id", value: installId }]
+      );
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("persisted tool outputs are truncated for oversized or file-like payloads", () => {
   const fixture = createStorageFixture();
 
