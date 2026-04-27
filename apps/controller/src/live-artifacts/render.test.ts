@@ -56,6 +56,17 @@ describe("live artifact render JSON sanitization", () => {
     );
   });
 
+  it("rejects raw provider response objects masquerading as render JSON", () => {
+    assert.throws(
+      () =>
+        sanitizeLiveArtifactRenderJson({
+          kind: "json",
+          value: { response: { headers: { authorization: "Bearer secret" }, body: { items: [1] } } }
+        }),
+      /must not persist raw provider responses/
+    );
+  });
+
   it("preserves previous render JSON on invalid refresh output", () => {
     const previous = sanitizeLiveArtifactRenderJson({ kind: "markdown", markdown: "# Previous" });
     const result = sanitizeLiveArtifactRefreshRenderJson(

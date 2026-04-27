@@ -40,6 +40,7 @@ CREATE TABLE `live_artifact_tiles` (
   `title` text NOT NULL CHECK (length(trim(`title`)) > 0),
   `kind` text NOT NULL CHECK (`kind` IN ('markdown', 'metric', 'list', 'table', 'link_card', 'json')),
   `render_json` text NOT NULL CHECK (json_valid(`render_json`)),
+  `provenance_json` text CHECK (`provenance_json` IS NULL OR json_valid(`provenance_json`)),
   `source_json` text CHECK (`source_json` IS NULL OR json_valid(`source_json`)),
   `refresh_status` text DEFAULT 'idle' NOT NULL CHECK (`refresh_status` IN ('idle', 'refreshing', 'failed')),
   `refresh_started_at` text,

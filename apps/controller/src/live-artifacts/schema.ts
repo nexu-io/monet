@@ -14,6 +14,10 @@ export const LIVE_ARTIFACT_LIMITS = {
   connectorName: 120,
   accountLabel: 200,
   providerToolId: 200,
+  provenanceLabel: 200,
+  provenanceSummary: 1_000,
+  provenanceNote: 500,
+  provenanceSources: 20,
   markdown: 20_000,
   metricLabel: 120,
   metricValue: 200,
@@ -30,7 +34,8 @@ export const LIVE_ARTIFACT_LIMITS = {
   jsonObjectKeys: 100,
   sourceInputBytes: 16_000,
   renderJsonBytes: 64_000,
-  sourceJsonBytes: 32_000
+  sourceJsonBytes: 32_000,
+  provenanceJsonBytes: 8_000
 } as const;
 
 const idSchema = z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.id);
@@ -60,6 +65,13 @@ export const LiveArtifactSafeTextSchema = (max: number, min = 0) =>
     .max(max)
     .refine((value) => !scriptLikePattern.test(value), "Script-like content is not allowed")
     .refine((value) => !htmlLikePattern.test(value), "Raw HTML content is not allowed");
+
+const LiveArtifactRedactedSafeTextSchema = (max: number, min = 0) =>
+  z
+    .string()
+    .trim()
+    .transform((value) => redactSensitiveToolCallText(value))
+    .pipe(LiveArtifactSafeTextSchema(max, min));
 
 export const LiveArtifactSafeUrlSchema = z
   .string()
@@ -135,6 +147,33 @@ function addJsonShapeIssues(value: LiveArtifactJsonValue, ctx: z.RefinementCtx, 
   }
 }
 
+function addRawProviderResponseIssues(
+  value: LiveArtifactJsonValue,
+  ctx: z.RefinementCtx,
+  path: Array<string | number> = []
+): void {
+  if (value === null || typeof value !== "object") {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => addRawProviderResponseIssues(item, ctx, [...path, index]));
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = [...path, key];
+    if (rawProviderResponseKeyPattern.test(key) && (child === null || typeof child === "object")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: childPath,
+        message: "Artifact records must not persist raw provider responses"
+      });
+    }
+    addRawProviderResponseIssues(child, ctx, childPath);
+  }
+}
+
 export const LiveArtifactJsonValueSchema = jsonValueSchema.superRefine((value, ctx) => {
   if (getJsonDepth(value) > LIVE_ARTIFACT_LIMITS.jsonDepth) {
     ctx.addIssue({
@@ -143,6 +182,7 @@ export const LiveArtifactJsonValueSchema = jsonValueSchema.superRefine((value, c
     });
   }
   addJsonShapeIssues(value, ctx);
+  addRawProviderResponseIssues(value, ctx);
 });
 
 const jsonObjectSchema = z.record(LiveArtifactJsonValueSchema);
@@ -324,6 +364,39 @@ export const LiveArtifactTileConnectorSourceSchema = z.object({
   providerToolId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.providerToolId).nullable()
 });
 
+export const LiveArtifactProvenanceConnectorSchema = z.object({
+  connectorId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.connectorId),
+  connectorName: LiveArtifactRedactedSafeTextSchema(LIVE_ARTIFACT_LIMITS.connectorName, 1),
+  accountLabel: LiveArtifactRedactedSafeTextSchema(LIVE_ARTIFACT_LIMITS.accountLabel).nullable(),
+  providerToolId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.providerToolId).nullable()
+});
+
+export const LiveArtifactProvenanceSourceSchema = z.object({
+  type: z.enum(["static", "tool", "connector_tool"]),
+  label: LiveArtifactRedactedSafeTextSchema(LIVE_ARTIFACT_LIMITS.provenanceLabel).optional(),
+  toolName: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.toolName).optional(),
+  connector: LiveArtifactProvenanceConnectorSchema.optional(),
+  querySummary: LiveArtifactRedactedSafeTextSchema(LIVE_ARTIFACT_LIMITS.provenanceSummary).optional(),
+  recordCount: z.number().int().nonnegative().max(1_000_000).optional(),
+  refreshedAt: isoDateTimeSchema.optional()
+});
+
+export const LiveArtifactProvenanceJsonSchema = z
+  .object({
+    sources: z.array(LiveArtifactProvenanceSourceSchema).max(LIVE_ARTIFACT_LIMITS.provenanceSources).default([]),
+    notes: z.array(LiveArtifactRedactedSafeTextSchema(LIVE_ARTIFACT_LIMITS.provenanceNote)).max(20).optional(),
+    generatedAt: isoDateTimeSchema.optional()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (getJsonByteLength(value) > LIVE_ARTIFACT_LIMITS.provenanceJsonBytes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Provenance JSON exceeds max size of ${LIVE_ARTIFACT_LIMITS.provenanceJsonBytes} bytes`
+      });
+    }
+  });
+
 export const LiveArtifactTileSourceSchema = z
   .object({
     type: LiveArtifactTileSourceTypeSchema,
@@ -379,6 +452,7 @@ export const LiveArtifactTileSchema = z
     title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1),
     kind: LiveArtifactTileKindSchema,
     renderJson: LiveArtifactRenderJsonSchema,
+    provenanceJson: LiveArtifactProvenanceJsonSchema.nullable(),
     sourceJson: LiveArtifactTileSourceSchema.nullable(),
     refreshStatus: LiveArtifactRefreshStatusSchema,
     refreshStartedAt: nullableIsoDateTimeSchema,
@@ -405,6 +479,7 @@ export const LiveArtifactCreateTileInputSchema = z.object({
   title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1),
   kind: LiveArtifactTileKindSchema,
   renderJson: LiveArtifactRenderJsonSchema,
+  provenanceJson: LiveArtifactProvenanceJsonSchema.nullable().optional(),
   sourceJson: LiveArtifactTileSourceSchema.nullable().optional()
 });
 
@@ -428,6 +503,9 @@ export type LiveArtifactLinkCardRenderJson = z.infer<typeof LiveArtifactLinkCard
 export type LiveArtifactJsonRenderJson = z.infer<typeof LiveArtifactJsonRenderJsonSchema>;
 export type LiveArtifactRenderJson = z.infer<typeof LiveArtifactRenderJsonSchema>;
 export type LiveArtifactTileConnectorSource = z.infer<typeof LiveArtifactTileConnectorSourceSchema>;
+export type LiveArtifactProvenanceConnector = z.infer<typeof LiveArtifactProvenanceConnectorSchema>;
+export type LiveArtifactProvenanceSource = z.infer<typeof LiveArtifactProvenanceSourceSchema>;
+export type LiveArtifactProvenanceJson = z.infer<typeof LiveArtifactProvenanceJsonSchema>;
 export type LiveArtifactTileSource = z.infer<typeof LiveArtifactTileSourceSchema>;
 export type LiveArtifact = z.infer<typeof LiveArtifactSchema>;
 export type LiveArtifactTile = z.infer<typeof LiveArtifactTileSchema>;
