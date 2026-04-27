@@ -1446,59 +1446,6 @@
         }
       }
     },
-    "/api/providers/{providerId}/catalog": {
-      "post": {
-        "tags": [
-          "Providers"
-        ],
-        "summary": "Fetch provider catalog",
-        "description": "Fetches the external provider model catalog, persists it, and returns the updated persisted models.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "example": "pro_123"
-            },
-            "required": true,
-            "name": "providerId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Provider catalog fetched successfully.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListModelsResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The requested provider was not found.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The provider catalog could not be fetched.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/providers/{providerId}/validate": {
       "post": {
         "tags": [
