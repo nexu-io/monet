@@ -10,7 +10,8 @@ export const idPrefixes = {
   run: "run",
   toolCall: "tcl",
   provider: "pro",
-  providerModel: "mod"
+  providerModel: "mod",
+  connectorConnection: "ccn"
 } as const;
 
 type IdPrefix = (typeof idPrefixes)[keyof typeof idPrefixes];
@@ -23,6 +24,7 @@ export type RunId = MonetId<typeof idPrefixes.run>;
 export type ToolCallId = MonetId<typeof idPrefixes.toolCall>;
 export type ProviderId = MonetId<typeof idPrefixes.provider>;
 export type ProviderModelId = MonetId<typeof idPrefixes.providerModel>;
+export type ConnectorConnectionId = MonetId<typeof idPrefixes.connectorConnection>;
 
 export type ProviderType = "openai" | "openrouter";
 export type RunStatus = "pending" | "running" | "completed" | "failed" | "interrupted";
@@ -133,4 +135,21 @@ export interface ProviderModelRecord {
   capabilitiesJson: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ConnectorConnectionStatus = "connected" | "expired" | "disconnected";
+
+export interface ConnectorConnectionRecord {
+  id: ConnectorConnectionId;
+  userId: string;
+  connectorId: string;
+  provider: string;
+  providerConnectionId: string | null;
+  providerMetadataJson: string | null;
+  accountLabel: string | null;
+  status: ConnectorConnectionStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastConnectedAt: string | null;
+  lastError: string | null;
 }

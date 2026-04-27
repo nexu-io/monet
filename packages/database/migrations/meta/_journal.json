@@ -29,6 +29,13 @@
       "when": 1760000003000,
       "tag": "0003_local_app_settings",
       "breakpoints": false
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1760000004000,
+      "tag": "0004_connector_connections",
+      "breakpoints": true
     }
   ]
 }
