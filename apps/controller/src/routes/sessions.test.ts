@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 
 import type { ControllerApp, ControllerAppVariables } from "../app";
 import { createChatStorage } from "../chat-storage";
+import { createSessionWorkspaceService } from "../session-workspace-service";
 import { registerSessionRoutes } from "./sessions";
 
 function createFixture() {
@@ -19,6 +20,7 @@ function createFixture() {
 
   return {
     databasePath,
+    workspaceDir,
     cleanup() {
       rmSync(fixtureDir, { recursive: true, force: true });
     }
@@ -46,9 +48,11 @@ test("create session route rejects malformed JSON bodies", async () => {
 
   try {
     const storage = createStorage(fixture.databasePath);
+    const sessionWorkspaceService = createSessionWorkspaceService({ baseDirectory: fixture.workspaceDir });
     const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
     registerSessionRoutes(app, {
-      getChatStorage: () => storage
+      getChatStorage: () => storage,
+      sessionWorkspaceService
     });
 
     const response = await app.request("http://127.0.0.1:42831/api/sessions", {
@@ -75,9 +79,11 @@ test("create session route accepts an empty body", async () => {
 
   try {
     const storage = createStorage(fixture.databasePath);
+    const sessionWorkspaceService = createSessionWorkspaceService({ baseDirectory: fixture.workspaceDir });
     const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
     registerSessionRoutes(app, {
-      getChatStorage: () => storage
+      getChatStorage: () => storage,
+      sessionWorkspaceService
     });
 
     const response = await app.request("http://127.0.0.1:42831/api/sessions", {
@@ -90,6 +96,35 @@ test("create session route accepts an empty body", async () => {
     assert.equal(typeof session.id, "string");
     assert.equal(session.title, null);
     assert.equal(storage.listSessions().length, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("delete session route recursively removes the session workspace", async () => {
+  const fixture = createFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const sessionWorkspaceService = createSessionWorkspaceService({ baseDirectory: fixture.workspaceDir });
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    registerSessionRoutes(app, {
+      getChatStorage: () => storage,
+      sessionWorkspaceService
+    });
+    const session = storage.createSession({});
+    const workspacePath = await sessionWorkspaceService.ensureWorkspace(session.id);
+    const nestedDirectory = join(workspacePath, "nested");
+    mkdirSync(nestedDirectory, { recursive: true });
+    writeFileSync(join(nestedDirectory, "hello.txt"), "hello");
+
+    const response = await app.request(`http://127.0.0.1:42831/api/sessions/${session.id}`, {
+      method: "DELETE"
+    });
+
+    assert.equal(response.status, 204);
+    assert.equal(existsSync(workspacePath), false);
+    assert.throws(() => storage.getSessionDetail(session.id), /Unknown sessionId/);
   } finally {
     fixture.cleanup();
   }

@@ -256,7 +256,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     toolRegistry,
     runtime: options.agentRuntime
   });
-  registerSessionRoutes(app, { getChatStorage });
+  registerSessionRoutes(app, { getChatStorage, sessionWorkspaceService });
   registerProviderRoutes(app, { getChatStorage, providerCredentials, providerRuntime });
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });

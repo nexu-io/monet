@@ -13,6 +13,7 @@ import {
   createErrorResponse
 } from "../openapi";
 import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
+import type { SessionWorkspaceService } from "../session-workspace-service";
 
 const sessionsLogger = createLogger("controller", {
   component: "sessions-route"
@@ -219,6 +220,38 @@ const archiveSessionRoute = createRoute({
   }
 });
 
+const deleteSessionRoute = createRoute({
+  method: "delete",
+  path: "/api/sessions/{sessionId}",
+  tags: ["Sessions"],
+  summary: "Delete session",
+  description: "Deletes a session and recursively removes its session workspace.",
+  request: {
+    params: sessionIdParamSchema
+  },
+  responses: {
+    204: {
+      description: "Session deleted successfully."
+    },
+    404: {
+      description: "The requested session was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The session could not be deleted.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
 function createSessionMutationErrorResponse(error: unknown) {
   if (error instanceof ChatStorageResolutionError) {
     if (error.statusCode === 422) {
@@ -268,7 +301,10 @@ async function parseOptionalJsonBody(request: { text: () => Promise<string> }) {
   return JSON.parse(rawBody) as unknown;
 }
 
-export function registerSessionRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
+export function registerSessionRoutes(
+  app: ControllerApp,
+  options: { getChatStorage: () => ChatStorage; sessionWorkspaceService: SessionWorkspaceService }
+) {
   app.openapi(listSessionsRoute, (context) => {
     return context.json(
       {
@@ -358,6 +394,21 @@ export function registerSessionRoutes(app: ControllerApp, options: { getChatStor
         },
         200
       );
+    } catch (error) {
+      const response = createSessionLookupErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(deleteSessionRoute, async (context) => {
+    const sessionId = context.req.valid("param").sessionId;
+
+    try {
+      options.getChatStorage().deleteSession(sessionId);
+      await options.sessionWorkspaceService.deleteWorkspace(sessionId);
+
+      return context.body(null, 204);
     } catch (error) {
       const response = createSessionLookupErrorResponse(error);
 

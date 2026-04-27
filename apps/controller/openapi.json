@@ -970,6 +970,49 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Delete session",
+        "description": "Deletes a session and recursively removes its session workspace.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "ses_123"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Session deleted successfully."
+          },
+          "404": {
+            "description": "The requested session was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The session could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/sessions/{sessionId}/archive": {

@@ -247,6 +247,37 @@ export type PostApiSessionsResponses = {
 
 export type PostApiSessionsResponse = PostApiSessionsResponses[keyof PostApiSessionsResponses];
 
+export type DeleteApiSessionsBySessionIdData = {
+    body?: never;
+    path: {
+        sessionId: string;
+    };
+    query?: never;
+    url: '/api/sessions/{sessionId}';
+};
+
+export type DeleteApiSessionsBySessionIdErrors = {
+    /**
+     * The requested session was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The session could not be deleted.
+     */
+    500: ErrorResponse;
+};
+
+export type DeleteApiSessionsBySessionIdError = DeleteApiSessionsBySessionIdErrors[keyof DeleteApiSessionsBySessionIdErrors];
+
+export type DeleteApiSessionsBySessionIdResponses = {
+    /**
+     * Session deleted successfully.
+     */
+    204: void;
+};
+
+export type DeleteApiSessionsBySessionIdResponse = DeleteApiSessionsBySessionIdResponses[keyof DeleteApiSessionsBySessionIdResponses];
+
 export type GetApiSessionsBySessionIdData = {
     body?: never;
     path: {
@@ -403,6 +434,10 @@ export type DeleteApiProvidersByProviderIdErrors = {
      * Not found.
      */
     404: ErrorResponse;
+    /**
+     * The provider cannot be deleted due to associated runs.
+     */
+    409: ErrorResponse;
     /**
      * The provider could not be deleted.
      */
