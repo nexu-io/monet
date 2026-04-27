@@ -5796,7 +5796,7 @@
           "Live Artifacts"
         ],
         "summary": "Refresh live artifact",
-        "description": "Disabled until refresh audit and connector readiness gates pass.",
+        "description": "Disabled by the Live Artifacts refresh phase gate until connector readiness gates pass. Static artifact creation, list, detail, update, pin, and archive remain available.",
         "parameters": [
           {
             "schema": {
@@ -5830,7 +5830,7 @@
           "Live Artifacts"
         ],
         "summary": "Refresh live artifact tile",
-        "description": "Disabled until refresh audit and connector readiness gates pass.",
+        "description": "Disabled by the Live Artifacts refresh phase gate until connector readiness gates pass. Static artifact creation, list, detail, update, pin, and archive remain available.",
         "parameters": [
           {
             "schema": {

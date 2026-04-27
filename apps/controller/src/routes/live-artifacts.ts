@@ -70,6 +70,14 @@ const RefreshDisabledResponseSchema = ErrorResponseSchema.extend({
   disabled: z.literal(true).openapi({ example: true })
 }).openapi("LiveArtifactRefreshDisabledResponse");
 
+export const LIVE_ARTIFACT_REFRESH_PHASE_GATE = {
+  enabled: false,
+  errorCode: "refresh_disabled",
+  message:
+    "Live artifact refresh is disabled until connector readiness gates pass; this increment supports static artifact creation, listing, detail, update, pin, and archive only.",
+  unmetPrerequisites: ["stable_connected_account_labels"]
+} as const;
+
 const listLiveArtifactsRoute = createRoute({
   method: "get",
   path: "/api/live-artifacts",
@@ -246,7 +254,8 @@ const refreshLiveArtifactRoute = createRoute({
   path: "/api/live-artifacts/{artifactId}/refresh",
   tags: ["Live Artifacts"],
   summary: "Refresh live artifact",
-  description: "Disabled until refresh audit and connector readiness gates pass.",
+  description:
+    "Disabled by the Live Artifacts refresh phase gate until connector readiness gates pass. Static artifact creation, list, detail, update, pin, and archive remain available.",
   request: {
     params: artifactIdParamSchema
   },
@@ -267,7 +276,8 @@ const refreshLiveArtifactTileRoute = createRoute({
   path: "/api/live-artifacts/{artifactId}/tiles/{tileId}/refresh",
   tags: ["Live Artifacts"],
   summary: "Refresh live artifact tile",
-  description: "Disabled until refresh audit and connector readiness gates pass.",
+  description:
+    "Disabled by the Live Artifacts refresh phase gate until connector readiness gates pass. Static artifact creation, list, detail, update, pin, and archive remain available.",
   request: {
     params: tileRefreshParamSchema
   },
@@ -286,8 +296,8 @@ const refreshLiveArtifactTileRoute = createRoute({
 function createRefreshDisabledResponse() {
   return {
     ...createErrorResponse(
-      "refresh_disabled",
-      "Live artifact refresh is disabled until connector readiness and refresh audit gates pass."
+      LIVE_ARTIFACT_REFRESH_PHASE_GATE.errorCode,
+      LIVE_ARTIFACT_REFRESH_PHASE_GATE.message
     ),
     disabled: true as const
   };
