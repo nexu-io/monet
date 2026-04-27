@@ -119,3 +119,56 @@ test("deleteWorkspace refuses to recursively remove paths that escape the config
   );
   await access(join(escapedWorkspacePath, "keep.txt"));
 });
+
+test("cleanupOrphanWorkspaces deletes inactive workspaces while preserving active session workspaces", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  const activeWorkspacePath = await service.ensureWorkspace("ses_active1");
+  const orphanWorkspacePath = await service.ensureWorkspace("ses_orphan1");
+  await writeFile(join(activeWorkspacePath, "keep.txt"), "keep");
+  await writeFile(join(orphanWorkspacePath, "delete.txt"), "delete");
+
+  const result = await service.cleanupOrphanWorkspaces({ activeSessionIds: ["ses_active1"] });
+
+  assert.deepEqual(result, {
+    scannedCount: 2,
+    deletedCount: 1,
+    skippedCount: 1
+  });
+  await access(join(activeWorkspacePath, "keep.txt"));
+  await assert.rejects(access(orphanWorkspacePath), /ENOENT/);
+});
+
+test("cleanupOrphanWorkspaces conservatively skips unsafe or incomplete workspace entries", async (t) => {
+  const baseDirectory = await createTempDirectory();
+  const outsideDirectory = await createTempDirectory();
+  t.after(async () => {
+    await rm(baseDirectory, { recursive: true, force: true });
+    await rm(outsideDirectory, { recursive: true, force: true });
+  });
+
+  const service = createSessionWorkspaceService({ baseDirectory });
+  await mkdir(join(baseDirectory, "ses_missingworkspace"), { recursive: true });
+  await mkdir(join(baseDirectory, "invalid-session"), { recursive: true });
+  await writeFile(join(baseDirectory, "not-a-session-directory"), "skip");
+  await mkdir(join(baseDirectory, "ses_linked1"), { recursive: true });
+  await mkdir(join(outsideDirectory, "workspace"), { recursive: true });
+  await writeFile(join(outsideDirectory, "workspace", "keep.txt"), "keep");
+  await symlink(join(outsideDirectory, "workspace"), join(baseDirectory, "ses_linked1", "workspace"), "dir");
+
+  const result = await service.cleanupOrphanWorkspaces({ activeSessionIds: [] });
+
+  assert.deepEqual(result, {
+    scannedCount: 4,
+    deletedCount: 0,
+    skippedCount: 4
+  });
+  await access(join(baseDirectory, "ses_missingworkspace"));
+  await access(join(baseDirectory, "invalid-session"));
+  await access(join(baseDirectory, "not-a-session-directory"));
+  await access(join(outsideDirectory, "workspace", "keep.txt"));
+});
