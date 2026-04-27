@@ -22,6 +22,169 @@ const descriptionClassName =
   "m-0 max-w-[68ch] leading-[1.6] text-text-muted";
 const secondaryButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-border-subtle bg-surface-0 px-3.5 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
+const primaryButtonClassName =
+  "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
+const connectorGridClassName = "grid gap-4 lg:grid-cols-3";
+
+const connectorIconMeta: Record<ConnectorCatalogCard["icon"], { readonly label: string; readonly glyph: string; readonly className: string }> = {
+  github: {
+    label: "GitHub",
+    glyph: "GH",
+    className: "bg-neutral-950 text-white dark:bg-white dark:text-neutral-950"
+  },
+  notion: {
+    label: "Notion",
+    glyph: "N",
+    className: "bg-white text-neutral-950 ring-1 ring-border-subtle"
+  },
+  "google-drive": {
+    label: "Google Drive",
+    glyph: "△",
+    className: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200"
+  }
+};
+
+const connectorStatusMeta: Record<
+  ConnectorCatalogCard["status"],
+  { readonly label: string; readonly badgeClassName: string; readonly primaryActionLabel: string; readonly primaryActionDisabled?: boolean }
+> = {
+  connected: {
+    label: "Connected",
+    badgeClassName: "border-success/20 bg-success-subtle text-success",
+    primaryActionLabel: "Manage"
+  },
+  expired: {
+    label: "Needs reconnect",
+    badgeClassName: "border-warning/20 bg-warning-subtle text-warning",
+    primaryActionLabel: "Reconnect"
+  },
+  not_connected: {
+    label: "Not connected",
+    badgeClassName: "border-border-strong bg-surface-2 text-text-secondary",
+    primaryActionLabel: "Connect"
+  },
+  unavailable: {
+    label: "Unavailable",
+    badgeClassName: "border-error/20 bg-error-subtle text-error",
+    primaryActionLabel: "Unavailable",
+    primaryActionDisabled: true
+  }
+};
+
+function formatToolId(toolId: string) {
+  return toolId
+    .split("_")
+    .filter(Boolean)
+    .slice(1)
+    .map((part) => part.toLowerCase())
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function ConnectorIcon({ connector }: { readonly connector: ConnectorCatalogCard }) {
+  const meta = connectorIconMeta[connector.icon] ?? {
+    label: connector.displayName,
+    glyph: connector.displayName.slice(0, 2).toUpperCase(),
+    className: "bg-surface-2 text-text-primary ring-1 ring-border-subtle"
+  };
+
+  return (
+    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold shadow-xs ${meta.className}`} aria-hidden="true" title={meta.label}>
+      {meta.glyph}
+    </div>
+  );
+}
+
+function ConnectorStatusBadge({ status }: { readonly status: ConnectorCatalogCard["status"] }) {
+  const meta = connectorStatusMeta[status];
+
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.badgeClassName}`}>
+      {meta.label}
+    </span>
+  );
+}
+
+function ConnectorCard({ connector }: { readonly connector: ConnectorCatalogCard }) {
+  const statusMeta = connectorStatusMeta[connector.status];
+  const featuredTools = connector.featuredTools.slice(0, 3).map(formatToolId);
+  const accountLabel = connector.connectedAccountLabel?.trim();
+
+  return (
+    <article className="flex min-h-[24rem] flex-col justify-between gap-5 rounded-2xl border border-border-subtle bg-surface-1 p-5 shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <ConnectorIcon connector={connector} />
+            <div className="flex min-w-0 flex-col gap-1">
+              <h2 className="m-0 font-heading text-lg font-semibold text-text-heading">{connector.displayName}</h2>
+              <p className="m-0 text-xs font-medium uppercase tracking-[0.08em] text-text-tertiary">{connector.category}</p>
+            </div>
+          </div>
+          <ConnectorStatusBadge status={connector.status} />
+        </div>
+
+        <p className="m-0 leading-[1.6] text-text-secondary">{connector.description}</p>
+
+        {accountLabel ? (
+          <p className="m-0 rounded-lg border border-border-subtle bg-surface-0 px-3 py-2 text-sm text-text-muted">
+            Connected as <span className="font-medium text-text-primary">{accountLabel}</span>
+          </p>
+        ) : null}
+
+        <div className="flex flex-col gap-2">
+          <p className="m-0 text-xs font-semibold uppercase tracking-[0.08em] text-text-tertiary">Capabilities</p>
+          <ul className="m-0 flex list-none flex-col gap-2 p-0 text-sm leading-[1.5] text-text-muted">
+            {connector.capabilitySummaries.slice(0, 2).map((summary) => (
+              <li key={summary} className="flex gap-2">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+                <span>{summary}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="flex flex-wrap gap-2" aria-label={`${connector.displayName} featured tools`}>
+          {featuredTools.map((tool) => (
+            <span key={tool} className="rounded-full border border-border-subtle bg-surface-0 px-2.5 py-1 text-xs font-medium text-text-secondary">
+              {tool}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-border-subtle pt-4 sm:flex-row sm:items-center">
+        <button className={primaryButtonClassName} type="button" disabled={statusMeta.primaryActionDisabled} aria-label={`${statusMeta.primaryActionLabel} ${connector.displayName}`}>
+          {statusMeta.primaryActionLabel}
+        </button>
+        <button className={secondaryButtonClassName} type="button" disabled={connector.status === "unavailable"} aria-label={`View ${connector.displayName} tools`}>
+          View tools
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function ConnectorCardGrid({ connectors }: { readonly connectors: readonly ConnectorCatalogCard[] }) {
+  return (
+    <section className="flex flex-col gap-4" aria-label="Available connectors">
+      <div className="flex flex-col gap-2">
+        <p className={eyebrowClassName}>Setup</p>
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-col gap-2">
+            <h2 className={titleClassName}>Connect external tools to Monet.</h2>
+            <p className={descriptionClassName}>Choose a connector, review its curated read-only tools, and connect an account when you are ready.</p>
+          </div>
+        </div>
+      </div>
+      <div className={connectorGridClassName}>
+        {connectors.map((connector) => (
+          <ConnectorCard key={connector.id} connector={connector} />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function ConnectorStatePanel({
   eyebrow,
@@ -183,13 +346,7 @@ export default function ConnectorsPage() {
       />
     );
   } else {
-    content = (
-      <ConnectorStatePanel
-        eyebrow="Setup"
-        title="Connect external tools to Monet."
-        description={`The connector catalog is ready with ${loadState.connectors.length} provider${loadState.connectors.length === 1 ? "" : "s"}. Connector cards and tool details will appear in the next setup step.`}
-      />
-    );
+    content = <ConnectorCardGrid connectors={loadState.connectors} />;
   }
 
   return (
