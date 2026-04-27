@@ -71,7 +71,9 @@ test("connector tool source resolves connected curated tools for active monet in
     description: "List pull requests for a selected repository.",
     requiresConfirmation: true
   });
-  assert.deepEqual(tools[0]?.inputSchema, {
+  const aiSdkInputSchema = tools[0]?.inputSchema as { jsonSchema?: unknown };
+
+  assert.deepEqual(aiSdkInputSchema.jsonSchema, {
     type: "object",
     properties: {
       owner: { type: "string" },

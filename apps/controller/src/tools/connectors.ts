@@ -1,5 +1,9 @@
+import { jsonSchema } from "ai";
+
 import type { ConnectorProvider, ConnectorToolDefinition } from "../connectors/provider";
 import type { RegisteredToolDefinition, ToolMetadata, ToolSource, ToolSourceContext } from "./registry";
+
+type AiSdkJsonSchemaInput = Parameters<typeof jsonSchema>[0];
 
 export interface ConnectorToolSourceOptions {
   readonly provider: ConnectorProvider;
@@ -33,7 +37,7 @@ function toRegisteredToolDefinition(connectorTool: ConnectorToolDefinition): Reg
       description: connectorTool.description,
       requiresConfirmation: connectorTool.policy.approval !== "never"
     },
-    inputSchema: connectorTool.inputSchema,
+    inputSchema: jsonSchema(connectorTool.inputSchema as unknown as AiSdkJsonSchemaInput),
     execute() {
       throw new Error("Connector tool execution bridge is not available yet.");
     }
