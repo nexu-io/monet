@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
-import { Button } from "@nexu-design/ui-web";
+import {
+  Button,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Textarea
+} from "@nexu-design/ui-web";
 
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 
@@ -50,8 +58,6 @@ export function Composer({
   onStop,
   onChangeTarget
 }: ComposerProps) {
-  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const isBusy = status === "submitted" || status === "streaming";
   const isDisabled = disabled || isBusy;
   const sendLabel = status === "submitted" ? "Sending…" : status === "streaming" ? "Stop" : "Send";
@@ -103,24 +109,7 @@ export function Composer({
 
     const target = readyProviders.find((candidate) => getTargetValue(candidate) === value) ?? null;
     onChangeTarget?.(target);
-    setIsModelMenuOpen(false);
   }
-
-  useEffect(() => {
-    if (!isModelMenuOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!modelMenuRef.current?.contains(event.target as Node)) {
-        setIsModelMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isModelMenuOpen]);
 
   return (
     <form
@@ -131,9 +120,9 @@ export function Composer({
       <label className="sr-only" htmlFor="chat-composer-input">
         Message
       </label>
-      <textarea
+      <Textarea
         id="chat-composer-input"
-        className="max-h-[min(40vh,calc(var(--spacing)*60))] min-h-18 w-full resize-none border-0 bg-transparent p-0 font-sans text-xl leading-[1.55] text-text-primary outline-none placeholder:text-text-placeholder"
+        className="block max-h-[min(40vh,calc(var(--spacing)*60))] min-h-18 w-full resize-none border-0 bg-transparent px-0 pb-0 pt-1.5 font-sans text-base leading-[1.5] text-text-primary shadow-none outline-none ring-0 placeholder:text-text-placeholder focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
         rows={3}
         placeholder={
           disabledReason ?? "Reply, continue the task, or ask for a new direction…"
@@ -151,50 +140,29 @@ export function Composer({
               <label className="sr-only" htmlFor="chat-composer-model">
                 Model
               </label>
-              <div ref={modelMenuRef} className="relative">
-                <button
-                  id="chat-composer-model"
-                  type="button"
-                  className="flex h-8 max-w-64 items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary shadow-xs outline-none transition-colors hover:border-border-hover focus:border-border-hover focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-50"
-                  title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
-                  aria-haspopup="listbox"
-                  aria-expanded={isModelMenuOpen}
-                  disabled={isDisabled}
-                  onClick={() => setIsModelMenuOpen((open) => !open)}
-                >
-                  <span className="truncate">
-                    {activeTarget ? `${activeTarget.modelName} (${activeTarget.providerDisplayName})` : "Chat model"}
-                  </span>
-                  <span aria-hidden="true" className="text-text-muted">⌄</span>
-                </button>
-                {isModelMenuOpen ? (
-                  <div
-                    className="absolute bottom-[calc(100%+0.25rem)] left-0 z-50 max-h-80 min-w-full w-max max-w-[min(32rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-border-subtle bg-surface-0 p-1 text-text-primary shadow-dropdown"
-                    role="listbox"
-                    aria-labelledby="chat-composer-model"
+              <div className="relative">
+                <Select value={getTargetValue(activeTarget)} onValueChange={handleModelChange} disabled={isDisabled}>
+                  <SelectTrigger
+                    id="chat-composer-model"
+                    className="h-8 max-w-64 rounded-md border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary shadow-xs hover:border-border-hover focus:border-border-hover focus:shadow-focus"
+                    title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
                   >
-                    {readyProviders.map((target) => {
-                      const value = getTargetValue(target);
-                      const isSelected = value === getTargetValue(activeTarget);
+                    <SelectValue placeholder="Chat model" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-80 w-max max-w-[min(32rem,calc(100vw-2rem))] text-text-primary" align="start" side="top">
+                    <SelectGroup>
+                      {readyProviders.map((target) => {
+                        const value = getTargetValue(target);
 
-                      return (
-                        <button
-                          key={value}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface-1 aria-selected:bg-surface-1"
-                          onClick={() => handleModelChange(value)}
-                        >
-                          <span className="min-w-0 flex-1 truncate">
+                        return (
+                          <SelectItem key={value} value={value} className="text-sm">
                             {target.modelName} ({target.providerDisplayName})
-                          </span>
-                          {isSelected ? <span className="shrink-0 text-text-primary">✓</span> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </div>
             </>
           ) : null}

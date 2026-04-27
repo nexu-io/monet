@@ -14,6 +14,7 @@ import { useControllerState } from "../lib/controller-state";
 import { getMonetClientConfig } from "../lib/monet-client";
 import { fetchProviderTargets, type ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
+import { Button } from "@nexu-design/ui-web";
 
 const primarySessionActionButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 font-medium text-accent-foreground no-underline transition-[background-color,border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-[hsl(var(--accent)/0.92)] hover:bg-[hsl(var(--accent)/0.92)] focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
@@ -513,14 +514,15 @@ export default function HomePage() {
 
         {controllerOffline && isDesktop ? (
           <div className="fixed right-6 bottom-6 z-10">
-            <button
+            <Button
+              variant="primary"
               type="button"
               className={primarySessionActionButtonClassName}
               onClick={() => void restartController()}
               disabled={restartPending}
             >
               {restartPending ? "Restarting workspace…" : "Restart workspace"}
-            </button>
+            </Button>
           </div>
         ) : null}
 
