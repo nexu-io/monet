@@ -16,7 +16,7 @@ import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createBuiltinToolDefinitions } from "./tools/builtins";
 import { createToolRegistry } from "./tools/registry";
-import type { AgentRuntimeConfig, OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
+import type { AgentRuntimeConfig, FeatureConfig, OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
 
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
@@ -25,6 +25,7 @@ export interface CreateControllerAppOptions {
   readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly databasePath: string;
+  readonly features: FeatureConfig;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
   readonly port: number;
@@ -112,7 +113,8 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       allowedDirectories: effectiveAllowedToolDirectories,
       getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
       getControllerPort: () => controllerPort
-    })
+    }),
+    { features: options.features }
   );
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
 
@@ -147,6 +149,27 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       }
     }
   });
+
+  if (!options.features.connectors) {
+    app.use("/api/connectors", async (context) => {
+      return context.json(
+        {
+          error: "not_found",
+          message: "Route not found."
+        },
+        404
+      );
+    });
+    app.use("/api/connectors/*", async (context) => {
+      return context.json(
+        {
+          error: "not_found",
+          message: "Route not found."
+        },
+        404
+      );
+    });
+  }
 
   app.use(
     "/api/*",
@@ -229,6 +252,9 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     hasAllowedOrigins: options.allowedOrigins.length > 0,
     allowedToolDirectoryCount: effectiveAllowedToolDirectories.length,
     databasePath: options.databasePath,
+    features: {
+      connectors: options.features.connectors
+    },
     interruptedRunCount: recoveredRuns.interruptedRunIds.length,
     failedPendingRunCount: recoveredRuns.failedRunIds.length,
     port: options.port

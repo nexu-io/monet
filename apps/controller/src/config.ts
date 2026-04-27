@@ -18,8 +18,13 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
+  readonly features: FeatureConfig;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
+}
+
+export interface FeatureConfig {
+  readonly connectors: boolean;
 }
 
 export interface AgentRuntimeConfig {
@@ -65,6 +70,9 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       maxToolCallsPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_TOOL_CALLS_PER_RUN, defaultAgentMaxToolCallsPerRun)
     },
     bearerToken,
+    features: {
+      connectors: parseBooleanWithDefault(env.MONET_FEATURE_CONNECTORS, false)
+    },
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
     databasePath: resolveDatabasePath(env),
@@ -197,4 +205,22 @@ function parseInteger(value: string | undefined): number | null {
 
 function parseIntegerWithDefault(value: string | undefined, fallback: number): number {
   return parseInteger(value) ?? fallback;
+}
+
+function parseBooleanWithDefault(value: string | undefined, fallback: boolean): boolean {
+  const normalized = value?.trim().toLowerCase();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Expected a boolean feature flag value, received: ${value}`);
 }

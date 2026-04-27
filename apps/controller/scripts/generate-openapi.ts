@@ -16,6 +16,9 @@ async function main() {
     },
     bearerToken: "openapi-generation-token",
     databasePath: "/tmp/monet-openapi.sqlite",
+    features: {
+      connectors: false
+    },
     openai: {
       apiKey: null,
       baseUrl: null,

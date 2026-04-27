@@ -1,6 +1,7 @@
 import { tool } from "ai";
 
 import type { ChatStorage } from "../chat-storage";
+import type { FeatureConfig } from "../config";
 import type { Logger } from "../logger";
 
 type ToolFactoryOptions = Parameters<typeof tool>[0];
@@ -40,13 +41,25 @@ export interface ToolRegistry {
   createRuntimeTools(context: ToolExecutionContext): Record<string, unknown>;
 }
 
+export interface CreateToolRegistryOptions {
+  readonly connectorDefinitions?: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>;
+  readonly features?: FeatureConfig;
+}
+
 export function createToolRegistry(
-  initialDefinitions: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> = []
+  initialDefinitions: ReadonlyArray<RegisteredToolDefinition<unknown, unknown>> = [],
+  options: CreateToolRegistryOptions = {}
 ): ToolRegistry {
   const definitions = new Map<string, RegisteredToolDefinition<unknown, unknown>>();
 
   for (const definition of initialDefinitions) {
     registerDefinition(definition);
+  }
+
+  if (options.features?.connectors && options.connectorDefinitions) {
+    for (const definition of options.connectorDefinitions) {
+      registerDefinition(definition);
+    }
   }
 
   function registerDefinition(definition: RegisteredToolDefinition<unknown, unknown>) {

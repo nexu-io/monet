@@ -62,6 +62,9 @@ test("controller app keeps persisted authorized directories when env uses defaul
       },
       bearerToken: "test-token",
       databasePath: fixture.databasePath,
+      features: {
+        connectors: false
+      },
       openai: {
         apiKey: null,
         baseUrl: null,

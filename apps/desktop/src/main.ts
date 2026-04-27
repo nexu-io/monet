@@ -19,8 +19,13 @@ export const desktopAppName = "@monet/desktop";
 interface ControllerRuntime {
   readonly apiBase: string;
   readonly bearerToken: string | null;
+  readonly features: FeatureConfig;
   readonly managed: boolean;
   readonly child?: Electron.UtilityProcess;
+}
+
+interface FeatureConfig {
+  readonly connectors: boolean;
 }
 
 interface ControllerStatePayload {
@@ -166,14 +171,16 @@ ipcMain.handle("monet:get-runtime-info", () => {
 
   return {
     apiBase: controllerRuntime?.apiBase,
-    bearerToken: controllerRuntime?.bearerToken
+    bearerToken: controllerRuntime?.bearerToken,
+    features: controllerRuntime?.features ?? readFeatureConfig(process.env)
   };
 });
 
 ipcMain.on("monet:get-runtime-info-sync", (event) => {
   event.returnValue = {
     apiBase: controllerRuntime?.apiBase,
-    bearerToken: controllerRuntime?.bearerToken
+    bearerToken: controllerRuntime?.bearerToken,
+    features: controllerRuntime?.features ?? readFeatureConfig(process.env)
   };
 });
 
@@ -682,6 +689,7 @@ async function resolveControllerRuntime(): Promise<ControllerRuntime> {
     return {
       apiBase: trimTrailingSlash(externalApiBase),
       bearerToken: process.env.MONET_DESKTOP_CONTROLLER_BEARER_TOKEN?.trim() || null,
+      features: readFeatureConfig(process.env),
       managed: false
     };
   }
@@ -715,6 +723,7 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
       MONET_CONTROLLER_BEARER_TOKEN: bearerToken,
       MONET_USER_DATA_DIR: userDataPath,
       MONET_DATABASE_PATH: sqliteDatabasePath,
+      MONET_FEATURE_CONNECTORS: readFeatureConfig(process.env).connectors ? "true" : "false",
       MONET_MIGRATIONS_DIR: getMigrationsDirectory()
     }
   });
@@ -789,9 +798,34 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   return {
     apiBase,
     bearerToken,
+    features: readFeatureConfig(process.env),
     managed: true,
     child
   };
+}
+
+function readFeatureConfig(env: NodeJS.ProcessEnv): FeatureConfig {
+  return {
+    connectors: parseBooleanFlag(env.MONET_FEATURE_CONNECTORS, false)
+  };
+}
+
+function parseBooleanFlag(value: string | undefined, fallback: boolean): boolean {
+  const normalized = value?.trim().toLowerCase();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
 }
 
 function waitForManagedControllerAddress(child: Electron.UtilityProcess) {

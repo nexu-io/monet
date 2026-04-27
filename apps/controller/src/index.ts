@@ -48,6 +48,7 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     agentRuntime: config.agentRuntime,
     bearerToken: config.bearerToken,
     databasePath: config.databasePath,
+    features: config.features,
     openai: config.openai,
     openrouter: config.openrouter,
     port: config.port
