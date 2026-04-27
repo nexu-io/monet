@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import path from "node:path";
 import process from "node:process";
 
 const controllerToken = "monet-dev-token";
@@ -9,6 +10,7 @@ const webPort = new URL(webUrl).port;
 const defaultEnv = {
   ...process.env,
   MONET_CONTROLLER_BEARER_TOKEN: controllerToken,
+  MONET_USER_DATA_DIR: process.env.MONET_USER_DATA_DIR ?? path.resolve("apps/controller/.monet-dev"),
   VITE_MONET_CONTROLLER_URL: controllerUrl,
   VITE_MONET_CONTROLLER_BEARER_TOKEN: controllerToken,
   MONET_DESKTOP_RENDERER_URL: webUrl,

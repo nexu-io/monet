@@ -31,6 +31,31 @@ const noopToolRegistry = {
   }
 };
 
+const noopSessionWorkspaceService = {
+  baseDirectory: "/tmp/monet-test-session-workspaces",
+  getWorkspacePath(sessionId: string) {
+    return `/tmp/monet-test-session-workspaces/${sessionId}/workspace`;
+  },
+  async ensureWorkspace(sessionId: string) {
+    return this.getWorkspacePath(sessionId);
+  },
+  async deleteWorkspace() {},
+  async cleanupOrphanWorkspaces() {
+    return { scannedCount: 0, deletedCount: 0, skippedCount: 0 };
+  },
+  async listWorkspaceMetadata(sessionId: string) {
+    return {
+      sessionId,
+      workspacePath: this.getWorkspacePath(sessionId),
+      exists: false,
+      fileCount: 0,
+      directoryCount: 0,
+      sizeBytes: 0,
+      updatedAt: null
+    };
+  }
+};
+
 interface StoredRunRow {
   readonly status: string;
   readonly finish_reason: string | null;
@@ -213,6 +238,7 @@ test("stop endpoint returns ok for an active run", async () => {
   registerRunRoutes(app, {
     runRegistry,
     providerRuntime: noopProviderRuntime as never,
+    sessionWorkspaceService: noopSessionWorkspaceService,
     toolRegistry: noopToolRegistry as never,
     runtime: {
       maxStepsPerRun: 1,
@@ -244,6 +270,7 @@ test("continue endpoint rejects requests without messages", async () => {
   registerRunRoutes(app, {
     runRegistry: createRunRegistry(),
     providerRuntime: noopProviderRuntime as never,
+    sessionWorkspaceService: noopSessionWorkspaceService,
     toolRegistry: noopToolRegistry as never,
     runtime: {
       maxStepsPerRun: 1,
@@ -290,6 +317,7 @@ test("continue endpoint rejects runs that have exhausted their max-step budget",
   registerRunRoutes(app, {
     runRegistry: createRunRegistry(),
     providerRuntime: noopProviderRuntime as never,
+    sessionWorkspaceService: noopSessionWorkspaceService,
     toolRegistry: noopToolRegistry as never,
     runtime: {
       maxStepsPerRun: 1,
@@ -370,6 +398,7 @@ test("continue endpoint rejects when a pending run cannot be resumed", async () 
   registerRunRoutes(app, {
     runRegistry: createRunRegistry(),
     providerRuntime: noopProviderRuntime as never,
+    sessionWorkspaceService: noopSessionWorkspaceService,
     toolRegistry: noopToolRegistry as never,
     runtime: {
       maxStepsPerRun: 2,

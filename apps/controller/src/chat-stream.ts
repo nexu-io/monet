@@ -16,6 +16,7 @@ import type { AgentRuntimeConfig } from "./config";
 import type { Logger } from "./logger";
 import type { ProviderRuntime } from "./provider-runtime";
 import type { RunRegistry } from "./run-registry";
+import type { SessionWorkspaceService } from "./session-workspace-service";
 import type { ToolRegistry } from "./tools/registry";
 import { sanitizeUiMessage } from "./ui-message-sanitize";
 
@@ -75,6 +76,7 @@ export async function createChatStreamResponse(options: {
   readonly chatStorage: ChatStorage;
   readonly providerRuntime: ProviderRuntime;
   readonly runRegistry: RunRegistry;
+  readonly sessionWorkspaceService: SessionWorkspaceService;
   readonly toolRegistry: ToolRegistry;
   readonly runtime: AgentRuntimeConfig;
   readonly logger: Logger;
@@ -88,8 +90,9 @@ export async function createChatStreamResponse(options: {
     modelId: request.modelId,
     runtimeArea: "tool-runtime"
   });
-  const abortController = new AbortController();
+  const sessionWorkspacePath = await options.sessionWorkspaceService.ensureWorkspace(request.sessionId);
   const startedAt = Date.now();
+  const abortController = new AbortController();
   let runFinishReason: RunFinishReason | null = null;
   const persistedCurrentStep = Math.max(0, request.currentStep ?? 0);
   const initialUsage = resolveObservedRunUsage(request);
@@ -146,6 +149,8 @@ export async function createChatStreamResponse(options: {
   try {
     runtimeTools = await options.toolRegistry.createRuntimeTools({
       runId: request.runId,
+      sessionId: request.sessionId,
+      sessionWorkspacePath,
       chatStorage: options.chatStorage,
       logger: runtimeLogger,
       abortSignal: abortController.signal
@@ -270,7 +275,7 @@ export async function createChatStreamResponse(options: {
         : "failed";
   };
 
-  const replayContext = buildReplayContext(messages);
+  const replayContext = buildReplayContext(messages, { sessionWorkspacePath });
 
   runtimeLogger.info("chat.replay_context_prepared", { ...replayContext.stats });
 

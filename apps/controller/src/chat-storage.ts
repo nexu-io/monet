@@ -421,6 +421,7 @@ export interface ChatStorage {
   getSessionDetail(sessionId: string): StoredSessionDetail;
   updateSessionTitle(input: { sessionId: string; title: string }): StoredSession;
   archiveSession(sessionId: string): StoredSession;
+  deleteSession(sessionId: string): StoredSession;
   listProviders(): StoredProvider[];
   createProvider(input: CreateProviderInput): StoredProvider;
   updateProvider(providerId: string, input: UpdateProviderInput): StoredProvider;
@@ -819,6 +820,29 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         .run(now, now, sessionId);
 
       return getSessionOrThrow(connection, sessionId);
+    },
+
+    deleteSession(sessionId) {
+      const session = getSession(connection, sessionId);
+
+      if (!session) {
+        throw new ChatStorageResolutionError({
+          message: `Unknown sessionId: ${sessionId}`,
+          statusCode: 404,
+          errorCode: "not_found"
+        });
+      }
+
+      const deletedSession = mapSessionRow(session);
+
+      connection
+        .prepare(
+          `DELETE FROM sessions
+           WHERE id = ?`
+        )
+        .run(sessionId);
+
+      return deletedSession;
     },
 
     listProviders() {

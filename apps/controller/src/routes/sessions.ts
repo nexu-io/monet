@@ -7,12 +7,14 @@ import {
   CreateSessionRequestSchema,
   ErrorResponseSchema,
   ListSessionsResponseSchema,
+  OpenWorkspaceDirectoryResponseSchema,
   SessionDetailSchema,
   SessionSchema,
   UpdateSessionRequestSchema,
   createErrorResponse
 } from "../openapi";
 import { ChatStorageResolutionError, type ChatStorage } from "../chat-storage";
+import type { SessionWorkspaceService } from "../session-workspace-service";
 
 const sessionsLogger = createLogger("controller", {
   component: "sessions-route"
@@ -219,6 +221,76 @@ const archiveSessionRoute = createRoute({
   }
 });
 
+const deleteSessionRoute = createRoute({
+  method: "delete",
+  path: "/api/sessions/{sessionId}",
+  tags: ["Sessions"],
+  summary: "Delete session",
+  description: "Deletes a session and recursively removes its session workspace.",
+  request: {
+    params: sessionIdParamSchema
+  },
+  responses: {
+    204: {
+      description: "Session deleted successfully."
+    },
+    404: {
+      description: "The requested session was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The session could not be deleted.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
+const openWorkspaceDirectoryRoute = createRoute({
+  method: "post",
+  path: "/api/sessions/{sessionId}/workspace/open",
+  tags: ["Sessions"],
+  summary: "Open session workspace directory",
+  description:
+    "Validates the session, derives its workspace path server-side, and ensures the workspace directory exists before desktop opening.",
+  request: {
+    params: sessionIdParamSchema
+  },
+  responses: {
+    200: {
+      description: "Session workspace directory is ready to open.",
+      content: {
+        "application/json": {
+          schema: OpenWorkspaceDirectoryResponseSchema
+        }
+      }
+    },
+    404: {
+      description: "The requested session was not found.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    },
+    500: {
+      description: "The session workspace directory could not be prepared.",
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema
+        }
+      }
+    }
+  }
+});
+
 function createSessionMutationErrorResponse(error: unknown) {
   if (error instanceof ChatStorageResolutionError) {
     if (error.statusCode === 422) {
@@ -268,7 +340,10 @@ async function parseOptionalJsonBody(request: { text: () => Promise<string> }) {
   return JSON.parse(rawBody) as unknown;
 }
 
-export function registerSessionRoutes(app: ControllerApp, options: { getChatStorage: () => ChatStorage }) {
+export function registerSessionRoutes(
+  app: ControllerApp,
+  options: { getChatStorage: () => ChatStorage; sessionWorkspaceService: SessionWorkspaceService }
+) {
   app.openapi(listSessionsRoute, (context) => {
     return context.json(
       {
@@ -311,8 +386,18 @@ export function registerSessionRoutes(app: ControllerApp, options: { getChatStor
   });
 
   app.openapi(getSessionDetailRoute, (context) => {
+    const sessionId = context.req.valid("param").sessionId;
+
     try {
-      return context.json(options.getChatStorage().getSessionDetail(context.req.valid("param").sessionId), 200);
+      const sessionDetail = options.getChatStorage().getSessionDetail(sessionId);
+
+      return context.json(
+        {
+          ...sessionDetail,
+          workspacePath: options.sessionWorkspaceService.getWorkspacePath(sessionId)
+        },
+        200
+      );
     } catch (error) {
       const response = createSessionLookupErrorResponse(error);
 
@@ -355,6 +440,45 @@ export function registerSessionRoutes(app: ControllerApp, options: { getChatStor
       return context.json(
         {
           session: options.getChatStorage().archiveSession(context.req.valid("param").sessionId)
+        },
+        200
+      );
+    } catch (error) {
+      const response = createSessionLookupErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(deleteSessionRoute, async (context) => {
+    const sessionId = context.req.valid("param").sessionId;
+
+    try {
+      const storage = options.getChatStorage();
+
+      storage.getSessionDetail(sessionId);
+      await options.sessionWorkspaceService.deleteWorkspace(sessionId);
+      storage.deleteSession(sessionId);
+
+      return context.body(null, 204);
+    } catch (error) {
+      const response = createSessionLookupErrorResponse(error);
+
+      return context.json(response.body, response.status);
+    }
+  });
+
+  app.openapi(openWorkspaceDirectoryRoute, async (context) => {
+    const sessionId = context.req.valid("param").sessionId;
+
+    try {
+      options.getChatStorage().getSessionDetail(sessionId);
+      const workspacePath = await options.sessionWorkspaceService.ensureWorkspace(sessionId);
+
+      return context.json(
+        {
+          ok: true as const,
+          workspacePath
         },
         200
       );

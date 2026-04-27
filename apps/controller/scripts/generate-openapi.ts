@@ -40,7 +40,8 @@ async function main() {
       defaultModel: "openai/gpt-4.1-mini",
       timeoutMs: null
     },
-    port: 42831
+    port: 42831,
+    sessionWorkspaceBaseDirectory: "/tmp/monet-openapi-session-workspaces"
   });
   const document = app.getOpenAPI31Document({
     openapi: "3.1.0",

@@ -30,6 +30,36 @@ test("buildReplayContext keeps leading system prompt and summarizes older histor
   assert.equal(result.messages.at(-1)?.id, messages.at(-1)?.id);
 });
 
+test("buildReplayContext injects current session workspace guidance after leading system prompt", () => {
+  const messages = [
+    {
+      id: "msg_system",
+      role: "system",
+      parts: [{ type: "text", text: "You are Monet." }]
+    } as unknown as UIMessage,
+    {
+      id: "msg_user",
+      role: "user",
+      parts: [{ type: "text", text: "Create hello.html." }]
+    } as unknown as UIMessage
+  ] satisfies UIMessage[];
+
+  const result = buildReplayContext(messages, {
+    sessionWorkspacePath: "/tmp/monet-session-workspaces/ses_context/workspace"
+  });
+  const workspaceContext = result.messages[1];
+  const workspaceContextText = (workspaceContext?.parts?.[0] as { text?: string } | undefined)?.text ?? "";
+
+  assert.equal(result.messages[0]?.id, "msg_system");
+  assert.equal(workspaceContext?.id, "msg_session_workspace_context");
+  assert.equal(workspaceContext?.role, "system");
+  assert.match(workspaceContextText, /\/tmp\/monet-session-workspaces\/ses_context\/workspace/);
+  assert.match(workspaceContextText, /Relative paths for file tools resolve inside this session workspace/);
+  assert.match(workspaceContextText, /not the controller working directory/);
+  assert.match(workspaceContextText, /Writes inside this session workspace do not require confirmation/);
+  assert.equal(result.messages[2]?.id, "msg_user");
+});
+
 test("buildReplayContext drops historical reasoning and truncates replayed tool outputs", () => {
   const toolOutput = {
     content: "x".repeat(6_000)

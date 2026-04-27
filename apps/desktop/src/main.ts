@@ -7,9 +7,15 @@ import { pathToFileURL } from "node:url";
 import { BrowserWindow, app, dialog, ipcMain, net, protocol, safeStorage, screen, shell, utilityProcess } from "electron";
 
 import { waitForControllerReady } from "./controller-readiness";
-import { clearRuntimeChildOnExit, sendUtilityProcessSignal, waitForUtilityProcessExit } from "./controller-process";
+import {
+  buildManagedControllerEnv,
+  clearRuntimeChildOnExit,
+  sendUtilityProcessSignal,
+  waitForUtilityProcessExit
+} from "./controller-process";
 import { createLogger } from "./logger";
 import { isAllowedMainWindowNavigation, shouldOpenNavigationExternally } from "./navigation";
+import { openWorkspaceDirectoryForSession, type OpenPathResult } from "./open-workspace-directory";
 import { createProviderSecretStore, type ProviderSecretStorageSnapshot, type ProviderType } from "./provider-secret-store";
 import { waitForRendererReady } from "./renderer-readiness";
 import { createDesktopUpdater, type UpdateStatePayload } from "./updater";
@@ -310,6 +316,15 @@ ipcMain.handle("monet:open-external-url", async (_event, payload: { url: string 
   return {
     opened: true
   };
+});
+
+ipcMain.handle("monet:open-workspace-directory", async (_event, payload: { sessionId?: string } | null) => {
+  return openWorkspaceDirectoryForSession({
+    sessionId: payload?.sessionId,
+    runtime: controllerRuntime,
+    mkdirWorkspace: mkdir,
+    openPath: shell.openPath.bind(shell)
+  }) satisfies Promise<OpenPathResult>;
 });
 
 ipcMain.handle(
@@ -739,17 +754,16 @@ async function startManagedController(mode: "startup" | "restart" = "startup"): 
   });
 
   const child = utilityProcess.fork(controllerEntrypoint, [], {
-    env: {
-      ...process.env,
-      ...buildProviderSecretEnv(process.env),
-      MONET_CONTROLLER_HOST: controllerHost,
-      MONET_CONTROLLER_PORT: "0",
-      MONET_CONTROLLER_BEARER_TOKEN: bearerToken,
-      MONET_USER_DATA_DIR: userDataPath,
-      MONET_DATABASE_PATH: sqliteDatabasePath,
-      MONET_FEATURE_CONNECTORS: readFeatureConfig(process.env).connectors ? "true" : "false",
-      MONET_MIGRATIONS_DIR: getMigrationsDirectory()
-    }
+    env: buildManagedControllerEnv({
+      baseEnv: process.env,
+      providerSecretEnv: buildProviderSecretEnv(process.env),
+      host: controllerHost,
+      port: "0",
+      bearerToken,
+      userDataPath,
+      databasePath: sqliteDatabasePath,
+      migrationsDirectory: getMigrationsDirectory()
+    })
   });
 
   child.once("exit", () => {

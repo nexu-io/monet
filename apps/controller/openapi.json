@@ -231,6 +231,13 @@
           {
             "type": "object",
             "properties": {
+              "workspacePath": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "example": "/Users/example/Library/Application Support/Monet/session-workspaces/ses_abc123/workspace"
+              },
               "messages": {
                 "type": "array",
                 "items": {
@@ -239,6 +246,7 @@
               }
             },
             "required": [
+              "workspacePath",
               "messages"
             ]
           }
@@ -266,6 +274,26 @@
         },
         "required": [
           "session"
+        ]
+      },
+      "OpenWorkspaceDirectoryResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "example": true
+          },
+          "workspacePath": {
+            "type": "string",
+            "example": "/Users/example/Library/Application Support/Monet/session-workspaces/ses_abc123/workspace"
+          }
+        },
+        "required": [
+          "ok",
+          "workspacePath"
         ]
       },
       "Provider": {
@@ -1344,6 +1372,49 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Delete session",
+        "description": "Deletes a session and recursively removes its session workspace.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "ses_123"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Session deleted successfully."
+          },
+          "404": {
+            "description": "The requested session was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The session could not be deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/sessions/{sessionId}/archive": {
@@ -1387,6 +1458,58 @@
           },
           "500": {
             "description": "The session could not be archived.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{sessionId}/workspace/open": {
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Open session workspace directory",
+        "description": "Validates the session, derives its workspace path server-side, and ensures the workspace directory exists before desktop opening.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "ses_123"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session workspace directory is ready to open.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenWorkspaceDirectoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The requested session was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The session workspace directory could not be prepared.",
             "content": {
               "application/json": {
                 "schema": {

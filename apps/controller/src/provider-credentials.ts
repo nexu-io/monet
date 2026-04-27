@@ -1,4 +1,4 @@
-import type { OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
+import type { OpenAIProviderConfig } from "./config";
 
 export type ProviderCredentialType = "openai" | "openrouter";
 export type ProviderCredentialSource = "env" | "runtime" | "none";
@@ -20,11 +20,11 @@ export interface ProviderCredentialRegistry {
 
 export function createProviderCredentialRegistry(seed: {
   readonly openai: Pick<OpenAIProviderConfig, "apiKey">;
-  readonly openrouter: Pick<OpenRouterProviderConfig, "apiKey">;
+  readonly openrouterApiKey: string | null;
 }): ProviderCredentialRegistry {
   const envKeys: Record<ProviderCredentialType, string | null> = {
     openai: seed.openai.apiKey,
-    openrouter: seed.openrouter.apiKey
+    openrouter: seed.openrouterApiKey
   };
   const runtimeKeys: Partial<Record<ProviderCredentialType, string>> = {};
   const versions: Record<ProviderCredentialType, number> = {

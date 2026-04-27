@@ -26,13 +26,19 @@ export interface ReplayContextResult {
   readonly stats: ReplayContextStats;
 }
 
-export function buildReplayContext(messages: UIMessage[]): ReplayContextResult {
+export interface ReplayContextOptions {
+  readonly sessionWorkspacePath?: string;
+}
+
+export function buildReplayContext(messages: UIMessage[], options: ReplayContextOptions = {}): ReplayContextResult {
   if (messages.length === 0) {
+    const workspaceContextMessages = createSessionWorkspaceContextMessages(options.sessionWorkspacePath);
+
     return {
-      messages,
+      messages: workspaceContextMessages,
       stats: {
         originalMessageCount: 0,
-        replayMessageCount: 0,
+        replayMessageCount: workspaceContextMessages.length,
         summarizedMessageCount: 0,
         truncatedToolOutputCount: 0,
         removedReasoningPartCount: 0
@@ -43,6 +49,7 @@ export function buildReplayContext(messages: UIMessage[]): ReplayContextResult {
   const leadingSystemCount = countLeadingSystemMessages(messages);
   const leadingSystemMessages = messages.slice(0, leadingSystemCount);
   const conversationMessages = messages.slice(leadingSystemCount);
+  const workspaceContextMessages = createSessionWorkspaceContextMessages(options.sessionWorkspacePath);
   const recentStartIndex = selectRecentWindowStart(conversationMessages);
   const summarizedMessages = conversationMessages.slice(0, recentStartIndex);
   const recentMessages = conversationMessages.slice(recentStartIndex);
@@ -52,6 +59,7 @@ export function buildReplayContext(messages: UIMessage[]): ReplayContextResult {
 
   const replayMessages = [
     ...leadingSystemMessages,
+    ...workspaceContextMessages,
     ...createSummaryMessage(summarizedMessages),
     ...recentMessages.map((message, index) => {
       const sanitized = sanitizeMessageForReplay({
@@ -80,6 +88,33 @@ export function buildReplayContext(messages: UIMessage[]): ReplayContextResult {
       removedReasoningPartCount
     }
   };
+}
+
+function createSessionWorkspaceContextMessages(sessionWorkspacePath: string | undefined) {
+  if (!sessionWorkspacePath) {
+    return [];
+  }
+
+  return [
+    {
+      id: "msg_session_workspace_context",
+      role: "system",
+      parts: [
+        {
+          type: "text",
+          text: [
+            "Current session workspace:",
+            sessionWorkspacePath,
+            "",
+            "File tool path behavior:",
+            "- Relative paths for file tools resolve inside this session workspace, not the controller working directory, repository root, home directory, or an authorized external directory.",
+            "- Use relative paths when creating or reading files for this session unless the user explicitly asks for an authorized external path.",
+            "- Writes inside this session workspace do not require confirmation; writes to authorized external directories still require confirmation; paths outside both are denied."
+          ].join("\n")
+        }
+      ]
+    } satisfies UIMessage
+  ];
 }
 
 function countLeadingSystemMessages(messages: UIMessage[]) {

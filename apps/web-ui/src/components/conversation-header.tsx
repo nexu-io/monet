@@ -1,29 +1,63 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { Button } from "@nexu-design/ui-web";
+import { FolderOpen } from "lucide-react";
 
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 
 const headerCodeClassName = "rounded-sm bg-surface-2 px-1 font-mono text-[0.92em] text-text-heading";
 
 export interface ConversationHeaderProps {
+  readonly sessionId?: string;
   readonly sessionTitle: string;
   readonly messageCount: number;
   readonly activeTarget: ProviderReadinessTarget | null;
-  readonly isTargetOverridden: boolean;
-  readonly onChangeTarget: (target: ProviderReadinessTarget | null) => void;
 }
 
 export function ConversationHeader({
+  sessionId,
   sessionTitle,
   messageCount,
-  activeTarget,
-  isTargetOverridden,
-  onChangeTarget
+  activeTarget
 }: ConversationHeaderProps) {
+  const [workspaceFeedback, setWorkspaceFeedback] = useState<string | null>(null);
+  const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false);
+  const desktopApi = typeof window === "undefined" ? undefined : window.monetDesktop;
+  const supportsOpenWorkspace = Boolean(desktopApi?.openWorkspaceDirectory);
+  const canOpenWorkspace = Boolean(sessionId && supportsOpenWorkspace);
+  const isMacDesktop = desktopApi?.platform === "darwin";
+  const openingWorkspaceLabel = isMacDesktop ? "Opening Finder…" : "Opening…";
+
+  const openWorkspace = useCallback(async () => {
+    if (!sessionId || !desktopApi?.openWorkspaceDirectory) {
+      setWorkspaceFeedback("Opening workspace folders is available in the desktop app.");
+      return;
+    }
+
+    setIsOpeningWorkspace(true);
+    setWorkspaceFeedback(null);
+
+    try {
+      const result = await desktopApi.openWorkspaceDirectory({ sessionId });
+      if (result.opened) {
+        setWorkspaceFeedback(null);
+      } else {
+        const details = [result.errorDetails?.workspacePath, result.errorDetails?.nativeOpenFailureReason]
+          .filter(Boolean)
+          .join(" — ");
+        setWorkspaceFeedback([result.error ?? "Unable to open workspace folder.", details].filter(Boolean).join(" "));
+      }
+    } catch (error) {
+      setWorkspaceFeedback(error instanceof Error ? error.message : "Unable to open workspace folder.");
+    } finally {
+      setIsOpeningWorkspace(false);
+    }
+  }, [desktopApi, isMacDesktop, sessionId]);
+
   return (
-    <div className="flex flex-col items-start gap-4 app:flex-row app:flex-wrap app:justify-between">
-      <div className="flex min-w-0 flex-col gap-1.5">
+    <div className="flex flex-col items-start gap-4 app:flex-row app:flex-wrap app:items-center app:justify-between">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
         <h1 className="m-0 font-heading text-3xl font-bold leading-[1.2] tracking-[-0.015em] text-text-heading">{sessionTitle}</h1>
         <p className="m-0 max-w-[72ch] text-lg text-text-secondary">
           {activeTarget ? (
@@ -36,14 +70,15 @@ export function ConversationHeader({
           {messageCount} {messageCount === 1 ? "message" : "messages"}
         </p>
       </div>
-
-      <div className="flex w-full flex-wrap items-center justify-end gap-2 app:w-auto">
-        {isTargetOverridden ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onChangeTarget(null)}>
-            Reset route
-          </Button>
-        ) : null}
-      </div>
+      {sessionId && supportsOpenWorkspace ? <div className="flex flex-col items-start gap-1.5 app:items-end">
+        <Button type="button" variant="secondary" size="sm" disabled={!canOpenWorkspace || isOpeningWorkspace} onClick={() => void openWorkspace()}>
+          <span className="inline-flex items-center gap-1.5">
+            <FolderOpen aria-hidden="true" className="size-4" strokeWidth={1.8} />
+            {isOpeningWorkspace ? openingWorkspaceLabel : "Open in Finder"}
+          </span>
+        </Button>
+        {workspaceFeedback ? <p className="m-0 text-sm text-text-muted">{workspaceFeedback}</p> : null}
+      </div> : null}
     </div>
   );
 }

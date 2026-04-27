@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { Badge, Button, Card } from "@nexu-design/ui-web";
+import { Badge, Button, Card, TextLink } from "@nexu-design/ui-web";
 import { FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -54,7 +54,7 @@ const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
 const toolSummaryClassName = "flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden max-[960px]:flex-col max-[960px]:items-start";
 const markdownClassName = "leading-[1.6] text-text-primary [&_*:first-child]:mt-0 [&_*:last-child]:mb-0 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_li>ol]:my-1 [&_li>ul]:my-1";
 const internalToolLineClassName = "flex min-h-8 items-center gap-2 text-sm leading-[1.5] text-text-muted";
-const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted),var(--color-text-heading),var(--color-text-muted))] bg-[length:200%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_1.4s_ease-in-out_infinite]";
+const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted)_0%,var(--color-text-heading)_38%,var(--color-accent)_50%,var(--color-text-heading)_62%,var(--color-text-muted)_100%)] bg-[length:240%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_2.2s_ease-in-out_infinite]";
 
 function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
   switch (phase) {
@@ -195,6 +195,54 @@ function getStringField(value: unknown, key: string) {
   return typeof fieldValue === "string" && fieldValue.trim().length > 0 ? fieldValue : null;
 }
 
+function getRecordField(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const fieldValue = (value as Record<string, unknown>)[key];
+
+  return typeof fieldValue === "object" && fieldValue !== null && !Array.isArray(fieldValue) ? fieldValue : null;
+}
+
+function getToolErrorDetails(part: ToolPart) {
+  if (part.state !== "output-error" && part.state !== "error") {
+    return null;
+  }
+
+  if (typeof part.errorText === "string" && part.errorText.trim().length > 0) {
+    return part.errorText.trim();
+  }
+
+  const outputMessage = getStringField(part.output, "message") ?? getStringField(part.output, "errorMessage") ?? getStringField(part.output, "error");
+
+  if (outputMessage) {
+    return outputMessage;
+  }
+
+  const nestedError = getRecordField(part.output, "error");
+
+  return getStringField(nestedError, "message") ?? getStringField(nestedError, "details") ?? getStringField(part.output, "details");
+}
+
+function getSuccessfulWriteFileOutputPath(part: ToolPart) {
+  if (part.state !== "output-available") {
+    return null;
+  }
+
+  return getStringField(part.output, "resolvedPath") ?? getStringField(part.output, "path");
+}
+
+function getPathDisplayName(path: string) {
+  const normalizedPath = path.trim().replace(/[\\/]+$/, "");
+
+  if (!normalizedPath) {
+    return path;
+  }
+
+  return normalizedPath.split(/[\\/]/).pop() ?? normalizedPath;
+}
+
 function getInternalToolIcon(toolName: string): LucideIcon {
   switch (toolName) {
     case "fetch_url":
@@ -220,18 +268,22 @@ function getInternalToolMessage(toolName: string, part: ToolPart) {
   const url = getStringField(part.input, "url");
   const path = getStringField(part.input, "path");
   const target = toolName === "fetch_url" ? url : path;
+  const displayTarget = toolName === "write_file" && target ? getPathDisplayName(target) : target;
   const destination = target ? ` ${target}` : "";
 
   if (part.state === "output-error" || part.state === "error") {
+    const errorDetails = getToolErrorDetails(part);
+    const withDetails = (fallback: string) => errorDetails ? `${fallback}: ${errorDetails}` : `${fallback}.`;
+
     switch (toolName) {
       case "fetch_url":
-        return target ? `Couldn't fetch from ${target}.` : "Couldn't fetch URL.";
+        return withDetails(target ? `Couldn't fetch from ${target}` : "Couldn't fetch URL");
       case "read_file":
-        return target ? `Couldn't read ${target}.` : "Couldn't read file.";
+        return withDetails(displayTarget ? `Couldn't read ${displayTarget}` : "Couldn't read file");
       case "write_file":
-        return target ? `Couldn't write ${target}.` : "Couldn't write file.";
+        return withDetails(displayTarget ? `Couldn't write ${displayTarget}` : "Couldn't write file");
       default:
-        return "Tool failed.";
+        return withDetails("Tool failed");
     }
   }
 
@@ -240,25 +292,25 @@ function getInternalToolMessage(toolName: string, part: ToolPart) {
       case "fetch_url":
         return target ? `Fetched from ${target}.` : "Fetched URL.";
       case "read_file":
-        return target ? `Read ${target}.` : "Read file.";
+        return displayTarget ? `Read ${displayTarget}.` : "Read file.";
       case "write_file":
-        return target ? `Wrote ${target}.` : "Wrote file.";
+        return displayTarget ? `Wrote ${displayTarget}.` : "Wrote file.";
       default:
         return "Tool completed.";
     }
   }
 
   if (part.state === "approval-requested") {
-    return target ? `Ready to write ${target}.` : "Ready to write file.";
+    return displayTarget ? `Ready to write ${displayTarget}.` : "Ready to write file.";
   }
 
   switch (toolName) {
     case "fetch_url":
       return target ? `Fetching from ${target}.` : "Fetching URL.";
     case "read_file":
-      return target ? `Reading ${target}.` : "Reading file.";
+      return displayTarget ? `Reading ${displayTarget}.` : "Reading file.";
     case "write_file":
-      return target ? `Writing ${target}.` : "Writing file.";
+      return displayTarget ? `Writing ${displayTarget}.` : "Writing file.";
     default:
       return `${formatToolState(part.state)}.`;
   }
@@ -374,6 +426,9 @@ function renderPart(
       confirmationToken: string;
       decision: "approved" | "rejected";
     }) => void | Promise<void>;
+    readonly openPathLabel: string;
+    readonly openingPath: string | null;
+    readonly onOpenPath?: (path: string) => void;
   }
 ) {
   if (isTextPart(part)) {
@@ -462,17 +517,38 @@ function renderPart(
     const isPendingApproval = typeof part.toolCallId === "string" && options.pendingToolApprovalIds.has(part.toolCallId);
     const isWriteFileCall = toolName === "write_file" && isWriteFileInput(part.input);
     const writeFilePreview = isWriteFileCall ? getWriteFilePreview(part.input.content) : null;
+    const successfulWriteFilePath = toolName === "write_file" ? getSuccessfulWriteFileOutputPath(part) : null;
+    const successfulWriteFileName = successfulWriteFilePath ? getPathDisplayName(successfulWriteFilePath) : null;
+    const toolErrorDetails = getToolErrorDetails(part);
 
     if (isInternalToolName(toolName)) {
       const Icon = getInternalToolIcon(toolName);
       const isExecuting = isExecutingToolState(part.state);
       const message = getInternalToolMessage(toolName, part);
+      const canOpenSuccessfulWriteFile = Boolean(successfulWriteFilePath && successfulWriteFileName && options.onOpenPath);
 
       return (
         <div key={`${part.type}-${index}`} className={internalToolLineClassName} data-tool-phase={toolStateMeta.phase}>
           <Icon aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
-          <span className={`${isExecuting ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={message}>{message}</span>
-          {part.errorText ? <span className="min-w-0 truncate text-error" title={part.errorText}>{part.errorText}</span> : null}
+          <span className={`${isExecuting ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={message}>
+            {canOpenSuccessfulWriteFile ? (
+              <>
+                Wrote{" "}
+                <TextLink asChild size="sm" className="mono align-baseline disabled:pointer-events-none disabled:opacity-60" showArrowUpRight={false}>
+                  <button
+                    type="button"
+                    title={`${options.openPathLabel}: ${successfulWriteFileName}`}
+                    disabled={options.openingPath === successfulWriteFilePath}
+                    onClick={() => options.onOpenPath?.(successfulWriteFilePath!)}
+                  >
+                    {options.openingPath === successfulWriteFilePath ? "Opening…" : successfulWriteFileName}
+                  </button>
+                </TextLink>
+                .
+              </>
+            ) : message}
+          </span>
+          {toolErrorDetails ? <span className="min-w-0 truncate text-error" title={toolErrorDetails}>{toolErrorDetails}</span> : null}
           {part.state === "approval-requested" && canApprove ? (
             <span className="ml-1 inline-flex shrink-0 gap-2">
               <Button
@@ -604,10 +680,10 @@ function renderPart(
             </div>
           ) : null}
 
-          {part.errorText ? (
+          {toolErrorDetails ? (
             <div className={toolSectionClassName}>
               <span className={partLabelClassName}>Error</span>
-              <pre className={toolPreClassName}>{part.errorText}</pre>
+              <pre className={toolPreClassName}>{toolErrorDetails}</pre>
             </div>
           ) : null}
         </div>
@@ -643,6 +719,11 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
   const lastLocatedUserMessageIdRef = useRef<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [pendingToolApprovalIds, setPendingToolApprovalIds] = useState<Set<string>>(new Set());
+  const [openingPath, setOpeningPath] = useState<string | null>(null);
+  const [openPathFeedback, setOpenPathFeedback] = useState<string | null>(null);
+  const desktopApi = typeof window === "undefined" ? undefined : window.monetDesktop;
+  const canOpenPaths = typeof desktopApi?.openPath === "function";
+  const openPathLabel = desktopApi?.platform === "darwin" ? "Open" : "Open file";
 
   function getScrollContainer() {
     return rootRef.current?.closest('[data-chat-scroll-container="true"]') ?? null;
@@ -792,6 +873,24 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
     }
   }
 
+  async function handleOpenPath(targetPath: string) {
+    if (!desktopApi?.openPath) {
+      return;
+    }
+
+    setOpeningPath(targetPath);
+    setOpenPathFeedback(null);
+
+    try {
+      const result = await desktopApi.openPath({ path: targetPath });
+      setOpenPathFeedback(result.opened ? null : result.error ?? `Unable to open ${targetPath}.`);
+    } catch (error) {
+      setOpenPathFeedback(error instanceof Error ? error.message : "Unable to open the written file.");
+    } finally {
+      setOpeningPath((currentPath) => (currentPath === targetPath ? null : currentPath));
+    }
+  }
+
   return (
     <section ref={rootRef} className="relative flex flex-col gap-4" aria-label="Conversation transcript">
       {messages.map((message, messageIndex) => {
@@ -803,7 +902,10 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
             isStreamingPart: isStreamingAssistant && index === streamingTextPartIndex,
             isArchived,
             pendingToolApprovalIds,
-            onToolApproval: handleToolApproval
+            onToolApproval: handleToolApproval,
+            openPathLabel,
+            openingPath,
+            onOpenPath: canOpenPaths ? handleOpenPath : undefined
           })
         );
 
@@ -842,6 +944,12 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
             <p className="m-0 leading-[1.5] text-text-muted">{errorText}</p>
           </div>
         </Card>
+      ) : null}
+
+      {openPathFeedback ? (
+        <p className="m-0 rounded-lg border border-border-subtle bg-surface-2 px-3.5 py-2 text-sm leading-[1.5] text-text-muted mono" role="status">
+          {openPathFeedback}
+        </p>
       ) : null}
 
       {showScrollToBottom && messages.length > 0 ? (

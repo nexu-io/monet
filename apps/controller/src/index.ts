@@ -27,6 +27,7 @@ export interface ControllerServerRuntime {
 export * from "./app";
 export * from "./config";
 export * from "./openapi";
+export * from "./session-workspace-service";
 
 const controllerStartupLogger = createLogger("controller", {
   component: "startup"
@@ -52,7 +53,9 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     features: config.features,
     openai: config.openai,
     openrouter: config.openrouter,
-    port: config.port
+    openrouterApiKey: config.openrouterApiKey,
+    port: config.port,
+    sessionWorkspaceBaseDirectory: config.sessionWorkspaceBaseDirectory
   });
 
   const server = serve(

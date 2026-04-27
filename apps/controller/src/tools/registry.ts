@@ -15,6 +15,14 @@ export interface RegisteredToolExecuteContext {
   readonly experimental_context?: unknown;
 }
 
+export interface RegisteredToolApprovalContext {
+  readonly toolCallId: string;
+  readonly messages: readonly unknown[];
+  readonly experimental_context?: unknown;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
+}
+
 export interface ToolMetadata {
   readonly name: string;
   readonly description: string;
@@ -36,6 +44,8 @@ export interface ConnectorToolMetadata {
 
 export interface ToolExecutionContext {
   readonly runId: string;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
   readonly chatStorage: ChatStorage;
   readonly logger: Logger;
   readonly abortSignal?: AbortSignal;
@@ -45,6 +55,8 @@ export type ToolSourceContext = ToolExecutionContext;
 
 export interface ToolExecutionHelpers {
   readonly persistedToolCallId: string;
+  readonly sessionId: string;
+  readonly sessionWorkspacePath: string;
   readonly setConnectorExecutionMetadata: (metadata: ConnectorExecutionMetadata) => void;
 }
 
@@ -56,6 +68,7 @@ export interface ConnectorExecutionMetadata {
 export interface RegisteredToolDefinition<TInput = unknown, TOutput = unknown> {
   readonly metadata: ToolMetadata;
   readonly inputSchema: unknown;
+  readonly needsApproval?: (input: TInput, context: RegisteredToolApprovalContext) => boolean | PromiseLike<boolean>;
   readonly execute: (input: TInput, context: RegisteredToolExecuteContext & ToolExecutionHelpers) => TOutput | Promise<TOutput>;
 }
 
@@ -70,6 +83,30 @@ export interface ToolRegistry {
   registerSource(source: ToolSource): void;
   listTools(): Promise<readonly ToolMetadata[]>;
   createRuntimeTools(context: ToolExecutionContext): Promise<Record<string, unknown>>;
+}
+
+function getFilesystemPathLogContext(output: unknown): Record<string, unknown> {
+  if (typeof output !== "object" || output === null) {
+    return {};
+  }
+
+  const candidate = output as Record<string, unknown>;
+
+  if (
+    typeof candidate.requestedPath !== "string"
+    || typeof candidate.resolvedPath !== "string"
+    || typeof candidate.pathZone !== "string"
+    || typeof candidate.requiresConfirmation !== "boolean"
+  ) {
+    return {};
+  }
+
+  return {
+    requestedPath: candidate.requestedPath,
+    resolvedPath: candidate.resolvedPath,
+    pathZone: candidate.pathZone,
+    requiresConfirmation: candidate.requiresConfirmation
+  };
 }
 
 export interface CreateToolRegistryOptions {
@@ -197,7 +234,15 @@ export function createToolRegistry(
           const runtimeTool = tool({
             description: definition.metadata.description,
             inputSchema: definition.inputSchema as ToolFactoryOptions["inputSchema"],
-            needsApproval: definition.metadata.requiresConfirmation,
+            needsApproval: definition.needsApproval
+              ? async (input, approvalContext) => definition.needsApproval?.(input, {
+                toolCallId: approvalContext.toolCallId,
+                messages: approvalContext.messages,
+                experimental_context: approvalContext.experimental_context,
+                sessionId: context.sessionId,
+                sessionWorkspacePath: context.sessionWorkspacePath
+              }) ?? definition.metadata.requiresConfirmation
+              : definition.metadata.requiresConfirmation,
             onInputAvailable: ({ input, toolCallId }) => {
               const toolCallMetadata = createToolCallMetadata(definition.metadata, input);
               const persistedToolCallId = context.chatStorage.startToolCall({
@@ -256,6 +301,8 @@ export function createToolRegistry(
                   abortSignal: resolveToolAbortSignal(context.abortSignal, executionContext.abortSignal),
                   experimental_context: executionContext.experimental_context,
                   persistedToolCallId,
+                  sessionId: context.sessionId,
+                  sessionWorkspacePath: context.sessionWorkspacePath,
                   setConnectorExecutionMetadata(metadata) {
                     connectorExecutionMetadata = metadata;
                   }
@@ -266,20 +313,21 @@ export function createToolRegistry(
                   ...(connectorExecutionMetadata ? { connectorExecutionMetadata } : {})
                 });
 
+                context.logger.info("tool.execution_completed", {
+                  toolCallId: persistedToolCallId,
+                  sdkToolCallId: executionContext.toolCallId,
+                  toolName: definition.metadata.name,
+                  durationMs: Date.now() - startedAt,
+                  outputSizeBytes: completion.outputSizeBytes,
+                  outputTruncated: completion.outputTruncated,
+                  ...getFilesystemPathLogContext(output)
+                });
+
                 if (definition.metadata.connector) {
                   context.logger.info(
                     "connector.tool.execution_completed",
                     getConnectorLogContext(definition.metadata, "completed", Date.now() - startedAt)
                   );
-                } else {
-                  context.logger.info("tool.execution_completed", {
-                    toolCallId: persistedToolCallId,
-                    sdkToolCallId: executionContext.toolCallId,
-                    toolName: definition.metadata.name,
-                    durationMs: Date.now() - startedAt,
-                    outputSizeBytes: completion.outputSizeBytes,
-                    outputTruncated: completion.outputTruncated
-                  });
                 }
 
                 return output;

@@ -50,7 +50,12 @@ export interface DesktopAppPathsSnapshot {
 
 export interface OpenPathResult {
   readonly opened: boolean;
+  readonly path?: string;
   readonly error?: string;
+  readonly errorDetails?: {
+    readonly workspacePath?: string;
+    readonly nativeOpenFailureReason?: string;
+  };
 }
 
 export interface OpenExternalUrlResult {
@@ -74,6 +79,7 @@ export type MonetDesktopApi = {
   readonly installUpdate?: () => Promise<{ started: boolean }>;
   readonly openExternalUrl?: (payload: { url: string }) => Promise<OpenExternalUrlResult>;
   readonly openPath?: (payload: { path: string }) => Promise<OpenPathResult>;
+  readonly openWorkspaceDirectory?: (payload: { sessionId: string }) => Promise<OpenPathResult>;
   readonly onControllerStateChange?: (listener: (payload: ControllerStatePayload) => void) => () => void;
   readonly onUpdateStateChange?: (listener: (payload: UpdateStatePayload) => void) => () => void;
   readonly onShortcut?: (listener: (payload: { action: "new-session" | "open-settings" }) => void) => () => void;

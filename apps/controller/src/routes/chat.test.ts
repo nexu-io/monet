@@ -26,6 +26,31 @@ const noopToolRegistry = {
   }
 };
 
+const noopSessionWorkspaceService = {
+  baseDirectory: "/tmp/monet-test-session-workspaces",
+  getWorkspacePath(sessionId: string) {
+    return `/tmp/monet-test-session-workspaces/${sessionId}/workspace`;
+  },
+  async ensureWorkspace(sessionId: string) {
+    return this.getWorkspacePath(sessionId);
+  },
+  async deleteWorkspace() {},
+  async cleanupOrphanWorkspaces() {
+    return { scannedCount: 0, deletedCount: 0, skippedCount: 0 };
+  },
+  async listWorkspaceMetadata(sessionId: string) {
+    return {
+      sessionId,
+      workspacePath: this.getWorkspacePath(sessionId),
+      exists: false,
+      fileCount: 0,
+      directoryCount: 0,
+      sizeBytes: 0,
+      updatedAt: null
+    };
+  }
+};
+
 test("chat endpoint rejects invalid identifier types before storage resolution", async () => {
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
   let prepareCalled = false;
@@ -33,6 +58,7 @@ test("chat endpoint rejects invalid identifier types before storage resolution",
   registerChatRoutes(app, {
     runRegistry: createRunRegistry(),
     providerRuntime: noopProviderRuntime as never,
+    sessionWorkspaceService: noopSessionWorkspaceService,
     toolRegistry: noopToolRegistry as never,
     runtime: {
       maxStepsPerRun: 8,
@@ -75,6 +101,7 @@ test("chat endpoint rejects non-array messages before storage resolution", async
   registerChatRoutes(app, {
     runRegistry: createRunRegistry(),
     providerRuntime: noopProviderRuntime as never,
+    sessionWorkspaceService: noopSessionWorkspaceService,
     toolRegistry: noopToolRegistry as never,
     runtime: {
       maxStepsPerRun: 8,
@@ -118,6 +145,7 @@ test("chat endpoint rejects archived sessions", async () => {
   registerChatRoutes(app, {
     runRegistry: createRunRegistry(),
     providerRuntime: noopProviderRuntime as never,
+    sessionWorkspaceService: noopSessionWorkspaceService,
     toolRegistry: noopToolRegistry as never,
     runtime: {
       maxStepsPerRun: 8,
@@ -145,12 +173,20 @@ test("chat endpoint rejects archived sessions", async () => {
     },
     body: JSON.stringify({
       sessionId: "ses_archived",
-      messages: []
+      messages: [
+        {
+          id: "msg_user",
+          role: "user",
+          parts: [{ type: "text", text: "Hi" }]
+        }
+      ]
     })
   });
 
+  const bodyText = await response.text();
+
   assert.equal(response.status, 422);
-  assert.deepEqual(await response.json(), {
+  assert.deepEqual(JSON.parse(bodyText), {
     error: "invalid_state",
     message: "Session is archived: ses_archived"
   });

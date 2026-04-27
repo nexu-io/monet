@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
-import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@nexu-design/ui-web";
+import { Button } from "@nexu-design/ui-web";
 
 import type { ProviderReadinessTarget } from "../lib/provider-readiness";
 
@@ -49,6 +50,8 @@ export function Composer({
   onStop,
   onChangeTarget
 }: ComposerProps) {
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const isBusy = status === "submitted" || status === "streaming";
   const isDisabled = disabled || isBusy;
   const sendLabel = status === "submitted" ? "Sending…" : status === "streaming" ? "Stop" : "Send";
@@ -100,7 +103,24 @@ export function Composer({
 
     const target = readyProviders.find((candidate) => getTargetValue(candidate) === value) ?? null;
     onChangeTarget?.(target);
+    setIsModelMenuOpen(false);
   }
+
+  useEffect(() => {
+    if (!isModelMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!modelMenuRef.current?.contains(event.target as Node)) {
+        setIsModelMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isModelMenuOpen]);
 
   return (
     <form
@@ -131,23 +151,51 @@ export function Composer({
               <label className="sr-only" htmlFor="chat-composer-model">
                 Model
               </label>
-              <Select value={getTargetValue(activeTarget)} onValueChange={handleModelChange} disabled={isDisabled}>
-                <SelectTrigger
+              <div ref={modelMenuRef} className="relative">
+                <button
                   id="chat-composer-model"
-                  className="h-8 max-w-64 rounded-md border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary shadow-xs hover:border-border-hover focus:border-border-hover focus:ring-0 focus:shadow-focus"
+                  type="button"
+                  className="flex h-8 max-w-64 items-center justify-between gap-2 rounded-md border border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary shadow-xs outline-none transition-colors hover:border-border-hover focus:border-border-hover focus:shadow-focus disabled:cursor-not-allowed disabled:opacity-50"
                   title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
+                  aria-haspopup="listbox"
+                  aria-expanded={isModelMenuOpen}
+                  disabled={isDisabled}
+                  onClick={() => setIsModelMenuOpen((open) => !open)}
                 >
-                  <SelectValue placeholder="Chat model" />
-                </SelectTrigger>
-                <SelectContent className="border-border-subtle shadow-dropdown">
-                  {readyProviders.map((target) => (
-                    <SelectItem key={getTargetValue(target)} value={getTargetValue(target)}>
-                      {target.modelName} ({target.providerDisplayName})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {isTargetOverridden ? <span className="text-xs text-accent">custom</span> : null}
+                  <span className="truncate">
+                    {activeTarget ? `${activeTarget.modelName} (${activeTarget.providerDisplayName})` : "Chat model"}
+                  </span>
+                  <span aria-hidden="true" className="text-text-muted">⌄</span>
+                </button>
+                {isModelMenuOpen ? (
+                  <div
+                    className="absolute bottom-[calc(100%+0.25rem)] left-0 z-50 max-h-80 min-w-full w-max max-w-[min(32rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-border-subtle bg-surface-0 p-1 text-text-primary shadow-dropdown"
+                    role="listbox"
+                    aria-labelledby="chat-composer-model"
+                  >
+                    {readyProviders.map((target) => {
+                      const value = getTargetValue(target);
+                      const isSelected = value === getTargetValue(activeTarget);
+
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface-1 aria-selected:bg-surface-1"
+                          onClick={() => handleModelChange(value)}
+                        >
+                          <span className="min-w-0 flex-1 truncate">
+                            {target.modelName} ({target.providerDisplayName})
+                          </span>
+                          {isSelected ? <span className="shrink-0 text-text-primary">✓</span> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </>
           ) : null}
           {statusHint ? (

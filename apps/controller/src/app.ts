@@ -19,6 +19,7 @@ import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
 import { createBuiltinToolSource } from "./tools/builtins";
 import { createConnectorToolSource } from "./tools/connectors";
+import { createSessionWorkspaceService } from "./session-workspace-service";
 import { createToolRegistry, type ToolRegistry } from "./tools/registry";
 import type {
   AgentRuntimeConfig,
@@ -39,7 +40,9 @@ export interface CreateControllerAppOptions {
   readonly features: FeatureConfig;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
+  readonly openrouterApiKey: string | null;
   readonly port: number;
+  readonly sessionWorkspaceBaseDirectory: string;
 }
 
 export interface ControllerAppVariables {
@@ -95,14 +98,30 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       timeoutMs: options.openai.timeoutMs
     },
     openrouter: {
-      baseUrl: options.openrouter.baseUrl,
+      baseUrl: options.openrouter.apiUrl,
       defaultModel: options.openrouter.defaultModel,
       timeoutMs: options.openrouter.timeoutMs
     }
   });
+  const sessionWorkspaceService = createSessionWorkspaceService({
+    baseDirectory: options.sessionWorkspaceBaseDirectory
+  });
+  void sessionWorkspaceService
+    .cleanupOrphanWorkspaces({
+      activeSessionIds: chatStorage.listSessions().map((session) => session.id),
+      isSessionActive: (sessionId) => {
+        return chatStorage.listSessions().some((session) => session.id === sessionId);
+      },
+      logger: controllerLogger.child({ component: "session_workspaces" })
+    })
+    .catch((error) => {
+      controllerLogger.error("session_workspaces.orphan_cleanup_failed", error, {
+        baseDirectory: sessionWorkspaceService.baseDirectory
+      });
+    });
   const providerCredentials = createProviderCredentialRegistry({
     openai: options.openai,
-    openrouter: options.openrouter
+    openrouterApiKey: options.openrouterApiKey
   });
   const providerRuntime = createProviderRuntime({
     getChatStorage,
@@ -294,9 +313,23 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   });
 
   registerHealthRoutes(app);
-  registerChatRoutes(app, { getChatStorage, providerRuntime, runRegistry, toolRegistry, runtime: options.agentRuntime });
-  registerRunRoutes(app, { getChatStorage, runRegistry, providerRuntime, toolRegistry, runtime: options.agentRuntime });
-  registerSessionRoutes(app, { getChatStorage });
+  registerChatRoutes(app, {
+    getChatStorage,
+    providerRuntime,
+    runRegistry,
+    sessionWorkspaceService,
+    toolRegistry,
+    runtime: options.agentRuntime
+  });
+  registerRunRoutes(app, {
+    getChatStorage,
+    runRegistry,
+    providerRuntime,
+    sessionWorkspaceService,
+    toolRegistry,
+    runtime: options.agentRuntime
+  });
+  registerSessionRoutes(app, { getChatStorage, sessionWorkspaceService });
   registerProviderRoutes(app, { getChatStorage, providerCredentials, providerRuntime });
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });

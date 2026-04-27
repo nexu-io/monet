@@ -64,6 +64,8 @@ test("connector tool source resolves connected curated tools for active monet in
   const abortController = new AbortController();
   const tools = await source.resolveTools({
     runId: "run_test",
+    sessionId: "session_test",
+    sessionWorkspacePath: "/tmp/monet-sessions/session_test/workspace",
     chatStorage: {
       getMonetInstallId() {
         return "monet-install-id";
@@ -225,6 +227,8 @@ test("connector tool execution dispatches prefixed tools through the provider", 
       messages: [],
       abortSignal: abortController.signal,
       persistedToolCallId: "tool-call-1",
+      sessionId: "session_test",
+      sessionWorkspacePath: "/tmp/monet-sessions/session_test/workspace",
       setConnectorExecutionMetadata(metadata) {
         connectorExecutionMetadata = metadata;
       }
@@ -351,6 +355,8 @@ function createProviderWithTools(
 function createToolSourceContext() {
   return {
     runId: "run_test",
+    sessionId: "session_test",
+    sessionWorkspacePath: "/tmp/monet-sessions/session_test/workspace",
     chatStorage: {
       getMonetInstallId() {
         return "monet-install-id";

@@ -7,9 +7,9 @@ import test from "node:test";
 
 import { createChatStorage } from "../chat-storage";
 import type { ConnectorProvider } from "../connectors/provider";
-import { createLogger } from "../logger";
 import { createConnectorToolSource } from "./connectors";
 import { createStaticToolSource, createToolRegistry } from "./registry";
+import { createLogger, type Logger } from "../logger";
 
 interface ToolCallRow {
   readonly run_id: string;
@@ -34,6 +34,32 @@ interface ToolCallRow {
   readonly error_message: string | null;
   readonly started_at: string;
   readonly ended_at: string | null;
+}
+
+interface CapturedLogEntry {
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly event: string;
+  readonly context: Record<string, unknown> | undefined;
+}
+
+function createCapturingLogger(entries: CapturedLogEntry[]): Logger {
+  return {
+    child() {
+      return createCapturingLogger(entries);
+    },
+    debug(event, context) {
+      entries.push({ level: "debug", event, context });
+    },
+    info(event, context) {
+      entries.push({ level: "info", event, context });
+    },
+    warn(event, context) {
+      entries.push({ level: "warn", event, context });
+    },
+    error(event, _error, context) {
+      entries.push({ level: "error", event, context });
+    }
+  };
 }
 
 function createTestStorage() {
@@ -129,10 +155,14 @@ test("tool registry persists completed executions", async () => {
           required: ["value"],
           additionalProperties: false
         } as never,
-        async execute(input: unknown) {
+        async execute(input: unknown, context) {
           const normalizedInput = input as { value: string };
 
-          return { echoed: normalizedInput.value };
+          return {
+            echoed: normalizedInput.value,
+            sessionId: context.sessionId,
+            sessionWorkspacePath: context.sessionWorkspacePath
+          };
         }
       }
     ]);
@@ -147,6 +177,8 @@ test("tool registry persists completed executions", async () => {
 
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test")
     });
@@ -164,20 +196,94 @@ test("tool registry persists completed executions", async () => {
       }
     );
 
-    assert.deepEqual(result, { echoed: "hello" });
+    assert.deepEqual(result, {
+      echoed: "hello",
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace"
+    });
 
     const [row] = getToolCalls(fixture.databasePath);
 
     assert.equal(row?.run_id, prepared.runId);
     assert.equal(row?.tool_name, "echo_tool");
     assert.equal(row?.input_json, '{"value":"hello"}');
-    assert.equal(row?.output_json, '{"echoed":"hello"}');
+    assert.equal(
+      row?.output_json,
+      `{"echoed":"hello","sessionId":"${prepared.sessionId}","sessionWorkspacePath":"/tmp/monet-test-session-workspace"}`
+    );
     assert.equal(row?.output_truncated, 0);
-    assert.equal(row?.output_size_bytes, Buffer.byteLength('{"echoed":"hello"}', "utf8"));
+    assert.equal(row?.output_size_bytes, Buffer.byteLength(row?.output_json ?? "", "utf8"));
     assert.equal(row?.status, "completed");
     assert.equal(row?.error_message, null);
     assert.equal(Boolean(row?.started_at), true);
     assert.equal(Boolean(row?.ended_at), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("tool registry logs filesystem path metadata from tool output", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "hello" }] }]
+    });
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "path_tool",
+          description: "Returns filesystem path metadata.",
+          requiresConfirmation: true
+        },
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string" }
+          },
+          required: ["path"],
+          additionalProperties: false
+        } as never,
+        async execute(input: unknown) {
+          const normalizedInput = input as { path: string };
+
+          return {
+            path: "/tmp/session-workspace/output.txt",
+            requestedPath: normalizedInput.path,
+            resolvedPath: "/tmp/session-workspace/output.txt",
+            pathZone: "session_workspace",
+            requiresConfirmation: false,
+            bytesWritten: 5
+          };
+        }
+      }
+    ]);
+    const logEntries: CapturedLogEntry[] = [];
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
+      chatStorage: fixture.storage,
+      logger: createCapturingLogger(logEntries)
+    });
+    const execute = (runtimeTools.path_tool as { execute: (input: unknown, context: unknown) => Promise<unknown> }).execute;
+
+    await execute(
+      { path: "output.txt" },
+      {
+        toolCallId: "call_sdk_path",
+        messages: [],
+        abortSignal: new AbortController().signal,
+        experimental_context: undefined
+      }
+    );
+
+    const completedLog = logEntries.find((entry) => entry.event === "tool.execution_completed");
+
+    assert.equal(completedLog?.context?.requestedPath, "output.txt");
+    assert.equal(completedLog?.context?.resolvedPath, "/tmp/session-workspace/output.txt");
+    assert.equal(completedLog?.context?.pathZone, "session_workspace");
+    assert.equal(completedLog?.context?.requiresConfirmation, false);
   } finally {
     fixture.cleanup();
   }
@@ -213,6 +319,8 @@ test("tool registry persists failed executions", async () => {
 
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test")
     });
@@ -273,6 +381,8 @@ test("tool registry propagates run abort signal into tool executions", async () 
 
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test"),
       abortSignal: runAbortController.signal
@@ -366,6 +476,8 @@ test("tool registry composes static and dynamic tool sources at runtime", async 
 
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test")
     });
@@ -447,6 +559,8 @@ test("tool registry composes connector tools at runtime and propagates abort sig
     );
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test"),
       abortSignal: runAbortController.signal
@@ -538,6 +652,8 @@ test("connector runtime logs redact OAuth codes, tokens, provider API keys, raw 
     ]);
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test", { providerApiKey: "provider-api-key-secret" })
     });
@@ -643,6 +759,8 @@ test("tool registry persists connector approval metadata for connector tools", a
 
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test")
     });
@@ -721,6 +839,8 @@ test("tool registry redacts tokens and raw authorization headers from persisted 
 
     const runtimeTools = await registry.createRuntimeTools({
       runId: prepared.runId,
+      sessionId: prepared.sessionId,
+      sessionWorkspacePath: "/tmp/monet-test-session-workspace",
       chatStorage: fixture.storage,
       logger: createLogger("test")
     });
@@ -789,6 +909,8 @@ test("tool registry fails closed when tool sources collide", async () => {
     await assert.rejects(
       registry.createRuntimeTools({
         runId: prepared.runId,
+        sessionId: prepared.sessionId,
+        sessionWorkspacePath: "/tmp/monet-test-session-workspace",
         chatStorage: fixture.storage,
         logger: createLogger("test")
       }),

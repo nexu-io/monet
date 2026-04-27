@@ -58,7 +58,12 @@ interface DesktopAppPathsSnapshot {
 
 interface OpenPathResult {
   readonly opened: boolean;
+  readonly path?: string;
   readonly error?: string;
+  readonly errorDetails?: {
+    readonly workspacePath?: string;
+    readonly nativeOpenFailureReason?: string;
+  };
 }
 
 interface OpenExternalUrlResult {
@@ -176,6 +181,9 @@ contextBridge.exposeInMainWorld("monetDesktop", {
   },
   openExternalUrl(payload: { url: string }): Promise<OpenExternalUrlResult> {
     return ipcRenderer.invoke("monet:open-external-url", payload);
+  },
+  openWorkspaceDirectory(payload: { sessionId?: string } | null): Promise<OpenPathResult> {
+    return ipcRenderer.invoke("monet:open-workspace-directory", payload);
   },
   saveProviderSecret(payload: { providerType: ProviderType; secret: string }): Promise<ProviderSecretMutationResult> {
     return ipcRenderer.invoke("monet:save-provider-secret", payload);

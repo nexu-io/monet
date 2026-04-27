@@ -10,6 +10,7 @@ import { createLogger } from "../logger";
 import { ProviderRuntimeError, type ProviderRuntime } from "../provider-runtime";
 import { getRequestId } from "../request-context";
 import type { RunRegistry } from "../run-registry";
+import type { SessionWorkspaceService } from "../session-workspace-service";
 import type { ToolRegistry } from "../tools/registry";
 import { sanitizeUiMessages } from "../ui-message-sanitize";
 
@@ -41,12 +42,23 @@ const chatLogger = createLogger("controller", {
   component: "chat-route"
 });
 
+function isChatStorageResolutionError(error: unknown): error is ChatStorageResolutionError {
+  return (
+    error instanceof ChatStorageResolutionError ||
+    (error !== null &&
+      typeof error === "object" &&
+      "statusCode" in error &&
+      "errorCode" in error)
+  );
+}
+
 export function registerChatRoutes(
   app: ControllerApp,
   options: {
     getChatStorage: () => ChatStorage;
     providerRuntime: ProviderRuntime;
     runRegistry: RunRegistry;
+    sessionWorkspaceService: SessionWorkspaceService;
     toolRegistry: ToolRegistry;
     runtime: AgentRuntimeConfig;
   }
@@ -151,8 +163,14 @@ export function registerChatRoutes(
         wallClockDeadlineAt: runBudget.wallClockDeadlineAt
       });
     } catch (error) {
-      if (error instanceof ChatStorageResolutionError) {
-        const status = error.statusCode === 422 ? 422 : 400;
+      if (isChatStorageResolutionError(error)) {
+        const parsedStatus = Number(error.statusCode);
+        const status = Number.isFinite(parsedStatus)
+          ? parsedStatus
+          : error.errorCode === "invalid_state"
+            ? 422
+            : 400;
+        const responseStatus = status === 422 ? 422 : 400;
 
         chatLogger.warn("chat.request_rejected", {
           requestId,
@@ -168,7 +186,7 @@ export function registerChatRoutes(
             error: error.errorCode,
             message: error.message
           },
-          status
+          responseStatus
         );
       }
 
@@ -195,6 +213,7 @@ export function registerChatRoutes(
         chatStorage: options.getChatStorage(),
         providerRuntime: options.providerRuntime,
         runRegistry: options.runRegistry,
+        sessionWorkspaceService: options.sessionWorkspaceService,
         toolRegistry: options.toolRegistry,
         runtime: options.runtime,
         logger: chatLogger.child({ requestId }),

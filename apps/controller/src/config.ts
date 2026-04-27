@@ -4,7 +4,7 @@ import type { ConnectorId } from "./connectors/catalog";
 const defaultControllerPort = 42831;
 const defaultControllerHost = "127.0.0.1";
 const defaultAllowedOrigins = ["null", "app://monet", "http://127.0.0.1:42832", "http://localhost:42832"] as const;
-const defaultAllowedToolDirectories = [process.cwd()] as const;
+const defaultAllowedToolDirectories: readonly string[] = [];
 const defaultAgentMaxStepsPerRun = 8;
 const defaultAgentMaxTokensPerRun = 32_768;
 const defaultAgentWallClockBudgetMs = 60_000;
@@ -19,10 +19,12 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
-  readonly connectorProvider: ConnectorProviderConfig;
   readonly features: FeatureConfig;
+  readonly connectorProvider: ConnectorProviderConfig;
+  readonly sessionWorkspaceBaseDirectory: string;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
+  readonly openrouterApiKey: string | null;
 }
 
 export interface FeatureConfig {
@@ -44,17 +46,10 @@ export interface OpenAIProviderConfig {
 }
 
 export interface OpenRouterProviderConfig {
-  readonly apiKey: string | null;
-  readonly baseUrl: string | null;
+  readonly apiUrl: string | null;
+  readonly baseUrl?: string | null;
   readonly defaultModel: string;
   readonly timeoutMs: number | null;
-}
-
-export type ConnectorProviderType = "composio";
-
-export interface ConnectorProviderConfig {
-  readonly provider: ConnectorProviderType;
-  readonly composio: ComposioProviderConfig;
 }
 
 export interface ComposioProviderConfig {
@@ -64,6 +59,13 @@ export interface ComposioProviderConfig {
   readonly authConfigIds: Partial<Record<ConnectorId, string>>;
 }
 
+export interface ConnectorProviderConfig {
+  readonly provider: ConnectorProviderType;
+  readonly composio: ComposioProviderConfig;
+}
+
+export type ConnectorProviderType = "composio";
+
 export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): ControllerConfig {
   const bearerToken = env.MONET_CONTROLLER_BEARER_TOKEN?.trim();
 
@@ -72,7 +74,6 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
   }
 
   const host = parseHost(env.MONET_CONTROLLER_HOST);
-
   const allowedToolDirectories = parseAllowedToolDirectories(env);
 
   return {
@@ -89,9 +90,6 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
     features: {
       connectors: parseBooleanWithDefault(env.MONET_FEATURE_CONNECTORS, false)
     },
-    host,
-    port: parsePort(env.MONET_CONTROLLER_PORT),
-    databasePath: resolveDatabasePath(env),
     connectorProvider: {
       provider: parseConnectorProvider(env.MONET_CONNECTOR_PROVIDER),
       composio: {
@@ -101,6 +99,10 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
         authConfigIds: parseComposioAuthConfigIds(env)
       }
     },
+    host,
+    port: parsePort(env.MONET_CONTROLLER_PORT),
+    databasePath: resolveDatabasePath(env),
+    sessionWorkspaceBaseDirectory: resolveSessionWorkspaceBaseDirectory(env),
     openai: {
       apiKey: parseOptionalString(env.MONET_OPENAI_API_KEY) ?? parseOptionalString(env.OPENAI_API_KEY),
       baseUrl: parseUrl(env.MONET_OPENAI_BASE_URL) ?? parseUrl(env.OPENAI_BASE_URL),
@@ -108,11 +110,12 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENAI_TIMEOUT_MS)
     },
     openrouter: {
-      apiKey: parseOptionalString(env.MONET_OPENROUTER_API_KEY) ?? parseOptionalString(env.OPENROUTER_API_KEY),
+      apiUrl: parseUrl(env.MONET_OPENROUTER_BASE_URL) ?? parseUrl(env.OPENROUTER_BASE_URL),
       baseUrl: parseUrl(env.MONET_OPENROUTER_BASE_URL) ?? parseUrl(env.OPENROUTER_BASE_URL),
       defaultModel: parseOptionalString(env.MONET_OPENROUTER_DEFAULT_MODEL) ?? "openai/gpt-4.1-mini",
       timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
-    }
+    },
+    openrouterApiKey: parseOptionalString(env.MONET_OPENROUTER_API_KEY) ?? parseOptionalString(env.OPENROUTER_API_KEY)
   };
 }
 
@@ -126,6 +129,7 @@ function parseComposioAuthConfigIds(env: NodeJS.ProcessEnv): Partial<Record<Conn
 
 function withOptionalConnectorAuthConfigId(connectorId: ConnectorId, value: string | undefined): Partial<Record<ConnectorId, string>> {
   const parsed = parseOptionalString(value);
+
   return parsed ? { [connectorId]: parsed } : {};
 }
 
@@ -137,6 +141,22 @@ function parseConnectorProvider(value: string | undefined): ConnectorProviderTyp
   }
 
   return normalized;
+}
+
+function resolveSessionWorkspaceBaseDirectory(env: NodeJS.ProcessEnv): string {
+  const explicitDirectory = env.MONET_SESSION_WORKSPACE_DIR?.trim();
+
+  if (explicitDirectory) {
+    return resolve(explicitDirectory);
+  }
+
+  const userDataDirectory = env.MONET_USER_DATA_DIR?.trim();
+
+  if (userDataDirectory) {
+    return resolve(userDataDirectory, "session-workspaces");
+  }
+
+  return resolve(process.cwd(), "session-workspaces");
 }
 
 function resolveDatabasePath(env: NodeJS.ProcessEnv): string {
@@ -183,7 +203,7 @@ function parseHost(value: string | undefined): string {
   const host = value?.trim() || defaultControllerHost;
 
   if (host !== "127.0.0.1" && host !== "localhost") {
-    throw new Error(`MONET_CONTROLLER_HOST must bind to loopback only, received: ${host}`);
+    throw new Error(`MONET_CONTROLLER_HOST must be bind to loopback only, received: ${host}`);
   }
 
   return host;
@@ -270,5 +290,5 @@ function parseBooleanWithDefault(value: string | undefined, fallback: boolean): 
     return false;
   }
 
-  throw new Error(`Expected a boolean feature flag value, received: ${value}`);
+  return fallback;
 }

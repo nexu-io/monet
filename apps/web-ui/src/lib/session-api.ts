@@ -24,6 +24,7 @@ export interface SessionMessageRecord {
 }
 
 export interface SessionDetailRecord extends SessionRecord {
+  readonly workspacePath: string | null;
   readonly messages: SessionMessageRecord[];
 }
 
@@ -33,6 +34,11 @@ interface ListSessionsResponse {
 
 interface ArchiveSessionResponse {
   readonly session: SessionRecord;
+}
+
+interface OpenWorkspaceDirectoryResponse {
+  readonly ok: true;
+  readonly workspacePath: string;
 }
 
 interface ErrorResponse {
@@ -100,6 +106,12 @@ export async function renameSession(sessionId: string, title: string) {
 
 export async function archiveSession(sessionId: string) {
   return requestJson<ArchiveSessionResponse>(`/api/sessions/${sessionId}/archive`, {
+    method: "POST"
+  });
+}
+
+export async function openWorkspaceDirectory(sessionId: string) {
+  return requestJson<OpenWorkspaceDirectoryResponse>(`/api/sessions/${sessionId}/workspace/open`, {
     method: "POST"
   });
 }

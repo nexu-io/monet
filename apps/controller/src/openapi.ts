@@ -150,6 +150,9 @@ export const SessionMessageSchema = z
   .openapi("SessionMessage");
 
 export const SessionDetailSchema = SessionSchema.extend({
+  workspacePath: z.string().nullable().openapi({
+    example: "/Users/example/Library/Application Support/Monet/session-workspaces/ses_abc123/workspace"
+  }),
   messages: z.array(SessionMessageSchema)
 }).openapi("SessionDetail");
 
@@ -178,6 +181,15 @@ export const ArchiveSessionResponseSchema = z
     session: SessionSchema
   })
   .openapi("ArchiveSessionResponse");
+
+export const OpenWorkspaceDirectoryResponseSchema = z
+  .object({
+    ok: z.literal(true).openapi({ example: true }),
+    workspacePath: z.string().openapi({
+      example: "/Users/example/Library/Application Support/Monet/session-workspaces/ses_abc123/workspace"
+    })
+  })
+  .openapi("OpenWorkspaceDirectoryResponse");
 
 export const ProviderSchema = z
   .object({
