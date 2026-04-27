@@ -465,6 +465,54 @@ test("relative file paths resolve against the session workspace, not cwd or auth
   }
 });
 
+test("relative file paths still use the session workspace with an empty authorized directory list", async () => {
+  const fixture = createTestFixture();
+  const originalCwd = process.cwd();
+
+  try {
+    const controllerCwdDir = join(fixture.fixtureDir, "controller-cwd-empty-allowlist");
+    mkdirSync(controllerCwdDir, { recursive: true });
+    writeFileSync(join(fixture.workspaceDir, "same-name.txt"), "from session workspace", "utf8");
+    writeFileSync(join(controllerCwdDir, "same-name.txt"), "from cwd", "utf8");
+
+    process.chdir(controllerCwdDir);
+
+    const runtimeTools = createRuntimeTools(fixture.workspaceDir, fixture.storage, {
+      allowedDirectories: []
+    });
+    const readFileTool = runtimeTools.read_file!;
+    const writeFileTool = runtimeTools.write_file!;
+    const realWorkspaceDir = realpathSync(fixture.workspaceDir);
+
+    const readResult = (await readFileTool.execute(
+      { path: "same-name.txt" },
+      createExecutionContext()
+    )) as { path: string; content: string; pathZone: string; requiresConfirmation: boolean };
+
+    assert.equal(readResult.content, "from session workspace");
+    assert.equal(readResult.path, join(realWorkspaceDir, "same-name.txt"));
+    assert.equal(readResult.pathZone, "session_workspace");
+    assert.equal(readResult.requiresConfirmation, false);
+
+    const writeResult = (await writeFileTool.execute(
+      {
+        path: "created-with-empty-allowlist.txt",
+        content: "written to workspace"
+      },
+      createExecutionContext()
+    )) as { path: string; pathZone: string; requiresConfirmation: boolean };
+
+    assert.equal(writeResult.path, join(realWorkspaceDir, "created-with-empty-allowlist.txt"));
+    assert.equal(writeResult.pathZone, "session_workspace");
+    assert.equal(writeResult.requiresConfirmation, false);
+    assert.equal(readFileSync(join(fixture.workspaceDir, "created-with-empty-allowlist.txt"), "utf8"), "written to workspace");
+    assert.throws(() => readFileSync(join(controllerCwdDir, "created-with-empty-allowlist.txt"), "utf8"), /ENOENT/);
+  } finally {
+    process.chdir(originalCwd);
+    fixture.cleanup();
+  }
+});
+
 test("read_file and write_file reject relative path traversal escapes", async () => {
   const fixture = createTestFixture();
 

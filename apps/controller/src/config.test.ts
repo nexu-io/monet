@@ -28,6 +28,7 @@ test("uses an empty tool allowed directory list by default", () => {
   const config = createControllerConfig(createEnv());
 
   assert.deepEqual(config.allowedToolDirectories, []);
+  assert.equal(config.allowedToolDirectories.includes(resolve(process.cwd())), false);
   assert.equal(config.allowedToolDirectoriesSource, "default");
 });
 

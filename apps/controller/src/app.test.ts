@@ -110,6 +110,26 @@ test("controller app keeps persisted authorized directories when env uses defaul
   }
 });
 
+test("controller app persists an empty authorized directory list when defaults are empty", () => {
+  const fixture = createAppFixture();
+
+  try {
+    createControllerApp({
+      ...testControllerOptions,
+      allowedToolDirectories: [],
+      allowedToolDirectoriesSource: "default",
+      databasePath: fixture.databasePath,
+      sessionWorkspaceBaseDirectory: fixture.sessionWorkspaceBaseDirectory
+    });
+
+    const reopenedStorage = createStorage(fixture.databasePath);
+
+    assert.deepEqual(reopenedStorage.listAuthorizedDirectories(), []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("controller startup orphan cleanup deletes inactive workspaces and preserves active sessions", async () => {
   const fixture = createAppFixture();
 
