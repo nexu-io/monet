@@ -1,4 +1,5 @@
 import type { ConnectorCatalogItem, ConnectorId, ConnectorToolPolicy } from "./catalog";
+import type { ConnectorProviderErrorCode } from "./errors";
 
 export type ConnectorConnectionState = "unavailable" | "not_connected" | "connected" | "expired" | "disconnected";
 
@@ -16,7 +17,7 @@ export interface ConnectorConnectionStatus {
   readonly state: ConnectorConnectionState;
   readonly connected: boolean;
   readonly account?: ConnectorAccountMetadata;
-  readonly lastErrorCode?: string;
+  readonly lastErrorCode?: ConnectorProviderErrorCode;
   readonly lastErrorMessage?: string;
 }
 

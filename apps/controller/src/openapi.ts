@@ -1,5 +1,9 @@
 import { z } from "@hono/zod-openapi";
 
+import { CONNECTOR_PROVIDER_ERROR_CODES } from "./connectors/errors";
+
+export const ConnectorProviderErrorCodeSchema = z.enum(CONNECTOR_PROVIDER_ERROR_CODES).openapi("ConnectorProviderErrorCode");
+
 export const ErrorResponseSchema = z
   .object({
     error: z.string().openapi({ example: "unauthorized" }),
