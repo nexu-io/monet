@@ -32,6 +32,9 @@ export function ConversationHeader({
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false);
   const desktopApi = typeof window === "undefined" ? undefined : window.monetDesktop;
   const canOpenWorkspace = Boolean(sessionId && desktopApi?.openWorkspaceDirectory);
+  const isMacDesktop = desktopApi?.platform === "darwin";
+  const openWorkspaceLabel = isMacDesktop ? "Open in Finder" : "Open workspace folder";
+  const openingWorkspaceLabel = isMacDesktop ? "Opening Finder…" : "Opening…";
 
   const copyWorkspacePath = useCallback(async () => {
     if (!workspacePath) {
@@ -57,13 +60,13 @@ export function ConversationHeader({
 
     try {
       const result = await desktopApi.openWorkspaceDirectory({ sessionId });
-      setWorkspaceFeedback(result.opened ? "Opened workspace folder." : result.error ?? "Unable to open workspace folder.");
+      setWorkspaceFeedback(result.opened ? `Opened workspace folder${isMacDesktop ? " in Finder" : ""}.` : result.error ?? "Unable to open workspace folder.");
     } catch (error) {
       setWorkspaceFeedback(error instanceof Error ? error.message : "Unable to open workspace folder.");
     } finally {
       setIsOpeningWorkspace(false);
     }
-  }, [desktopApi, sessionId]);
+  }, [desktopApi, isMacDesktop, sessionId]);
 
   return (
     <div className="flex flex-col items-start gap-4 app:flex-row app:flex-wrap app:justify-between">
@@ -90,7 +93,7 @@ export function ConversationHeader({
                 Copy path
               </Button>
               <Button type="button" variant="secondary" size="sm" disabled={!canOpenWorkspace || isOpeningWorkspace} onClick={() => void openWorkspace()}>
-                {isOpeningWorkspace ? "Opening…" : "Open folder"}
+                {isOpeningWorkspace ? openingWorkspaceLabel : openWorkspaceLabel}
               </Button>
             </div>
           </div>
