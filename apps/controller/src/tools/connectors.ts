@@ -1,5 +1,6 @@
 import { jsonSchema } from "ai";
 
+import { requiresConnectorToolApproval } from "../connectors/catalog";
 import type { ConnectorProvider, ConnectorToolDefinition } from "../connectors/provider";
 import type { RegisteredToolDefinition, ToolMetadata, ToolSource, ToolSourceContext } from "./registry";
 
@@ -49,7 +50,7 @@ function toRegisteredToolDefinition(
     metadata: {
       name: prefixedName,
       description: connectorTool.description,
-      requiresConfirmation: connectorTool.policy.approval !== "never"
+      requiresConfirmation: requiresConnectorToolApproval(connectorTool.policy)
     },
     inputSchema: jsonSchema(connectorTool.inputSchema as unknown as AiSdkJsonSchemaInput),
     execute() {

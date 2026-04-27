@@ -11,6 +11,33 @@ export interface ConnectorToolPolicy {
   readonly approval: ConnectorToolApproval;
 }
 
+export type ConnectorToolApprovalDefaults = Readonly<Record<ConnectorToolSideEffect, ConnectorToolApproval>>;
+
+export const CONNECTOR_TOOL_APPROVAL_DEFAULTS: ConnectorToolApprovalDefaults = {
+  read: "first_use",
+  write: "always",
+  destructive: "always",
+  external_send: "always"
+};
+
+export const CONNECTOR_V1_TOOL_POLICIES: Readonly<Record<ConnectorToolSideEffect, ConnectorToolPolicy>> = {
+  read: createConnectorToolPolicy("read"),
+  write: createConnectorToolPolicy("write"),
+  destructive: createConnectorToolPolicy("destructive"),
+  external_send: createConnectorToolPolicy("external_send")
+};
+
+export function createConnectorToolPolicy(sideEffect: ConnectorToolSideEffect): ConnectorToolPolicy {
+  return {
+    sideEffect,
+    approval: CONNECTOR_TOOL_APPROVAL_DEFAULTS[sideEffect]
+  };
+}
+
+export function requiresConnectorToolApproval(policy: ConnectorToolPolicy): boolean {
+  return policy.approval !== "never";
+}
+
 export interface ConnectorAllowedTool {
   readonly providerToolId: string;
   readonly displayName: string;
@@ -32,10 +59,7 @@ export interface ConnectorCatalogItem {
   readonly allowedTools: readonly ConnectorAllowedTool[];
 }
 
-const READ_TOOL_POLICY: ConnectorToolPolicy = {
-  sideEffect: "read",
-  approval: "first_use"
-};
+const READ_TOOL_POLICY = CONNECTOR_V1_TOOL_POLICIES.read;
 
 export const CONNECTOR_CATALOG = [
   {
