@@ -317,6 +317,13 @@ If the current runtime only has `runId`, resolve `sessionId` from the run/sessio
 
 `write_file` currently has static `requiresConfirmation: true`. The sandbox model requires dynamic approval based on resolved path zone.
 
+Resolved AI SDK compatibility decision:
+
+- The project is on AI SDK `ai@6.0.168`, which supports dynamic tool approval through `tool({ needsApproval })`.
+- `needsApproval` may be a function evaluated per tool call from the parsed tool input and execution context, so the controller can classify the requested path server-side and return `true` only for confirmed external authorized-directory writes.
+- Use the preferred single-`write_file` dynamic approval design for Phase 3 rather than splitting the public tool surface.
+- Keep execution-time path reclassification in `execute`; the approval predicate is for confirmation UX/routing and must not be the only enforcement point.
+
 Implementation options:
 
 1. **Preferred:** make tool approval dynamic, e.g. `needsApproval(input, context)` can classify the path and return `true` only for authorized-directory writes.
@@ -470,7 +477,7 @@ Temporary compatibility path:
 2. Resolved: default per-session workspace quota is 100 MB, and max single `write_file` content size is 1,000,000 bytes.
 3. Should the UI expose a file browser, or only “Open folder” for MVP?
 4. Should exported chats include workspace files by default or behind an explicit checkbox?
-5. Does the current AI SDK version support dynamic `needsApproval` based on resolved input and execution context?
+5. Resolved: current AI SDK `ai@6.0.168` supports dynamic `needsApproval` based on resolved input and execution context; use the preferred dynamic `write_file` approval path.
 
 ## 14. Acceptance Criteria
 
