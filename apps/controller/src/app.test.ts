@@ -84,6 +84,11 @@ const testControllerOptions = {
   port: 42831
 } as const;
 
+const authorizedRequestHeaders = {
+  Authorization: `Bearer ${testControllerOptions.bearerToken}`,
+  Host: `127.0.0.1:${testControllerOptions.port}`
+} as const;
+
 test("controller app keeps persisted authorized directories when env uses default source", () => {
   const fixture = createAppFixture();
 
@@ -154,6 +159,59 @@ test("controller startup orphan cleanup deletes inactive workspaces and preserve
 
     await waitForCondition(() => !existsSync(orphanWorkspacePath));
     assert.equal(existsSync(join(activeWorkspacePath, "keep.txt")), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("controller app restart keeps existing session workspace paths stable", async () => {
+  const fixture = createAppFixture();
+
+  try {
+    const firstRuntime = createControllerApp({
+      ...testControllerOptions,
+      allowedToolDirectories: [],
+      allowedToolDirectoriesSource: "default",
+      databasePath: fixture.databasePath,
+      sessionWorkspaceBaseDirectory: fixture.sessionWorkspaceBaseDirectory
+    });
+    const session = firstRuntime.chatStorage.createSession({});
+    const firstOpenResponse = await firstRuntime.app.request(
+      `http://127.0.0.1:42831/api/sessions/${session.id}/workspace/open`,
+      {
+        method: "POST",
+        headers: authorizedRequestHeaders
+      }
+    );
+
+    assert.equal(firstOpenResponse.status, 200);
+
+    const firstWorkspacePath = (await firstOpenResponse.json() as { workspacePath: string }).workspacePath;
+    writeFileSync(join(firstWorkspacePath, "before-restart.txt"), "keep");
+
+    const restartedRuntime = createControllerApp({
+      ...testControllerOptions,
+      allowedToolDirectories: [],
+      allowedToolDirectoriesSource: "default",
+      databasePath: fixture.databasePath,
+      sessionWorkspaceBaseDirectory: fixture.sessionWorkspaceBaseDirectory
+    });
+    const detailResponse = await restartedRuntime.app.request(`http://127.0.0.1:42831/api/sessions/${session.id}`, {
+      headers: authorizedRequestHeaders
+    });
+    const reopenedResponse = await restartedRuntime.app.request(
+      `http://127.0.0.1:42831/api/sessions/${session.id}/workspace/open`,
+      {
+        method: "POST",
+        headers: authorizedRequestHeaders
+      }
+    );
+
+    assert.equal(detailResponse.status, 200);
+    assert.equal((await detailResponse.json() as { workspacePath: string }).workspacePath, firstWorkspacePath);
+    assert.equal(reopenedResponse.status, 200);
+    assert.equal((await reopenedResponse.json() as { workspacePath: string }).workspacePath, firstWorkspacePath);
+    assert.equal(existsSync(join(firstWorkspacePath, "before-restart.txt")), true);
   } finally {
     fixture.cleanup();
   }
