@@ -18,6 +18,7 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
+  readonly sessionWorkspaceBaseDirectory: string;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
 }
@@ -68,6 +69,7 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
     databasePath: resolveDatabasePath(env),
+    sessionWorkspaceBaseDirectory: resolveSessionWorkspaceBaseDirectory(env),
     openai: {
       apiKey: parseOptionalString(env.MONET_OPENAI_API_KEY) ?? parseOptionalString(env.OPENAI_API_KEY),
       baseUrl: parseUrl(env.MONET_OPENAI_BASE_URL) ?? parseUrl(env.OPENAI_BASE_URL),
@@ -81,6 +83,22 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
     }
   };
+}
+
+function resolveSessionWorkspaceBaseDirectory(env: NodeJS.ProcessEnv): string {
+  const explicitDirectory = env.MONET_SESSION_WORKSPACE_DIR?.trim();
+
+  if (explicitDirectory) {
+    return resolve(explicitDirectory);
+  }
+
+  const userDataDirectory = env.MONET_USER_DATA_DIR?.trim();
+
+  if (userDataDirectory) {
+    return resolve(userDataDirectory, "session-workspaces");
+  }
+
+  return resolve(process.cwd(), "session-workspaces");
 }
 
 function resolveDatabasePath(env: NodeJS.ProcessEnv): string {
