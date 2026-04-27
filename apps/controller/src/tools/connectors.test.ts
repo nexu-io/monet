@@ -245,8 +245,64 @@ test("connector tool execution dispatches prefixed tools through the provider", 
   });
 });
 
+test("connector tool source enforces approval policy metadata for runtime tools", async () => {
+  const provider = createProviderWithTools([
+    {
+      connectorId: "github",
+      providerToolId: "GITHUB_GET_A_REPOSITORY",
+      name: "GITHUB_GET_A_REPOSITORY",
+      policy: { sideEffect: "read", approval: "never" }
+    },
+    {
+      connectorId: "github",
+      providerToolId: "GITHUB_CREATE_ISSUE",
+      name: "GITHUB_CREATE_ISSUE",
+      policy: { sideEffect: "write", approval: "always" }
+    },
+    {
+      connectorId: "google_drive",
+      providerToolId: "GOOGLEDRIVE_DELETE_FILE",
+      name: "GOOGLEDRIVE_DELETE_FILE",
+      policy: { sideEffect: "destructive", approval: "always" }
+    }
+  ]);
+  const source = createConnectorToolSource({ provider });
+
+  const tools = await source.resolveTools(createToolSourceContext());
+
+  assert.deepEqual(
+    tools.map((tool) => ({
+      name: tool.metadata.name,
+      requiresConfirmation: tool.metadata.requiresConfirmation,
+      policy: tool.metadata.connector?.approvalPolicy
+    })),
+    [
+      {
+        name: "github_get_a_repository",
+        requiresConfirmation: false,
+        policy: { sideEffect: "read", approval: "never" }
+      },
+      {
+        name: "github_create_issue",
+        requiresConfirmation: true,
+        policy: { sideEffect: "write", approval: "always" }
+      },
+      {
+        name: "google_drive_delete_file",
+        requiresConfirmation: true,
+        policy: { sideEffect: "destructive", approval: "always" }
+      }
+    ]
+  );
+});
+
 function createProviderWithTools(
-  tools: ReadonlyArray<{ connectorId: "github" | "notion" | "google_drive"; providerToolId: string; name: string }>
+  tools: ReadonlyArray<{
+    connectorId: "github" | "notion" | "google_drive";
+    providerToolId: string;
+    name: string;
+    policy?: { sideEffect: "read" | "write" | "destructive" | "external_send"; approval: "never" | "first_use" | "always" };
+  }>
 ): ConnectorProvider {
   return {
     async listConnectors() {
@@ -280,7 +336,7 @@ function createProviderWithTools(
           type: "object",
           additionalProperties: false
         },
-        policy: {
+        policy: tool.policy ?? {
           sideEffect: "read",
           approval: "never"
         }

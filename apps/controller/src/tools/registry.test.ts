@@ -6,7 +6,9 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { createChatStorage } from "../chat-storage";
+import type { ConnectorProvider } from "../connectors/provider";
 import { createLogger } from "../logger";
+import { createConnectorToolSource } from "./connectors";
 import { createStaticToolSource, createToolRegistry } from "./registry";
 
 interface ToolCallRow {
@@ -25,6 +27,9 @@ interface ToolCallRow {
   readonly connector_approval_policy_json: string | null;
   readonly connector_provider_execution_id: string | null;
   readonly connector_provider_execution_metadata_json: string | null;
+  readonly approval_decision: string | null;
+  readonly approval_decided_at: string | null;
+  readonly confirmation_token_hash: string | null;
   readonly status: string;
   readonly error_message: string | null;
   readonly started_at: string;
@@ -92,9 +97,9 @@ function getToolCalls(databasePath: string) {
   try {
     return connection
       .prepare(
-        `SELECT run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, connector_provider_execution_id, connector_provider_execution_metadata_json, status, error_message, started_at, ended_at
-         FROM tool_calls
-         ORDER BY started_at ASC`
+        `SELECT run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary, connector_approval_policy_json, connector_provider_execution_id, connector_provider_execution_metadata_json, approval_decision, approval_decided_at, confirmation_token_hash, status, error_message, started_at, ended_at
+          FROM tool_calls
+          ORDER BY started_at ASC`
       )
       .all() as unknown as ToolCallRow[];
   } finally {
@@ -372,6 +377,115 @@ test("tool registry composes static and dynamic tool sources at runtime", async 
   }
 });
 
+test("tool registry composes connector tools at runtime and propagates abort signals into provider execution", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "connector runtime" }] }]
+    });
+    const runAbortController = new AbortController();
+    let observedExecutionInput: unknown;
+    const provider: ConnectorProvider = {
+      async listConnectors() {
+        return [];
+      },
+      async getConnectionStatus(input) {
+        return {
+          connectorId: input.connectorId,
+          state: "connected",
+          connected: true,
+          account: { accountLabel: "octocat", providerConnectionId: "conn_github_1" }
+        };
+      },
+      connect() {
+        throw new Error("not used");
+      },
+      completeConnection() {
+        throw new Error("not used");
+      },
+      disconnect() {
+        throw new Error("not used");
+      },
+      async listTools() {
+        return [
+          {
+            connectorId: "github",
+            providerToolId: "GITHUB_GET_A_REPOSITORY",
+            name: "GITHUB_GET_A_REPOSITORY",
+            displayName: "Get repository",
+            description: "Get repository details.",
+            inputSchema: {
+              type: "object",
+              properties: { owner: { type: "string" }, repo: { type: "string" } },
+              required: ["owner", "repo"],
+              additionalProperties: false
+            },
+            policy: { sideEffect: "read", approval: "first_use" }
+          }
+        ];
+      },
+      async executeTool(input) {
+        observedExecutionInput = input;
+        return {
+          output: { fullName: "monet/connectors", aborted: input.abortSignal.aborted },
+          providerExecutionId: "provider-exec-runtime"
+        };
+      }
+    };
+    const registry = createToolRegistry(
+      [
+        {
+          metadata: { name: "static_tool", description: "Static tool.", requiresConfirmation: false },
+          inputSchema: { type: "object", additionalProperties: false } as never,
+          execute() {
+            return { source: "static" };
+          }
+        }
+      ],
+      { sources: [createConnectorToolSource({ provider })] }
+    );
+    const runtimeTools = await registry.createRuntimeTools({
+      runId: prepared.runId,
+      chatStorage: fixture.storage,
+      logger: createLogger("test"),
+      abortSignal: runAbortController.signal
+    });
+
+    assert.equal(typeof (runtimeTools.static_tool as { execute?: unknown }).execute, "function");
+    assert.equal(typeof (runtimeTools.github_get_a_repository as { execute?: unknown }).execute, "function");
+
+    runAbortController.abort(new Error("stop_requested"));
+
+    const output = await (runtimeTools.github_get_a_repository as { execute: (input: unknown, context: unknown) => Promise<unknown> }).execute(
+      { owner: "monet", repo: "connectors" },
+      {
+        toolCallId: "call_sdk_connector_runtime",
+        messages: [],
+        experimental_context: undefined
+      }
+    );
+
+    assert.deepEqual(output, { fullName: "monet/connectors", aborted: true });
+    assert.deepEqual(observedExecutionInput, {
+      userId: fixture.storage.getMonetInstallId(),
+      toolId: "GITHUB_GET_A_REPOSITORY",
+      args: { owner: "monet", repo: "connectors" },
+      connectionId: "conn_github_1",
+      abortSignal: runAbortController.signal
+    });
+
+    const [row] = getToolCalls(fixture.databasePath);
+
+    assert.equal(row?.tool_name, "github_get_a_repository");
+    assert.equal(row?.connector_id, "github");
+    assert.equal(row?.connector_approval_policy_json, '{"sideEffect":"read","approval":"first_use"}');
+    assert.equal(row?.connector_provider_execution_id, "provider-exec-runtime");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("tool registry persists connector approval metadata for connector tools", async () => {
   const fixture = createTestStorage();
 
@@ -485,6 +599,70 @@ test("tool registry fails closed when tool sources collide", async () => {
       }),
       /Tool name collision: same_tool/
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("disconnect cancellation rejects only pending approvals for the disconnected connector", async () => {
+  const fixture = createTestStorage();
+
+  try {
+    const prepared = fixture.storage.prepareChatRequest({
+      messages: [{ id: "msg_user", role: "user", parts: [{ type: "text", text: "pending approvals" }] }]
+    });
+
+    fixture.storage.startToolCall({
+      toolCallId: "call_github_pending",
+      runId: prepared.runId,
+      toolName: "github_create_issue",
+      input: { title: "issue" },
+      metadata: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        connectorAccountLabel: "octocat",
+        connectorToolName: "Create issue",
+        connectorProviderToolId: "GITHUB_CREATE_ISSUE",
+        connectorArgumentsSummary: "object(title:string(length:5))",
+        connectorApprovalPolicy: { sideEffect: "write", approval: "always" }
+      }
+    });
+    fixture.storage.recordToolApprovalRequest({ toolCallId: "call_github_pending", confirmationToken: "approve-github" });
+
+    fixture.storage.startToolCall({
+      toolCallId: "call_notion_pending",
+      runId: prepared.runId,
+      toolName: "notion_update_page",
+      input: { pageId: "page" },
+      metadata: {
+        connectorId: "notion",
+        connectorName: "Notion",
+        connectorAccountLabel: "workspace",
+        connectorToolName: "Update page",
+        connectorProviderToolId: "NOTION_UPDATE_PAGE",
+        connectorArgumentsSummary: "object(pageId:string(length:4))",
+        connectorApprovalPolicy: { sideEffect: "write", approval: "always" }
+      }
+    });
+    fixture.storage.recordToolApprovalRequest({ toolCallId: "call_notion_pending", confirmationToken: "approve-notion" });
+
+    assert.equal(fixture.storage.cancelPendingConnectorApprovals({ connectorId: "github" }), 1);
+
+    const rows = getToolCalls(fixture.databasePath);
+    const githubRow = rows.find((row) => row.tool_name === "github_create_issue");
+    const notionRow = rows.find((row) => row.tool_name === "notion_update_page");
+
+    assert.equal(githubRow?.status, "failed");
+    assert.equal(githubRow?.approval_decision, "rejected");
+    assert.equal(githubRow?.confirmation_token_hash, null);
+    assert.equal(githubRow?.error_message, "Connector disconnected before tool approval was confirmed.");
+    assert.equal(Boolean(githubRow?.approval_decided_at), true);
+    assert.equal(Boolean(githubRow?.ended_at), true);
+
+    assert.equal(notionRow?.status, "pending");
+    assert.equal(notionRow?.approval_decision, null);
+    assert.equal(typeof notionRow?.confirmation_token_hash, "string");
+    assert.equal(notionRow?.error_message, null);
   } finally {
     fixture.cleanup();
   }
