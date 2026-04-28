@@ -346,6 +346,27 @@ test("Composio connector provider normalizes HTTP and execution errors", async (
   );
 });
 
+test("Composio provider-auth 401s are not reported as expired user connections", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => jsonResponse({ message: "invalid api key" }, 401));
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "revoked-composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  await assert.rejects(
+    async () => provider.listTools({ userId: "monet-install-id", connectorId: "github" }),
+    (error) => error instanceof ConnectorProviderError && error.code === "provider_error" && error.statusCode === 401
+  );
+});
+
 test("Composio tools 404s surface tool_not_found instead of connection_missing", async (t) => {
   t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
     const url = String(input);

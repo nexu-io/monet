@@ -1035,7 +1035,7 @@ function mapComposioHttpStatus(path: string, status: number): ConnectorProviderE
   }
 
   if (status === 401) {
-    return "connection_expired";
+    return isComposioConnectedAccountPath(path) ? "connection_expired" : "provider_error";
   }
 
   if (status === 403) {

@@ -3097,6 +3097,7 @@ function inferRefreshSourceFromRecentConnectorToolCall(
     if (!input) {
       continue;
     }
+    const dataPaths = inferOutputDataPathsFromToolCallOutput(row.output_json);
 
     const parsed = LiveArtifactTileSourceSchema.safeParse({
       type: "connector_tool",
@@ -3109,7 +3110,7 @@ function inferRefreshSourceFromRecentConnectorToolCall(
         providerToolId: row.connector_provider_tool_id
       },
       refreshPermission: "manual_refresh_granted_for_read_only",
-      outputMapping: { preferredKind: "json" }
+      outputMapping: { preferredKind: "json", dataPaths }
     });
 
     if (parsed.success) {
@@ -3118,6 +3119,32 @@ function inferRefreshSourceFromRecentConnectorToolCall(
   }
 
   return null;
+}
+
+function inferOutputDataPathsFromToolCallOutput(value: string | null): Record<string, string> {
+  if (!value) {
+    return { data: "$" };
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { data: "$" };
+    }
+
+    const entries = Object.keys(parsed)
+      .filter(isSafeLiveArtifactDataPathKey)
+      .slice(0, 100)
+      .map((key) => [key, key] as const);
+
+    return entries.length > 0 ? Object.fromEntries(entries) : { data: "$" };
+  } catch {
+    return { data: "$" };
+  }
+}
+
+function isSafeLiveArtifactDataPathKey(value: string): boolean {
+  return /^[A-Za-z_-][A-Za-z0-9_-]*$/.test(value) && value !== "__proto__" && value !== "prototype" && value !== "constructor";
 }
 
 function parseToolCallJsonObject(value: string): Record<string, LiveArtifactJsonValue> | null {

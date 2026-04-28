@@ -533,7 +533,7 @@ test("live artifact connector refresh steps reject incomplete audit metadata bef
   }
 });
 
-test("create-time inferred live artifact refresh sources are ignored without explicit data paths", () => {
+test("create-time inferred live artifact refresh sources include data path mappings", () => {
   const fixture = createStorageFixture();
 
   try {
@@ -559,7 +559,7 @@ test("create-time inferred live artifact refresh sources are ignored without exp
     storage.markToolCallRunning(connectorToolCallId);
     storage.completeToolCall({ toolCallId: connectorToolCallId, output: { stargazers_count: 325 } });
 
-    const createArtifactToolCallId = storage.startToolCall({
+    storage.startToolCall({
       runId: prepared.runId,
       toolName: "create_live_artifact",
       input: { title: "Stars" }
@@ -570,22 +570,24 @@ test("create-time inferred live artifact refresh sources are ignored without exp
       description: null,
       contentType: "html_page_v1",
       createdByRunId: prepared.runId,
-      createdByToolCallId: createArtifactToolCallId,
       document: {
         format: "html_template_v1",
-        sanitizedHtml: "<main><strong>325</strong></main>",
-        dataJson: {},
+        sanitizedHtml: "<main><strong data-bind=\"text:data.stargazers_count\">325</strong></main>",
+        dataJson: { stargazers_count: 325 },
         sanitizerVersion: "basic-html-v1"
       }
     });
 
-    assert.equal(artifact.document?.sourceJson, null);
+    assert.deepEqual(artifact.document?.sourceJson?.outputMapping, {
+      preferredKind: "json",
+      dataPaths: { stargazers_count: "stargazers_count" }
+    });
   } finally {
     fixture.cleanup();
   }
 });
 
-test("read-time inferred live artifact sources are gated by refreshable document validation", () => {
+test("read-time inferred live artifact sources include data path mappings", () => {
   const fixture = createStorageFixture();
 
   try {
@@ -609,7 +611,7 @@ test("read-time inferred live artifact sources are gated by refreshable document
     });
     storage.markToolCallRunning(connectorToolCallId);
     storage.completeToolCall({ toolCallId: connectorToolCallId, output: { stargazers_count: 325 } });
-    const createArtifactToolCallId = storage.startToolCall({
+    storage.startToolCall({
       runId: prepared.runId,
       toolName: "create_live_artifact",
       input: { title: "Stars" }
@@ -618,10 +620,11 @@ test("read-time inferred live artifact sources are gated by refreshable document
       title: "Legacy static stars",
       description: null,
       contentType: "html_page_v1",
+      createdByRunId: prepared.runId,
       document: {
         format: "html_template_v1",
-        sanitizedHtml: "<main><strong>325</strong></main>",
-        dataJson: {},
+        sanitizedHtml: "<main><strong data-bind=\"text:data.stargazers_count\">325</strong></main>",
+        dataJson: { stargazers_count: 325 },
         sanitizerVersion: "basic-html-v1"
       }
     });
@@ -629,14 +632,17 @@ test("read-time inferred live artifact sources are gated by refreshable document
     const connection = new DatabaseSync(fixture.databasePath);
     try {
       connection
-        .prepare("UPDATE live_artifacts SET created_by_run_id = ?, created_by_tool_call_id = ? WHERE id = ?")
-        .run(prepared.runId, createArtifactToolCallId, artifact.id);
+        .prepare("UPDATE live_artifact_documents SET source_json = NULL WHERE artifact_id = ?")
+        .run(artifact.id);
     } finally {
       connection.close();
     }
 
     const legacyArtifact = storage.getLiveArtifact(artifact.id);
-    assert.equal(legacyArtifact.document?.sourceJson, null);
+    assert.deepEqual(legacyArtifact.document?.sourceJson?.outputMapping, {
+      preferredKind: "json",
+      dataPaths: { stargazers_count: "stargazers_count" }
+    });
   } finally {
     fixture.cleanup();
   }
