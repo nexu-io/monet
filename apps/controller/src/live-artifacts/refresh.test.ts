@@ -496,6 +496,193 @@ test("live artifact refresh rejects unsafe, stale, and unclassified connector so
   }
 });
 
+test("live artifact refresh skips no-source tiles and records no refresh steps", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Static report",
+      description: null,
+      tiles: [{
+        title: "Summary",
+        kind: "markdown",
+        renderJson: { kind: "markdown", markdown: "No source" }
+      }]
+    });
+
+    let executions = 0;
+    const registry = createToolRegistry([{
+      metadata: {
+        name: "unused_tool",
+        description: "Unused tool",
+        requiresConfirmation: false
+      },
+      inputSchema: {},
+      execute() {
+        executions += 1;
+        return { ok: true };
+      }
+    }]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 0);
+    assert.deepEqual(result.failures, []);
+    assert.deepEqual(result.artifact.tiles[0]?.renderJson, { kind: "markdown", markdown: "No source" });
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const refresh = connection
+        .prepare("SELECT status, error_message FROM live_artifact_refreshes WHERE artifact_id = ? ORDER BY started_at DESC LIMIT 1")
+        .get(artifact.id) as { status: string; error_message: string | null };
+      const steps = connection
+        .prepare("SELECT COUNT(*) AS count FROM live_artifact_refresh_steps")
+        .get() as { count: number };
+
+      assert.equal(refresh.status, "completed");
+      assert.equal(refresh.error_message, null);
+      assert.equal(steps.count, 0);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh rejects unsafe refresh output and preserves previous render JSON", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Unsafe refresh report",
+      description: null,
+      tiles: [{
+        title: "Notes",
+        kind: "markdown",
+        renderJson: { kind: "markdown", markdown: "# Previous" },
+        sourceJson: {
+          type: "tool",
+          toolName: "get_notes",
+          input: {},
+          refreshPermission: "manual_refresh_granted_for_read_only",
+          outputMapping: { preferredKind: "markdown" }
+        }
+      }]
+    });
+
+    let executions = 0;
+    const registry = createToolRegistry([{
+      metadata: {
+        name: "get_notes",
+        description: "Return unsafe notes",
+        requiresConfirmation: false
+      },
+      inputSchema: {},
+      execute() {
+        executions += 1;
+        return { kind: "markdown", markdown: "<script>alert(1)</script>" };
+      }
+    }]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 1);
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0]!.error, /Raw HTML content|Script-like content/);
+    assert.deepEqual(result.artifact.tiles[0]!.renderJson, { kind: "markdown", markdown: "# Previous" });
+    assert.equal(result.artifact.tiles[0]!.refreshStatus, "failed");
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const step = connection
+        .prepare("SELECT status, error_message FROM live_artifact_refresh_steps LIMIT 1")
+        .get() as { status: string; error_message: string | null };
+
+      assert.equal(step.status, "failed");
+      assert.match(step.error_message ?? "", /Raw HTML content|Script-like content/);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh blocks connector execution when current audit metadata is missing", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Connector audit report",
+      description: null,
+      tiles: [{
+        title: "Open issues",
+        kind: "json",
+        renderJson: { kind: "json", value: { previous: true } },
+        sourceJson: {
+          type: "connector_tool",
+          toolName: "github_search_issues",
+          input: { query: "repo:acme/widgets is:open" },
+          connector: {
+            connectorId: "github",
+            connectorName: "GitHub",
+            accountLabel: "octocat",
+            providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+          },
+          refreshPermission: "manual_refresh_granted_for_read_only",
+          outputMapping: { preferredKind: "json" }
+        }
+      }]
+    });
+
+    let executions = 0;
+    const registry = createToolRegistry([{
+      metadata: {
+        name: "github_search_issues",
+        description: "Search issues",
+        requiresConfirmation: false
+      },
+      inputSchema: {},
+      execute() {
+        executions += 1;
+        return { ok: true };
+      }
+    }]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 0);
+    assert.deepEqual(result.failures.map((failure) => failure.error), [
+      "Connector refresh source is missing audit metadata: github_search_issues"
+    ]);
+    assert.deepEqual(result.artifact.tiles[0]!.renderJson, { kind: "json", value: { previous: true } });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 function createConnectorTile(title: string, toolName: string) {
   return {
     title,
