@@ -1975,11 +1975,7 @@
                         }
                       },
                       "required": [
-                        "type",
-                        "toolName",
-                        "input",
-                        "refreshPermission",
-                        "outputMapping"
+                        "type"
                       ]
                     },
                     "refreshStatus": {
@@ -2218,11 +2214,7 @@
                       }
                     },
                     "required": [
-                      "type",
-                      "toolName",
-                      "input",
-                      "refreshPermission",
-                      "outputMapping"
+                      "type"
                     ]
                   },
                   "sanitizerVersion": {
@@ -2897,11 +2889,7 @@
                         }
                       },
                       "required": [
-                        "type",
-                        "toolName",
-                        "input",
-                        "refreshPermission",
-                        "outputMapping"
+                        "type"
                       ]
                     },
                     "refreshStatus": {
@@ -3140,11 +3128,7 @@
                       }
                     },
                     "required": [
-                      "type",
-                      "toolName",
-                      "input",
-                      "refreshPermission",
-                      "outputMapping"
+                      "type"
                     ]
                   },
                   "sanitizerVersion": {
@@ -5230,11 +5214,7 @@
                           }
                         },
                         "required": [
-                          "type",
-                          "toolName",
-                          "input",
-                          "refreshPermission",
-                          "outputMapping"
+                          "type"
                         ]
                       },
                       "sanitizerVersion": {
@@ -5925,11 +5905,7 @@
                                       }
                                     },
                                     "required": [
-                                      "type",
-                                      "toolName",
-                                      "input",
-                                      "refreshPermission",
-                                      "outputMapping"
+                                      "type"
                                     ]
                                   },
                                   "refreshStatus": {
@@ -6168,11 +6144,7 @@
                                     }
                                   },
                                   "required": [
-                                    "type",
-                                    "toolName",
-                                    "input",
-                                    "refreshPermission",
-                                    "outputMapping"
+                                    "type"
                                   ]
                                 },
                                 "sanitizerVersion": {
@@ -6878,11 +6850,7 @@
                                       }
                                     },
                                     "required": [
-                                      "type",
-                                      "toolName",
-                                      "input",
-                                      "refreshPermission",
-                                      "outputMapping"
+                                      "type"
                                     ]
                                   },
                                   "refreshStatus": {
@@ -7121,11 +7089,7 @@
                                     }
                                   },
                                   "required": [
-                                    "type",
-                                    "toolName",
-                                    "input",
-                                    "refreshPermission",
-                                    "outputMapping"
+                                    "type"
                                   ]
                                 },
                                 "sanitizerVersion": {
