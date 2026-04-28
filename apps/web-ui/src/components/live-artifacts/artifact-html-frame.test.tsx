@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bindLiveArtifactHtml } from "./artifact-html-frame";
+import { bindLiveArtifactHtml, buildSandboxDocument } from "./artifact-html-frame";
 
 describe("bindLiveArtifactHtml", () => {
   it("renders declarative repeat, text, attribute, and style bindings", () => {
@@ -40,5 +40,68 @@ describe("bindLiveArtifactHtml", () => {
     expect(cards[1]?.textContent).toContain("khoj");
     expect(bound).not.toContain("data-bind");
     expect(bound).not.toContain("data-repeat");
+  });
+
+  it("treats bare data-bind expressions as text bindings", () => {
+    const bound = bindLiveArtifactHtml('<p data-bind="data.title"></p>', {
+      title: "Legacy title"
+    });
+
+    const parsed = new DOMParser().parseFromString(bound, "text/html");
+    const paragraph = parsed.querySelector("p");
+
+    expect(paragraph?.textContent).toBe("Legacy title");
+    expect(paragraph?.hasAttribute("data-bind")).toBe(false);
+  });
+
+  it("does not treat non-text data-bind targets as text bindings", () => {
+    const bound = bindLiveArtifactHtml('<a data-bind="href:data.url">fallback</a>', {
+      url: "https://example.com"
+    });
+
+    const parsed = new DOMParser().parseFromString(bound, "text/html");
+    const link = parsed.querySelector("a");
+
+    expect(link?.textContent).toBe("fallback");
+    expect(link?.getAttribute("href")).toBeNull();
+    expect(link?.hasAttribute("data-bind")).toBe(false);
+  });
+});
+
+describe("buildSandboxDocument", () => {
+  it("uses embedded live artifact data when dataJson is empty", () => {
+    const srcDoc = buildSandboxDocument({
+      format: "html_template_v1",
+      sanitizedHtml: `
+        <script id="live-artifact-data" type="application/json">{"title":"Legacy artifact title"}</script>
+        <h1 data-bind="text:title"></h1>
+      `,
+      dataJson: {}
+    });
+
+    const parsed = new DOMParser().parseFromString(srcDoc, "text/html");
+    const dataScript = parsed.querySelector("script#live-artifact-data");
+
+    expect(parsed.querySelector("h1")?.textContent).toBe("Legacy artifact title");
+    expect(dataScript?.textContent).toBe("{\"title\":\"Legacy artifact title\"}");
+  });
+
+  it("keeps a single canonical live-artifact-data script", () => {
+    const srcDoc = buildSandboxDocument({
+      format: "html_template_v1",
+      sanitizedHtml: `
+        <script id="live-artifact-data" type="application/json">{"title":"legacy"}</script>
+        <main>hello</main>
+        <script id="live-artifact-data" type="application/json">{"title":"duplicate"}</script>
+      `,
+      dataJson: { title: "current" }
+    });
+
+    const parsed = new DOMParser().parseFromString(srcDoc, "text/html");
+    const dataScripts = parsed.querySelectorAll("script#live-artifact-data[type='application/json']");
+
+    expect(dataScripts).toHaveLength(1);
+    expect(dataScripts[0]?.textContent).toBe("{\"title\":\"current\"}");
+    expect(parsed.body.textContent).toContain("hello");
   });
 });

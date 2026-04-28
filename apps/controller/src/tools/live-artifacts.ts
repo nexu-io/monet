@@ -46,7 +46,7 @@ const liveArtifactToolMetadata = [
   },
   {
     name: "create_live_artifact",
-    description: "Creates a persisted Live Artifact as a sandboxed HTML page document with embedded JSON data. Always pass contentType='html_page_v1' and a document object; do not pass tile arrays or tile render JSON.",
+    description: "Creates a persisted Live Artifact as a sandboxed HTML page document with embedded JSON data. Always pass contentType='html_page_v1' and a document object; do not pass tile arrays or tile render JSON. For refreshable artifacts, put every connector/tool-derived value that may change in document.dataJson and bind it into sanitizedHtml with canonical forms like {{data.foo}}, data-bind=\"text:data.foo\", data-bind-attr=\"href:data.url\", data-bind-style=\"color:data.color\", and data-repeat=\"data.items\". Also set document.sourceJson.outputMapping.dataPaths to map dataJson fields to tool output paths, for example { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Do not hardcode refreshable values like stars, counts, statuses, names, or URLs directly into sanitizedHtml. Do not use <script> or window data injection for refreshable values; iframe scripts are sandboxed and will not run.",
     requiresConfirmation: false
   },
   {

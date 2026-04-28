@@ -67,6 +67,59 @@ function createRouteApp(storage: ChatStorage) {
   return app;
 }
 
+test("list live artifacts always returns snapshot summaries only", async () => {
+  const summaryArtifact = {
+    id: "art_summary_1",
+    schemaVersion: 1,
+    sessionId: null,
+    createdByRunId: null,
+    createdByToolCallId: null,
+    title: "Summary artifact",
+    slug: "summary-artifact",
+    description: null,
+    contentType: "html_page_v1",
+    currentRevisionId: "rev_1",
+    status: "active",
+    pinned: false,
+    refreshStatus: "idle",
+    refreshStartedAt: null,
+    createdAt: "2026-04-28T00:00:00.000Z",
+    updatedAt: "2026-04-28T00:00:00.000Z",
+    lastRefreshedAt: null,
+    lastRefreshError: null
+  };
+  const detailedArtifact = {
+    ...summaryArtifact,
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<main>Hello</main>",
+      dataJson: {},
+      dataSchemaJson: null,
+      sourceJson: null,
+      sanitizerVersion: "basic-html-v1"
+    },
+    tiles: []
+  };
+  const app = createRouteApp({
+    listLiveArtifacts() {
+      return [summaryArtifact];
+    },
+    getLiveArtifact() {
+      return detailedArtifact;
+    }
+  } as unknown as ChatStorage);
+
+  const defaultResponse = await requestJson(app, "/api/live-artifacts");
+  assert.equal(defaultResponse.status, 200);
+  assert.equal((await defaultResponse.json() as { artifacts: Array<Record<string, unknown>> }).artifacts[0]?.document, undefined);
+
+  const includeStatesResponse = await requestJson(app, "/api/live-artifacts?includeSourceStates=true");
+  assert.equal(includeStatesResponse.status, 200);
+  const includeStatesBody = await includeStatesResponse.json() as { artifacts: Array<Record<string, unknown>> };
+  assert.equal(includeStatesBody.artifacts[0]?.document, undefined);
+  assert.equal(includeStatesBody.artifacts[0]?.sourceStates, undefined);
+});
+
 function createControllerOptions(fixture: ReturnType<typeof createStorageFixture>) {
   return {
     allowedOrigins: ["null"],
@@ -255,14 +308,22 @@ test("live artifact CRUD routes validate input, hide archived artifacts by defau
 
     const detailResponse = await requestJson(app, `/api/live-artifacts/${alpha.id}`);
     assert.equal(detailResponse.status, 200);
-    assert.equal((await detailResponse.json() as { artifact: { title: string; document: unknown } }).artifact.document !== null, true);
+    const detail = await detailResponse.json() as { artifact: { title: string; document: unknown; sourceStates?: unknown; tiles: Array<{ sourceState?: unknown }> } };
+    assert.equal(detail.artifact.document !== null, true);
+    assert.equal(detail.artifact.sourceStates, undefined);
+    assert.equal(detail.artifact.tiles.every((tile) => tile.sourceState === undefined), true);
 
     const updateResponse = await requestJson(app, `/api/live-artifacts/${alpha.id}`, {
       method: "PATCH",
       body: JSON.stringify({ title: "Alpha renamed", description: null })
     });
     assert.equal(updateResponse.status, 200);
-    assert.equal((await updateResponse.json() as { artifact: { title: string; description: string | null } }).artifact.title, "Alpha renamed");
+    const updated = await updateResponse.json() as {
+      artifact: { title: string; description: string | null; sourceStates?: unknown; tiles: Array<{ sourceState?: unknown }> };
+    };
+    assert.equal(updated.artifact.title, "Alpha renamed");
+    assert.equal(updated.artifact.sourceStates, undefined);
+    assert.equal(updated.artifact.tiles.every((tile) => tile.sourceState === undefined), true);
 
     const pinResponse = await requestJson(app, `/api/live-artifacts/${alpha.id}`, {
       method: "PATCH",
@@ -279,10 +340,11 @@ test("live artifact CRUD routes validate input, hide archived artifacts by defau
 
     const defaultListResponse = await requestJson(app, "/api/live-artifacts");
     assert.equal(defaultListResponse.status, 200);
-    const defaultList = await defaultListResponse.json() as { artifacts: Array<{ id: string; pinned: boolean; status: string }> };
+    const defaultList = await defaultListResponse.json() as { artifacts: Array<{ id: string; pinned: boolean; status: string; document?: unknown }> };
     assert.deepEqual(defaultList.artifacts.map((artifact) => artifact.id), [alpha.id]);
     assert.equal(defaultList.artifacts.some((artifact) => artifact.id === "art_legacy_tiles"), false);
     assert.equal(defaultList.artifacts[0]?.pinned, true);
+    assert.equal(defaultList.artifacts[0]?.document, undefined);
 
     const includeArchivedResponse = await requestJson(app, "/api/live-artifacts?includeArchived=true");
     assert.equal(includeArchivedResponse.status, 200);

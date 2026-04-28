@@ -146,9 +146,9 @@ const settingsProviderItemClassName = "flex flex-col gap-2 rounded-xl border bor
 const settingsDirectoryItemClassName = "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border-subtle bg-surface-1 p-3 shadow-xs max-sm:grid-cols-[auto_minmax(0,1fr)]";
 const settingsDirectoryIconClassName = "inline-flex size-9 items-center justify-center rounded-md bg-accent/10 text-accent";
 const settingsDirectoryPathClassName = "block truncate text-text-heading";
-const settingsThemeOptionsClassName = "grid grid-cols-3 gap-3 max-app:grid-cols-1";
-const settingsThemeOptionClassName = `${settingsItemCardClassName} cursor-pointer transition-colors hover:border-accent/40 data-[active=true]:border-accent/40 data-[active=true]:shadow-focus`;
-const settingsThemeSwatchBaseClassName = "h-12 rounded-md border border-border-subtle";
+const settingsThemeOptionsClassName = "grid grid-cols-1 gap-3 md:grid-cols-3";
+const settingsThemeOptionClassName = `${settingsItemCardClassName} h-full min-w-0 cursor-pointer !items-stretch !justify-start text-left !whitespace-normal transition-colors hover:border-accent/40 data-[active=true]:border-accent/40 data-[active=true]:shadow-focus`;
+const settingsThemeSwatchBaseClassName = "block h-12 w-full rounded-md border border-border-subtle";
 const settingsProviderGridClassName = "grid grid-cols-[320px_minmax(0,1fr)] items-start gap-6 max-app:grid-cols-1";
 const settingsProviderDetailClassName = "flex flex-col gap-3";
 const settingsRowClassName = "flex flex-wrap items-center justify-between gap-2 max-sm:items-start";
@@ -648,9 +648,9 @@ function GeneralSettingsPanel() {
                 onClick={() => setTheme(option.value)}
               >
                 <span className={getThemeSwatchClassName(option.value)} aria-hidden="true" />
-                <div className="flex flex-col gap-1">
+                <div className="flex min-w-0 flex-col items-center gap-1 text-center">
                   <strong>{option.label}</strong>
-                  <span className="m-0 leading-[1.5] text-text-muted">{option.detail}</span>
+                  <span className="m-0 block max-w-full !whitespace-normal break-words leading-[1.5] text-text-muted">{option.detail}</span>
                 </div>
               </Button>
             ))}

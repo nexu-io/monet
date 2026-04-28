@@ -14,7 +14,7 @@ describe("live artifact tile source input validation", () => {
       providerToolId: "github.search_issues"
     },
     refreshPermission: "manual_refresh_granted_for_read_only",
-    outputMapping: { preferredKind: "table" }
+    outputMapping: { preferredKind: "table", dataPaths: { issues: "items" } }
   } as const;
 
   it("persists stable repeatable query arguments and trims inline strings", () => {
@@ -90,6 +90,45 @@ describe("live artifact tile source input validation", () => {
           input: { query: "x".repeat(LIVE_ARTIFACT_LIMITS.sourceInputBytes) }
         }),
       /Tile source input exceeds max size/
+    );
+  });
+
+  it("validates generic output data path mappings", () => {
+    const source = LiveArtifactTileSourceSchema.parse({
+      ...baseSource,
+      input: { query: "status:open" },
+      outputMapping: {
+        preferredKind: "json",
+        dataPaths: {
+          "summary.count": "items.0.count",
+          status: ["state", "status"],
+          amount: "$.available.0.amount"
+        }
+      }
+    });
+
+    assert.deepEqual(source.outputMapping.dataPaths, {
+      "summary.count": "items.0.count",
+      status: ["state", "status"],
+      amount: "$.available.0.amount"
+    });
+
+    assert.throws(
+      () => LiveArtifactTileSourceSchema.parse({
+        ...baseSource,
+        input: { query: "status:open" },
+        outputMapping: { preferredKind: "json", dataPaths: { "items.0.title": "title" } }
+      }),
+      /Destination path must use object dot notation/
+    );
+
+    assert.throws(
+      () => LiveArtifactTileSourceSchema.parse({
+        ...baseSource,
+        input: { query: "status:open" },
+        outputMapping: { preferredKind: "json", dataPaths: { safe: "__proto__.polluted" } }
+      }),
+      /prototype-sensitive/
     );
   });
 });

@@ -213,6 +213,13 @@ const broadPersonalDataKeyPattern =
   /(?:emails?|messages?|threads?|contacts?|people|users?|customers?|members?|recipients?|participants?|profile|body|content|transcript)/i;
 const stableRepeatableQueryKeyPattern =
   /(?:^|_)(?:id|ids|url|uri|slug|key|name|query|q|search|filter|filters|where|sort|order|limit|offset|page|cursor|after|before|since|until|from|to|start|end|date|time|status|state|type|kind|category|label|tag|tags|workspace|project|repo|repository|owner|path|folder|calendar|channel|sheet|table)(?:_|$)/i;
+const dangerousPathSegmentPattern = /^(?:__proto__|prototype|constructor)$/;
+const liveArtifactOutputSourcePathSchema = z.string().trim().min(1).max(300)
+  .regex(/^(?:\$|[A-Za-z0-9_$-]+)(?:\.(?:[A-Za-z0-9_$-]+|\d+))*$/, "Path must use dot notation such as stargazers_count, owner.login, items.0.title, or $")
+  .refine((path) => !path.split(".").some((segment) => dangerousPathSegmentPattern.test(segment)), "Path must not contain prototype-sensitive segments");
+const liveArtifactOutputDestinationPathSchema = z.string().trim().min(1).max(300)
+  .regex(/^[A-Za-z_-][A-Za-z0-9_-]*(?:\.[A-Za-z_-][A-Za-z0-9_-]*)*$/, "Destination path must use object dot notation such as stars, owner.name, or balance.amount")
+  .refine((path) => !path.split(".").some((segment) => dangerousPathSegmentPattern.test(segment)), "Destination path must not contain prototype-sensitive segments");
 
 function sanitizeLiveArtifactSourceInputValue(
   value: LiveArtifactJsonValue,
@@ -426,10 +433,22 @@ export const LiveArtifactTileSourceSchema = z
     connector: LiveArtifactTileConnectorSourceSchema.optional(),
     refreshPermission: LiveArtifactRefreshPermissionSchema,
     outputMapping: z.object({
-      preferredKind: LiveArtifactTileKindSchema.optional()
+      preferredKind: LiveArtifactTileKindSchema.optional(),
+      dataPaths: z.record(
+        liveArtifactOutputDestinationPathSchema,
+        z.union([liveArtifactOutputSourcePathSchema, z.array(liveArtifactOutputSourcePathSchema).min(1).max(5)])
+      ).optional().describe("Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.")
     })
   })
   .superRefine((value, ctx) => {
+    if (value.outputMapping.dataPaths && Object.keys(value.outputMapping.dataPaths).length > 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputMapping", "dataPaths"],
+        message: "Output data path mapping can include at most 100 fields"
+      });
+    }
+
     if (value.type === "connector_tool" && !value.connector) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -462,20 +481,38 @@ function normalizeLiveArtifactHtml(value: string) {
       .replace(/<\/?(?:html|head|body)\b[^>]*>/gi, "");
   }
 
-  return [...styleBlocks, html].join("\n").trim();
+  return canonicalizeLiveArtifactBindings([...styleBlocks, html].join("\n").trim());
+}
+
+function canonicalizeLiveArtifactBindings(html: string): string {
+  return html.replace(/\bdata-bind\s*=\s*(?<quote>["'])(?<value>[\s\S]*?)\k<quote>/gi, (match, quote, value) => {
+    if (typeof quote !== "string" || typeof value !== "string") {
+      return match;
+    }
+
+    const normalized = value
+      .split(";")
+      .map((statement) => statement.trim())
+      .filter((statement) => statement.length > 0)
+      .map((statement) => (/^[a-z][a-z0-9_-]*\s*:/i.test(statement) ? statement : `text:${statement}`))
+      .join(";");
+
+    return `data-bind=${quote}${normalized}${quote}`;
+  });
 }
 
 export const LiveArtifactHtmlDocumentSchema = z.object({
   format: z.literal("html_template_v1"),
   sanitizedHtml: z
     .string()
+    .describe("HTML template markup. For dynamic or refreshable values, use canonical bindings like {{data.foo}}, data-bind=\"text:data.foo\", data-bind-attr=\"href:data.url\", data-bind-style=\"color:data.color\", or data-repeat=\"data.items\" instead of hardcoding connector/tool-derived values.")
     .trim()
     .transform((value) => normalizeLiveArtifactHtml(value))
     .pipe(z.string()
     .min(1)
     .max(LIVE_ARTIFACT_LIMITS.html)),
-  dataJson: LiveArtifactJsonValueSchema.default({}),
-  dataSchemaJson: LiveArtifactJsonValueSchema.nullable().optional(),
+  dataJson: LiveArtifactJsonValueSchema.default({}).describe("Initial data payload for the HTML template. Refresh updates this payload; all changing connector/tool-derived values should live here."),
+  dataSchemaJson: LiveArtifactJsonValueSchema.nullable().optional().describe("Optional shape hint for mapping future refresh output back into dataJson."),
   sourceJson: LiveArtifactTileSourceSchema.nullable().optional(),
   sanitizerVersion: z.string().trim().min(1).max(80).default("basic-html-v1")
 }).strict().superRefine((value, ctx) => {
@@ -487,6 +524,18 @@ export const LiveArtifactHtmlDocumentSchema = z.object({
     });
   }
 });
+
+function hasLiveArtifactBindingMarker(html: string): boolean {
+  return /\{\{\s*data\./.test(html) || /\bdata-(?:bind|bind-attr|bind-style|repeat)\b/.test(html);
+}
+
+function hasScriptElement(html: string): boolean {
+  return /<\s*script\b/i.test(html);
+}
+
+function isNonEmptyJsonObject(value: LiveArtifactJsonValue): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length > 0;
+}
 
 export const LiveArtifactSchema = z.object({
   id: idSchema,
@@ -565,10 +614,52 @@ export const LiveArtifactCreateInputSchema = z.object({
   description: optionalBoundedString(LIVE_ARTIFACT_LIMITS.description).nullable().describe("Optional human-readable description."),
   sessionId: idSchema.optional().nullable(),
   contentType: LiveArtifactContentTypeSchema.optional().default("html_page_v1").describe("Must be html_page_v1."),
-  document: LiveArtifactHtmlDocumentSchema.describe("Required HTML page document. Put the page markup in sanitizedHtml and dynamic values in dataJson. Do not send tiles or renderJson.")
+  document: LiveArtifactHtmlDocumentSchema.describe("Required HTML page document. Put markup in sanitizedHtml and dynamic/refreshable values in dataJson. Bind data with canonical forms like {{data.foo}}, data-bind=\"text:data.foo\", data-bind-attr=\"href:data.url\", data-bind-style=\"color:data.color\", and data-repeat=\"data.items\". Do not send tiles or renderJson.")
 }).strict().superRefine((value, ctx) => {
   if (value.contentType !== "html_page_v1") {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contentType"], message: "Only html_page_v1 live artifacts are supported" });
+  }
+
+  if (value.document.sourceJson?.refreshPermission === "manual_refresh_granted_for_read_only") {
+    if (!isNonEmptyJsonObject(value.document.dataJson)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["document", "dataJson"],
+        message: "Refreshable live artifacts must put changing tool or connector values in a non-empty dataJson object"
+      });
+    }
+
+    if (!hasLiveArtifactBindingMarker(value.document.sanitizedHtml)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["document", "sanitizedHtml"],
+        message: "Refreshable live artifacts must bind dataJson into sanitizedHtml using {{data.*}}, data-bind, data-bind-attr, data-bind-style, or data-repeat"
+      });
+    }
+
+    if (hasScriptElement(value.document.sanitizedHtml)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["document", "sanitizedHtml"],
+        message: "Refreshable live artifacts must not use script-based data injection; iframe scripts are sandboxed, so use declarative data bindings instead"
+      });
+    }
+
+    if (!value.document.sourceJson.outputMapping.dataPaths || Object.keys(value.document.sourceJson.outputMapping.dataPaths).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["document", "sourceJson", "outputMapping", "dataPaths"],
+        message: "Refreshable live artifacts must define outputMapping.dataPaths so refresh can update dataJson without connector-specific assumptions"
+      });
+    }
+
+    if (value.document.sourceJson.type === "connector_tool" && !value.document.sourceJson.connector?.accountLabel) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["document", "sourceJson", "connector", "accountLabel"],
+        message: "Refreshable connector live artifacts must include a stable saved account label; reconnect or recreate the source if it is unavailable"
+      });
+    }
   }
 });
 

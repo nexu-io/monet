@@ -384,10 +384,10 @@ test("completing a live artifact refresh updates exposed refresh state", () => {
     const failedArtifact = storage.getLiveArtifact(artifact.id);
     assert.equal(failedArtifact.refreshStatus, "failed");
     assert.equal(failedArtifact.refreshStartedAt, null);
-    assert.equal(failedArtifact.lastRefreshError, "provider temporarily unavailable");
+    assert.equal(failedArtifact.lastRefreshError, null);
     assert.equal(failedArtifact.tiles[0]?.refreshStatus, "failed");
     assert.equal(failedArtifact.tiles[0]?.refreshStartedAt, null);
-    assert.equal(failedArtifact.tiles[0]?.lastError, "provider temporarily unavailable");
+    assert.equal(failedArtifact.tiles[0]?.lastError, null);
   } finally {
     fixture.cleanup();
   }
@@ -492,6 +492,115 @@ test("live artifact connector refresh steps reject incomplete audit metadata bef
     } finally {
       connection.close();
     }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("create-time inferred live artifact refresh sources are ignored without explicit data paths", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [{ id: "msg_user_inferred", role: "user", parts: [{ type: "text", text: "Show repository stars." }] } as any]
+    });
+
+    const connectorToolCallId = storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "github_get_a_repository",
+      input: { owner: "nexu-io", repo: "open-design" },
+      metadata: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        connectorAccountLabel: "octocat",
+        connectorToolName: "Get a repository",
+        connectorProviderToolId: "GITHUB_GET_A_REPOSITORY",
+        connectorArgumentsSummary: "owner=nexu-io repo=open-design",
+        connectorApprovalPolicy: { sideEffect: "read", approval: "never" }
+      }
+    });
+    storage.markToolCallRunning(connectorToolCallId);
+    storage.completeToolCall({ toolCallId: connectorToolCallId, output: { stargazers_count: 325 } });
+
+    const createArtifactToolCallId = storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "create_live_artifact",
+      input: { title: "Stars" }
+    });
+
+    const artifact = storage.createLiveArtifact({
+      title: "Stars",
+      description: null,
+      contentType: "html_page_v1",
+      createdByRunId: prepared.runId,
+      createdByToolCallId: createArtifactToolCallId,
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><strong>325</strong></main>",
+        dataJson: {},
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+
+    assert.equal(artifact.document?.sourceJson, null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("read-time inferred live artifact sources are gated by refreshable document validation", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [{ id: "msg_user_legacy_inferred", role: "user", parts: [{ type: "text", text: "Show repository stars." }] } as any]
+    });
+    const connectorToolCallId = storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "github_get_a_repository",
+      input: { owner: "nexu-io", repo: "open-design" },
+      metadata: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        connectorAccountLabel: "octocat",
+        connectorToolName: "Get a repository",
+        connectorProviderToolId: "GITHUB_GET_A_REPOSITORY",
+        connectorArgumentsSummary: "owner=nexu-io repo=open-design",
+        connectorApprovalPolicy: { sideEffect: "read", approval: "never" }
+      }
+    });
+    storage.markToolCallRunning(connectorToolCallId);
+    storage.completeToolCall({ toolCallId: connectorToolCallId, output: { stargazers_count: 325 } });
+    const createArtifactToolCallId = storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "create_live_artifact",
+      input: { title: "Stars" }
+    });
+    const artifact = storage.createLiveArtifact({
+      title: "Legacy static stars",
+      description: null,
+      contentType: "html_page_v1",
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><strong>325</strong></main>",
+        dataJson: {},
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      connection
+        .prepare("UPDATE live_artifacts SET created_by_run_id = ?, created_by_tool_call_id = ? WHERE id = ?")
+        .run(prepared.runId, createArtifactToolCallId, artifact.id);
+    } finally {
+      connection.close();
+    }
+
+    const legacyArtifact = storage.getLiveArtifact(artifact.id);
+    assert.equal(legacyArtifact.document?.sourceJson, null);
   } finally {
     fixture.cleanup();
   }

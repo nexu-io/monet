@@ -62,7 +62,7 @@ test("html page live artifact refresh updates data JSON and advances document re
           toolName: "get_report_data",
           input: { reportId: "rep_123" },
           refreshPermission: "manual_refresh_granted_for_read_only",
-          outputMapping: { preferredKind: "json" }
+          outputMapping: { preferredKind: "json", dataPaths: { title: "dataJson.title", count: "dataJson.count", items: "dataJson.items" } }
         },
         sanitizerVersion: "basic-html-v1"
       }
@@ -170,7 +170,7 @@ test("live artifact refresh validates connector source metadata before execution
 
     assert.equal(executions, 1);
     assert.deepEqual(result.failures, []);
-    assert.deepEqual(result.artifact.document?.dataJson, { summary: "fresh issues" });
+    assert.deepEqual(result.artifact.document?.dataJson, { title: "Connector report", summary: "fresh issues" });
 
     const connection = new DatabaseSync(fixture.databasePath);
     try {
@@ -205,7 +205,10 @@ test("html artifact refresh remaps connector repository output into existing tem
     const artifact = storage.createLiveArtifact({
       ...createHtmlArtifactPayload(
         "GitHub repos",
-        createConnectorSource("github_search_repositories", { q: "agent stars:>1000", sort: "stars", order: "desc", per_page: 2 })
+        {
+          ...createConnectorSource("github_search_repositories", { q: "agent stars:>1000", sort: "stars", order: "desc", per_page: 2 }),
+          outputMapping: { preferredKind: "json", dataPaths: { repos: "items" } }
+        }
       ),
       document: {
         format: "html_template_v1",
@@ -217,7 +220,10 @@ test("html artifact refresh remaps connector repository output into existing tem
             { rank: "02", name: "Old 2", owner: "old", url: "#", avatar: "", description: "old", topics: [], stars: "0", forks: "0", language: "Unknown", c1: "#000" }
           ]
         },
-        sourceJson: createConnectorSource("github_search_repositories", { q: "agent stars:>1000", sort: "stars", order: "desc", per_page: 2 }),
+        sourceJson: {
+          ...createConnectorSource("github_search_repositories", { q: "agent stars:>1000", sort: "stars", order: "desc", per_page: 2 }),
+          outputMapping: { preferredKind: "json", dataPaths: { repos: "items" } }
+        },
         sanitizerVersion: "basic-html-v1"
       }
     });
@@ -266,18 +272,258 @@ test("html artifact refresh remaps connector repository output into existing tem
       logger: createLogger("test", { component: "live-artifact-refresh-test" })
     });
 
-    const dataJson = result.artifact.document?.dataJson as { repos: Array<{ name: string; owner: string; stars: string; c1: string }> };
+    const dataJson = result.artifact.document?.dataJson as { repos: Array<{ name: string; stargazers_count: number }> };
     assert.equal(dataJson.repos[0]?.name, "crewAI");
-    assert.equal(dataJson.repos[0]?.owner, "crewAIInc");
-    assert.equal(dataJson.repos[0]?.stars, "50.1k");
-    assert.equal(dataJson.repos[0]?.c1, "#fff");
+    assert.equal(dataJson.repos[0]?.stargazers_count, 50123);
     assert.equal(dataJson.repos[1]?.name, "khoj");
   } finally {
     fixture.cleanup();
   }
 });
 
-test("live artifact refresh fails closed for stale connector metadata", async () => {
+test("html artifact refresh maps single repository output into bound data", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      ...createHtmlArtifactPayload(
+        "nexu-io/open-design Stars",
+        createConnectorSource("github_get_a_repository", { owner: "nexu-io", repo: "open-design" })
+      ),
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><div class=\"repo\">{{data.owner}}/{{data.repo}}</div><div class=\"stars\">{{data.stars}}</div></main>",
+        dataJson: { owner: "nexu-io", repo: "open-design", stars: 166 },
+        dataSchemaJson: { owner: "string", repo: "string", stars: "number" },
+        sourceJson: {
+          ...createConnectorSource("github_get_a_repository", { owner: "nexu-io", repo: "open-design" }),
+          outputMapping: {
+            preferredKind: "json",
+            dataPaths: {
+              owner: "owner.login",
+              repo: "name",
+              stars: ["stargazers_count", "watchers_count"]
+            }
+          }
+        },
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+    const registry = createToolRegistry([
+      createConnectorDefinition("github_get_a_repository", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        inputSchema: { type: "object" },
+        execute() {
+          return {
+            name: "open-design",
+            full_name: "nexu-io/open-design",
+            stargazers_count: 304,
+            watchers_count: 304,
+            owner: { login: "nexu-io" }
+          };
+        }
+      })
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.deepEqual(result.artifact.document?.dataJson, { owner: "nexu-io", repo: "open-design", stars: 304 });
+    assert.equal(result.artifact.document?.sanitizedHtml, "<main><div class=\"repo\">{{data.owner}}/{{data.repo}}</div><div class=\"stars\">{{data.stars}}</div></main>");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("html artifact refresh maps arbitrary connector output paths into bound data", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const source = createConnectorSource("stripe_get_balance", { account: "acct_123" });
+    const artifact = storage.createLiveArtifact({
+      ...createHtmlArtifactPayload("Stripe balance", source),
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><strong>{{data.balance.amount}}</strong><span>{{data.balance.currency}}</span></main>",
+        dataJson: { balance: { amount: 0, currency: "usd" } },
+        sourceJson: {
+          ...source,
+          connector: {
+            connectorId: "stripe",
+            connectorName: "Stripe",
+            accountLabel: "acct_123",
+            providerToolId: "STRIPE_GET_BALANCE"
+          },
+          outputMapping: {
+            preferredKind: "json",
+            dataPaths: {
+              "balance.amount": "$.available.0.amount",
+              "balance.currency": ["available.0.currency", "currency"]
+            }
+          }
+        },
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+    const registry = createToolRegistry([
+      createConnectorDefinition("stripe_get_balance", {
+        connectorId: "stripe",
+        connectorName: "Stripe",
+        accountLabel: "acct_123",
+        providerToolId: "STRIPE_GET_BALANCE",
+        connected: true,
+        connectionState: "connected",
+        inputSchema: { type: "object" },
+        execute() {
+          return { available: [{ amount: 4200, currency: "usd" }] };
+        }
+      })
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.deepEqual(result.artifact.document?.dataJson, { balance: { amount: 4200, currency: "usd" } });
+    assert.equal(result.artifact.document?.sanitizedHtml, "<main><strong>{{data.balance.amount}}</strong><span>{{data.balance.currency}}</span></main>");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("html artifact refresh fails when configured data paths do not match output", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const source = createConnectorSource("stripe_get_balance", { account: "acct_123" });
+    const artifact = storage.createLiveArtifact({
+      ...createHtmlArtifactPayload("Stripe balance", source),
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main>{{data.balance.amount}}</main>",
+        dataJson: { balance: { amount: 0 } },
+        sourceJson: {
+          ...source,
+          connector: {
+            connectorId: "stripe",
+            connectorName: "Stripe",
+            accountLabel: "acct_123",
+            providerToolId: "STRIPE_GET_BALANCE"
+          },
+          outputMapping: {
+            preferredKind: "json",
+            dataPaths: { "balance.amount": "missing.amount" }
+          }
+        },
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+    const registry = createToolRegistry([
+      createConnectorDefinition("stripe_get_balance", {
+        connectorId: "stripe",
+        connectorName: "Stripe",
+        accountLabel: "acct_123",
+        providerToolId: "STRIPE_GET_BALANCE",
+        connected: true,
+        connectionState: "connected",
+        inputSchema: { type: "object" },
+        execute() {
+          return { available: [{ amount: 4200 }] };
+        }
+      })
+    ]);
+
+    await assert.rejects(() => refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    }), /Refresh output did not match any configured data path mappings/);
+
+    const unchanged = storage.getLiveArtifact(artifact.id);
+    assert.deepEqual(unchanged.document?.dataJson, { balance: { amount: 0 } });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("html artifact refresh fails when any configured data path is missing", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const source = createConnectorSource("stripe_get_balance", { account: "acct_123" });
+    const artifact = storage.createLiveArtifact({
+      ...createHtmlArtifactPayload("Stripe balance", source),
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main>{{data.balance.amount}} {{data.balance.currency}}</main>",
+        dataJson: { balance: { amount: 0, currency: "usd" } },
+        sourceJson: {
+          ...source,
+          connector: {
+            connectorId: "stripe",
+            connectorName: "Stripe",
+            accountLabel: "acct_123",
+            providerToolId: "STRIPE_GET_BALANCE"
+          },
+          outputMapping: {
+            preferredKind: "json",
+            dataPaths: {
+              "balance.amount": "available.0.amount",
+              "balance.currency": "available.0.currency"
+            }
+          }
+        },
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+    const registry = createToolRegistry([
+      createConnectorDefinition("stripe_get_balance", {
+        connectorId: "stripe",
+        connectorName: "Stripe",
+        accountLabel: "acct_123",
+        providerToolId: "STRIPE_GET_BALANCE",
+        connected: true,
+        connectionState: "connected",
+        inputSchema: { type: "object" },
+        execute() {
+          return { available: [{ amount: 4200 }] };
+        }
+      })
+    ]);
+
+    await assert.rejects(() => refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    }), /Refresh output is missing configured data path mappings: balance\.currency/);
+
+    const unchanged = storage.getLiveArtifact(artifact.id);
+    assert.deepEqual(unchanged.document?.dataJson, { balance: { amount: 0, currency: "usd" } });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh tolerates stale connector provider tool metadata", async () => {
   const fixture = createStorageFixture();
 
   try {
@@ -300,7 +546,87 @@ test("live artifact refresh fails closed for stale connector metadata", async ()
         connectionState: "connected",
         execute() {
           executions += 1;
-          return { ok: true };
+          return { summary: "fresh issues" };
+        }
+      })
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 1);
+    assert.deepEqual(result.failures, []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh tolerates missing current connector account labels", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload("Connector report", createConnectorSource("github_missing_account_label", { query: "is:open" })));
+
+    let executions = 0;
+    const registry = createToolRegistry([
+      createConnectorDefinition("github_missing_account_label", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        accountLabel: null,
+        execute() {
+          executions += 1;
+          return { dataJson: { summary: "fresh issues" } };
+        }
+      })
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 1);
+    assert.deepEqual(result.failures, []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh blocks connector account label changes", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload("Connector report", {
+      ...createConnectorSource("github_changed_account_label", { query: "is:open" }),
+      connector: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        accountLabel: "old-octocat",
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+      }
+    }));
+
+    let executions = 0;
+    const registry = createToolRegistry([
+      createConnectorDefinition("github_changed_account_label", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        accountLabel: "new-octocat",
+        execute() {
+          executions += 1;
+          return { dataJson: { summary: "fresh issues" } };
         }
       })
     ]);
@@ -311,7 +637,7 @@ test("live artifact refresh fails closed for stale connector metadata", async ()
       toolRegistry: registry,
       sessionWorkspacePath: fixture.workspaceDir,
       logger: createLogger("test", { component: "live-artifact-refresh-test" })
-    }), /Connector refresh source provider tool ID is stale: github_stale/);
+    }), /Connector refresh source account is stale: github_changed_account_label/);
 
     assert.equal(executions, 0);
   } finally {
@@ -465,7 +791,7 @@ function createConnectorSource(toolName: string, input: Record<string, LiveArtif
       providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
     },
     refreshPermission: "manual_refresh_granted_for_read_only" as const,
-    outputMapping: { preferredKind: "json" as const }
+    outputMapping: { preferredKind: "json" as const, dataPaths: { summary: ["summary", "dataJson.summary"] } }
   };
 }
 
@@ -473,6 +799,8 @@ function createConnectorDefinition(
   name: string,
   options: {
     providerToolId: string;
+    connectorId?: string;
+    connectorName?: string;
     connected: boolean;
     connectionState: string;
     accountLabel?: string | null;
@@ -487,9 +815,9 @@ function createConnectorDefinition(
       description: "Connector test tool",
       requiresConfirmation: false,
       connector: {
-        connectorId: "github",
-        connectorName: "GitHub",
-        accountLabel: options.accountLabel ?? "octocat",
+        connectorId: options.connectorId ?? "github",
+        connectorName: options.connectorName ?? "GitHub",
+        accountLabel: options.accountLabel === undefined ? "octocat" : options.accountLabel,
         connectionState: options.connectionState,
         connected: options.connected,
         toolName: "Search issues and pull requests",

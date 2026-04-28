@@ -398,6 +398,12 @@ export type LiveArtifactResponse = {
                 refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                 outputMapping: {
                     preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
                 };
             } | null;
             refreshStatus: 'idle' | 'refreshing' | 'failed';
@@ -411,6 +417,9 @@ export type LiveArtifactResponse = {
         }>;
         document?: {
             format: 'html_template_v1';
+            /**
+             * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+             */
             sanitizedHtml: string;
             dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
                 [key: string]: unknown;
@@ -435,6 +444,12 @@ export type LiveArtifactResponse = {
                 refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                 outputMapping: {
                     preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
                 };
             } | null;
             sanitizerVersion?: string;
@@ -545,6 +560,12 @@ export type LiveArtifactRefreshResponse = {
                 refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                 outputMapping: {
                     preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
                 };
             } | null;
             refreshStatus: 'idle' | 'refreshing' | 'failed';
@@ -558,6 +579,9 @@ export type LiveArtifactRefreshResponse = {
         }>;
         document?: {
             format: 'html_template_v1';
+            /**
+             * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+             */
             sanitizedHtml: string;
             dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
                 [key: string]: unknown;
@@ -582,6 +606,12 @@ export type LiveArtifactRefreshResponse = {
                 refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                 outputMapping: {
                     preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
                 };
             } | null;
             sanitizerVersion?: string;
@@ -1571,10 +1601,13 @@ export type PostApiLiveArtifactsData = {
          */
         contentType?: 'html_page_v1';
         /**
-         * Required HTML page document. Put the page markup in sanitizedHtml and dynamic values in dataJson. Do not send tiles or renderJson.
+         * Required HTML page document. Put markup in sanitizedHtml and dynamic/refreshable values in dataJson. Bind data with {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat. Do not send tiles or renderJson.
          */
         document: {
             format: 'html_template_v1';
+            /**
+             * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+             */
             sanitizedHtml: string;
             dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
                 [key: string]: unknown;
@@ -1599,6 +1632,12 @@ export type PostApiLiveArtifactsData = {
                 refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                 outputMapping: {
                     preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
                 };
             } | null;
             sanitizerVersion?: string;
@@ -1751,6 +1790,12 @@ export type GetApiLiveArtifactsByArtifactIdResponses = {
                     refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                     outputMapping: {
                         preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
                     };
                 } | null;
                 refreshStatus: 'idle' | 'refreshing' | 'failed';
@@ -1764,6 +1809,9 @@ export type GetApiLiveArtifactsByArtifactIdResponses = {
             }>;
             document?: {
                 format: 'html_template_v1';
+                /**
+                 * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+                 */
                 sanitizedHtml: string;
                 dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
                     [key: string]: unknown;
@@ -1788,6 +1836,12 @@ export type GetApiLiveArtifactsByArtifactIdResponses = {
                     refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                     outputMapping: {
                         preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
                     };
                 } | null;
                 sanitizerVersion?: string;
@@ -1927,6 +1981,12 @@ export type PatchApiLiveArtifactsByArtifactIdResponses = {
                     refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                     outputMapping: {
                         preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
                     };
                 } | null;
                 refreshStatus: 'idle' | 'refreshing' | 'failed';
@@ -1940,6 +2000,9 @@ export type PatchApiLiveArtifactsByArtifactIdResponses = {
             }>;
             document?: {
                 format: 'html_template_v1';
+                /**
+                 * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+                 */
                 sanitizedHtml: string;
                 dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
                     [key: string]: unknown;
@@ -1964,6 +2027,12 @@ export type PatchApiLiveArtifactsByArtifactIdResponses = {
                     refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
                     outputMapping: {
                         preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
                     };
                 } | null;
                 sanitizerVersion?: string;

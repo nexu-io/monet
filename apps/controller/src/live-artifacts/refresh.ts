@@ -113,7 +113,7 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
             connectorExecutionMetadata = metadata;
           }
         });
-        const renderJson = mapToolOutputToRenderJson(output, source.outputMapping.preferredKind ?? tile.kind, tile.title);
+        const renderJson = mapToolOutputToRenderJson(output, getPreferredRenderKind(source.outputMapping.preferredKind, tile.kind), tile.title);
         const sanitized = sanitizeLiveArtifactRefreshRenderJson(renderJson, tile.renderJson);
 
         if (!sanitized.ok) {
@@ -245,9 +245,10 @@ async function refreshLiveArtifactDocument(options: RefreshLiveArtifactOptions, 
         connectorExecutionMetadata = metadata;
       }
     });
-    const dataJson = mapToolOutputToDocumentDataJson(output, artifact.document.dataJson);
+    const dataJson = mapToolOutputToDocumentDataJson(output, artifact.document.dataJson, getRefreshDataPaths(source.outputMapping.dataPaths), artifact.document.dataSchemaJson);
     const updatedDocument: LiveArtifactHtmlDocument = {
       ...artifact.document,
+      sanitizedHtml: refreshStaticRepositoryHtml(artifact.document.sanitizedHtml, dataJson),
       dataJson,
       sourceJson: source
     };
@@ -304,19 +305,11 @@ function validateRefreshSourceBeforeExecution(source: LiveArtifactTileSource, de
     throw new Error(`Connector refresh source is missing audit metadata: ${source.toolName}`);
   }
 
-  if (!storedConnector.providerToolId) {
-    throw new Error(`Connector refresh source is missing provider tool ID: ${source.toolName}`);
-  }
-
   if (storedConnector.connectorId !== currentConnector.connectorId) {
     throw new Error(`Connector refresh source connector has changed: ${source.toolName}`);
   }
 
-  if (storedConnector.providerToolId !== currentConnector.providerToolId) {
-    throw new Error(`Connector refresh source provider tool ID is stale: ${source.toolName}`);
-  }
-
-  if (!storedConnector.accountLabel || !currentConnector.accountLabel || storedConnector.accountLabel !== currentConnector.accountLabel) {
+  if (storedConnector.accountLabel && currentConnector.accountLabel && storedConnector.accountLabel !== currentConnector.accountLabel) {
     throw new Error(`Connector refresh source account is stale: ${source.toolName}`);
   }
 
@@ -332,6 +325,25 @@ function validateRefreshSourceBeforeExecution(source: LiveArtifactTileSource, de
   if (currentPolicy.sideEffect !== "read" || currentPolicy.approval === "always") {
     throw new Error(`Connector refresh source is not currently classified as read-only: ${source.toolName}`);
   }
+}
+
+function getPreferredRenderKind(value: unknown, fallback: LiveArtifactTileKind): LiveArtifactTileKind {
+  return value === "markdown" || value === "metric" || value === "list" || value === "table" || value === "link_card" || value === "json"
+    ? value
+    : fallback;
+}
+
+function getRefreshDataPaths(value: unknown): Record<string, string | string[]> | undefined {
+  if (!isPlainRecord(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value).filter((entry): entry is [string, string | string[]] => {
+    const [, sourcePath] = entry;
+    return typeof sourcePath === "string" || (Array.isArray(sourcePath) && sourcePath.every((path) => typeof path === "string"));
+  });
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function getConnectorToolApprovalPolicy(policy: unknown): {
@@ -511,16 +523,195 @@ function toJsonRenderJson(output: unknown): LiveArtifactRenderJson {
   return { kind: "json", value: parsed.success ? parsed.data : stringifyDisplayValue(output) };
 }
 
-function mapToolOutputToDocumentDataJson(output: unknown, previousDataJson?: LiveArtifactJsonValue): LiveArtifactJsonValue {
-  const candidate = output && typeof output === "object" && !Array.isArray(output) && "dataJson" in output
+function mapToolOutputToDocumentDataJson(
+  output: unknown,
+  previousDataJson?: LiveArtifactJsonValue,
+  dataPaths?: Record<string, string | string[]>,
+  dataSchemaJson?: LiveArtifactJsonValue | null
+): LiveArtifactJsonValue {
+  const candidate = dataPaths
+    ? output
+    : output && typeof output === "object" && !Array.isArray(output) && "dataJson" in output
     ? (output as { dataJson?: unknown }).dataJson
     : output;
+
+  const pathMapped = mapToolOutputByDataPaths(candidate, previousDataJson, dataPaths);
+  if (pathMapped !== null) {
+    return pathMapped;
+  }
+
+  const legacySchemaMapped = mapLegacySingleRepositoryOutputToDocumentSchema(candidate, dataSchemaJson);
+  if (legacySchemaMapped !== null) {
+    return legacySchemaMapped;
+  }
+
   const remapped = mapToolOutputToPreviousDocumentShape(candidate, previousDataJson);
   if (remapped !== null) {
     return remapped;
   }
   const normalized = normalizeJsonValue(candidate);
   return LiveArtifactJsonValueSchema.parse(normalized);
+}
+
+function mapToolOutputByDataPaths(
+  output: unknown,
+  previousDataJson: LiveArtifactJsonValue | undefined,
+  dataPaths: Record<string, string | string[]> | undefined
+): LiveArtifactJsonValue | null {
+  if (!dataPaths || Object.keys(dataPaths).length === 0) {
+    return null;
+  }
+
+  const mapped = isPlainRecord(previousDataJson) ? deepCloneJsonRecord(previousDataJson) : {};
+  const missingDestinationPaths: string[] = [];
+  let changed = false;
+
+  for (const [destinationPath, sourcePathOrPaths] of Object.entries(dataPaths)) {
+    const sourcePaths = Array.isArray(sourcePathOrPaths) ? sourcePathOrPaths : [sourcePathOrPaths];
+    const value = readFirstMappedValue(output, sourcePaths);
+
+    if (value === undefined) {
+      missingDestinationPaths.push(destinationPath);
+      continue;
+    }
+
+    setMappedValue(mapped, destinationPath, normalizeJsonValue(value));
+    changed = true;
+  }
+
+  if (!changed) {
+    throw new Error("Refresh output did not match any configured data path mappings.");
+  }
+
+  if (missingDestinationPaths.length > 0) {
+    throw new Error(`Refresh output is missing configured data path mappings: ${missingDestinationPaths.join(", ")}`);
+  }
+
+  return LiveArtifactJsonValueSchema.parse(mapped);
+}
+
+function deepCloneJsonRecord(value: Record<string, unknown>): Record<string, LiveArtifactJsonValue> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, LiveArtifactJsonValue>;
+}
+
+function readFirstMappedValue(output: unknown, sourcePaths: string[]): unknown {
+  for (const sourcePath of sourcePaths) {
+    const value = readMappedValue(output, sourcePath);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function readMappedValue(value: unknown, path: string): unknown {
+  if (path === "$") {
+    return value;
+  }
+
+  const segments = path.startsWith("$.") ? path.slice(2).split(".") : path.split(".");
+
+  return segments.reduce<unknown>((current, segment) => {
+    if (current === null || current === undefined) {
+      return undefined;
+    }
+
+    if (Array.isArray(current)) {
+      return /^\d+$/.test(segment) ? current[Number(segment)] : undefined;
+    }
+
+    if (typeof current === "object" && Object.prototype.hasOwnProperty.call(current, segment)) {
+      return (current as Record<string, unknown>)[segment];
+    }
+
+    return undefined;
+  }, value);
+}
+
+function setMappedValue(target: Record<string, LiveArtifactJsonValue>, path: string, value: LiveArtifactJsonValue): void {
+  const segments = path.split(".");
+  const last = segments.pop();
+
+  if (!last) {
+    return;
+  }
+
+  let current: Record<string, LiveArtifactJsonValue> = target;
+  for (const segment of segments) {
+    const next = current[segment];
+    if (!isPlainRecord(next)) {
+      current[segment] = {};
+    }
+    current = current[segment] as Record<string, LiveArtifactJsonValue>;
+  }
+
+  current[last] = value;
+}
+
+function mapLegacySingleRepositoryOutputToDocumentSchema(output: unknown, dataSchemaJson: LiveArtifactJsonValue | null | undefined): LiveArtifactJsonValue | null {
+  if (!isPlainRecord(output) || !isPlainRecord(dataSchemaJson) || !("stars" in dataSchemaJson)) {
+    return null;
+  }
+
+  const stars = readRepositoryStarCount(output);
+  if (stars === undefined) {
+    return null;
+  }
+
+  const fullName = typeof output.full_name === "string" ? output.full_name : "";
+  const [fallbackOwner, fallbackRepo] = fullName.split("/");
+  const owner = isPlainRecord(output.owner) ? output.owner : isPlainRecord(output.organization) ? output.organization : {};
+
+  return LiveArtifactJsonValueSchema.parse({
+    owner: stringFrom(owner.login, fallbackOwner, "unknown"),
+    repo: stringFrom(output.name, fallbackRepo, "Repository"),
+    stars
+  });
+}
+
+function refreshStaticRepositoryHtml(html: string, dataJson: LiveArtifactJsonValue): string {
+  if (!isPlainRecord(dataJson) || hasLiveArtifactBindingMarker(html)) {
+    return html;
+  }
+
+  let updatedHtml = html;
+  const stars = typeof dataJson.stars === "number" || typeof dataJson.stars === "string" ? String(dataJson.stars) : null;
+  const owner = typeof dataJson.owner === "string" ? dataJson.owner : null;
+  const repo = typeof dataJson.repo === "string" ? dataJson.repo : null;
+
+  if (stars) {
+    updatedHtml = replaceElementTextByClass(updatedHtml, "stars", stars);
+  }
+
+  if (owner && repo) {
+    updatedHtml = replaceElementTextByClass(updatedHtml, "repo", `${owner}/${repo}`);
+  }
+
+  return updatedHtml;
+}
+
+function hasLiveArtifactBindingMarker(html: string): boolean {
+  return /\{\{\s*data\./.test(html) || /\bdata-(?:bind|bind-attr|bind-style|repeat)\b/.test(html);
+}
+
+function replaceElementTextByClass(html: string, className: string, value: string): string {
+  const escapedClassName = escapeRegExp(className);
+  const pattern = new RegExp(`(<([a-z][a-z0-9-]*)\\b(?=[^>]*\\bclass=(['\"])[^'\"]*\\b${escapedClassName}\\b[^'\"]*\\3)[^>]*>)([^<]*)(<\\/\\2>)`, "i");
+  return html.replace(pattern, (_match, open: string, _tag: string, _quote: string, _text: string, close: string) => `${open}${escapeHtmlText(value)}${close}`);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function mapToolOutputToPreviousDocumentShape(output: unknown, previousDataJson: LiveArtifactJsonValue | undefined): LiveArtifactJsonValue | null {
@@ -544,11 +735,7 @@ function mapToolOutputToPreviousDocumentShape(output: unknown, previousDataJson:
     const previous = previousRepos[index] ?? {};
     const fullName = typeof item.full_name === "string" ? item.full_name : "";
     const [fallbackOwner, fallbackName] = fullName.split("/");
-    const stars = typeof item.stargazers_count === "number"
-      ? item.stargazers_count
-      : typeof item.watchers_count === "number"
-        ? item.watchers_count
-        : undefined;
+    const stars = readRepositoryStarCount(item);
     const forks = typeof item.forks_count === "number"
       ? item.forks_count
       : typeof item.forks === "number"
@@ -576,6 +763,18 @@ function mapToolOutputToPreviousDocumentShape(output: unknown, previousDataJson:
     ...previousDataJson,
     repos
   });
+}
+
+function readRepositoryStarCount(item: Record<string, unknown>): number | undefined {
+  return typeof item.stargazers_count === "number"
+    ? item.stargazers_count
+    : typeof item.watchers_count === "number"
+      ? item.watchers_count
+      : typeof item.watchers === "number"
+        ? item.watchers
+        : typeof item.stars === "number"
+          ? item.stars
+          : undefined;
 }
 
 function extractArrayByKey(value: unknown, key: string): unknown[] | null {

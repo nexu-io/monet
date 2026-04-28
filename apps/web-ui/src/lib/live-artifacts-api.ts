@@ -41,6 +41,7 @@ export type LiveArtifactUpdateInput = UpdateLiveArtifactRequest;
 
 export interface ListLiveArtifactsInput {
   readonly includeArchived?: boolean;
+  readonly includeSourceStates?: boolean;
   readonly sessionId?: string;
   readonly limit?: number;
   readonly offset?: number;
@@ -86,6 +87,10 @@ function appendQuery(path: string, input?: ListLiveArtifactsInput) {
 
   if (input.includeArchived !== undefined) {
     params.set("includeArchived", input.includeArchived ? "true" : "false");
+  }
+
+  if (input.includeSourceStates !== undefined) {
+    params.set("includeSourceStates", input.includeSourceStates ? "true" : "false");
   }
 
   if (input.sessionId) {

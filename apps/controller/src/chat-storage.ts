@@ -1200,17 +1200,24 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       const parsed = LiveArtifactCreateInputSchema.parse(artifactInput);
       const artifactId = createPrefixedId("art");
       const now = new Date().toISOString();
-      const sourceJson = parsed.document.sourceJson
-        ?? inferRefreshSourceFromRecentConnectorToolCall(connection, {
+      const inferredSourceJson = parsed.document.sourceJson
+        ? null
+        : inferRefreshSourceFromRecentConnectorToolCall(connection, {
           runId: createdByRunId ?? null,
           beforeToolCallId: createdByToolCallId ?? null
         });
+      const sourceJson = parsed.document.sourceJson ?? inferredSourceJson;
       const document = sourceJson ? { ...parsed.document, sourceJson } : parsed.document;
+      const shouldUseInferredSource = !parsed.document.sourceJson && sourceJson
+        ? LiveArtifactCreateInputSchema.safeParse({ ...parsed, document }).success
+        : true;
+      const validatedDocument = shouldUseInferredSource ? document : parsed.document;
+      const reparsed = LiveArtifactCreateInputSchema.parse({ ...parsed, document: validatedDocument });
 
       connection.exec("BEGIN IMMEDIATE");
 
       try {
-        const slug = createUniqueLiveArtifactSlug(connection, parsed.title, artifactId);
+        const slug = createUniqueLiveArtifactSlug(connection, reparsed.title, artifactId);
         const currentRevisionId = createPrefixedId("rev");
 
         connection
@@ -1225,19 +1232,19 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
           .run(
             artifactId,
             LIVE_ARTIFACT_SCHEMA_VERSION,
-            parsed.sessionId ?? null,
+            reparsed.sessionId ?? null,
             createdByRunId?.trim() || null,
             createdByToolCallId?.trim() || null,
-            parsed.title,
+            reparsed.title,
             slug,
-            parsed.description ?? null,
-            parsed.contentType,
+            reparsed.description ?? null,
+            reparsed.contentType,
             currentRevisionId,
             now,
             now
           );
 
-        insertLiveArtifactDocument(connection, artifactId, currentRevisionId, document, now);
+        insertLiveArtifactDocument(connection, artifactId, currentRevisionId, reparsed.document, now);
 
         connection.exec("COMMIT");
       } catch (error) {
@@ -1497,7 +1504,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
 
         for (const failedTile of input.failedTiles ?? []) {
           const result = failTile.run(
-            truncateLiveArtifactError(failedTile.errorMessage),
+            null,
             now,
             failedTile.tileId,
             input.artifactId
@@ -1513,9 +1520,6 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         }
 
         const failedCount = input.failedTiles?.length ?? 0;
-        const lastRefreshError = failedCount > 0
-          ? truncateLiveArtifactError(`${failedCount} tile${failedCount === 1 ? "" : "s"} failed to refresh.`)
-          : null;
         connection
           .prepare(
             `UPDATE live_artifacts
@@ -1523,7 +1527,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
                   last_refresh_error = ?, updated_at = ?
               WHERE id = ?`
           )
-          .run(failedCount > 0 ? "failed" : "idle", now, lastRefreshError, now, input.artifactId);
+          .run(failedCount > 0 ? "failed" : "idle", now, null, now, input.artifactId);
 
         const artifact = getLiveArtifactOrThrow(connection, input.artifactId);
         connection.exec("COMMIT");
@@ -1836,7 +1840,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
                last_refresh_error = ?, updated_at = ?
            WHERE id = ?`
         )
-        .run(status === "completed" ? "idle" : "failed", status, endedAt, truncatedError, endedAt, refresh.artifact_id);
+        .run(status === "completed" ? "idle" : "failed", status, endedAt, null, endedAt, refresh.artifact_id);
 
       connection
         .prepare(
@@ -1846,7 +1850,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
                last_error = ?, updated_at = ?
            WHERE artifact_id = ? AND refresh_status = 'refreshing'`
         )
-        .run(status === "completed" ? "idle" : "failed", status, endedAt, truncatedError, endedAt, refresh.artifact_id);
+        .run(status === "completed" ? "idle" : "failed", status, endedAt, null, endedAt, refresh.artifact_id);
     },
 
     listProviders() {
@@ -3003,20 +3007,31 @@ function getLiveArtifactDocument(connection: DatabaseSync, artifact: LiveArtifac
     return null;
   }
 
-  const sourceJson = row.source_json === null
+  const inferredSourceJson = row.source_json === null
     ? inferRefreshSourceFromRecentConnectorToolCall(connection, {
       runId: artifact.created_by_run_id,
       beforeToolCallId: artifact.created_by_tool_call_id
     })
     : (JSON.parse(row.source_json) as unknown);
-
-  return LiveArtifactHtmlDocumentSchema.parse({
+  const baseDocument = {
     format: row.format,
     sanitizedHtml: row.sanitized_html,
     dataJson: JSON.parse(row.data_json) as unknown,
     dataSchemaJson: row.data_schema_json === null ? null : (JSON.parse(row.data_schema_json) as unknown),
-    sourceJson,
     sanitizerVersion: row.sanitizer_version
+  };
+  const sourceJson = row.source_json === null && inferredSourceJson
+    ? LiveArtifactCreateInputSchema.safeParse({
+      title: artifact.title,
+      description: artifact.description,
+      contentType: artifact.content_type,
+      document: { ...baseDocument, sourceJson: inferredSourceJson }
+    }).success ? inferredSourceJson : null
+    : inferredSourceJson;
+
+  return LiveArtifactHtmlDocumentSchema.parse({
+    ...baseDocument,
+    sourceJson,
   });
 }
 
@@ -3270,7 +3285,7 @@ function mapLiveArtifactRow(row: LiveArtifactRow): LiveArtifact {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastRefreshedAt: row.last_refreshed_at,
-    lastRefreshError: row.last_refresh_error
+    lastRefreshError: null
   });
 }
 

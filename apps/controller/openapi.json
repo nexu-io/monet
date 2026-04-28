@@ -2023,6 +2023,31 @@
                                     "link_card",
                                     "json"
                                   ]
+                                },
+                                "dataPaths": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 300,
+                                        "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                      },
+                                      {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 5
+                                      }
+                                    ]
+                                  },
+                                  "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                                 }
                               }
                             }
@@ -2116,7 +2141,8 @@
                     ]
                   },
                   "sanitizedHtml": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values."
                   },
                   "dataJson": {
                     "allOf": [
@@ -2250,6 +2276,31 @@
                               "link_card",
                               "json"
                             ]
+                          },
+                          "dataPaths": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                },
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 300,
+                                    "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                  },
+                                  "minItems": 1,
+                                  "maxItems": 5
+                                }
+                              ]
+                            },
+                            "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                           }
                         }
                       }
@@ -2912,6 +2963,31 @@
                                     "link_card",
                                     "json"
                                   ]
+                                },
+                                "dataPaths": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 300,
+                                        "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                      },
+                                      {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 300,
+                                          "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                        },
+                                        "minItems": 1,
+                                        "maxItems": 5
+                                      }
+                                    ]
+                                  },
+                                  "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                                 }
                               }
                             }
@@ -3005,7 +3081,8 @@
                     ]
                   },
                   "sanitizedHtml": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values."
                   },
                   "dataJson": {
                     "allOf": [
@@ -3139,6 +3216,31 @@
                               "link_card",
                               "json"
                             ]
+                          },
+                          "dataPaths": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 300,
+                                  "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                },
+                                {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 300,
+                                    "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                  },
+                                  "minItems": 1,
+                                  "maxItems": 5
+                                }
+                              ]
+                            },
+                            "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                           }
                         }
                       }
@@ -5075,7 +5177,8 @@
                         ]
                       },
                       "sanitizedHtml": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values."
                       },
                       "dataJson": {
                         "allOf": [
@@ -5209,6 +5312,31 @@
                                   "link_card",
                                   "json"
                                 ]
+                              },
+                              "dataPaths": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 300,
+                                      "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                    },
+                                    {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 300,
+                                        "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                      },
+                                      "minItems": 1,
+                                      "maxItems": 5
+                                    }
+                                  ]
+                                },
+                                "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                               }
                             }
                           }
@@ -5233,7 +5361,7 @@
                       "sanitizedHtml"
                     ],
                     "additionalProperties": false,
-                    "description": "Required HTML page document. Put the page markup in sanitizedHtml and dynamic values in dataJson. Do not send tiles or renderJson."
+                    "description": "Required HTML page document. Put markup in sanitizedHtml and dynamic/refreshable values in dataJson. Bind data with {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat. Do not send tiles or renderJson."
                   }
                 },
                 "required": [
@@ -5881,6 +6009,31 @@
                                                   "link_card",
                                                   "json"
                                                 ]
+                                              },
+                                              "dataPaths": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "minLength": 1,
+                                                      "maxLength": 300,
+                                                      "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                                    },
+                                                    {
+                                                      "type": "array",
+                                                      "items": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 300,
+                                                        "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                                      },
+                                                      "minItems": 1,
+                                                      "maxItems": 5
+                                                    }
+                                                  ]
+                                                },
+                                                "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                                               }
                                             }
                                           }
@@ -5974,7 +6127,8 @@
                                   ]
                                 },
                                 "sanitizedHtml": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "description": "HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values."
                                 },
                                 "dataJson": {
                                   "allOf": [
@@ -6108,6 +6262,31 @@
                                             "link_card",
                                             "json"
                                           ]
+                                        },
+                                        "dataPaths": {
+                                          "type": "object",
+                                          "additionalProperties": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 300,
+                                                "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                              },
+                                              {
+                                                "type": "array",
+                                                "items": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 300,
+                                                  "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                                },
+                                                "minItems": 1,
+                                                "maxItems": 5
+                                              }
+                                            ]
+                                          },
+                                          "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                                         }
                                       }
                                     }
@@ -6801,6 +6980,31 @@
                                                   "link_card",
                                                   "json"
                                                 ]
+                                              },
+                                              "dataPaths": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "minLength": 1,
+                                                      "maxLength": 300,
+                                                      "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                                    },
+                                                    {
+                                                      "type": "array",
+                                                      "items": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 300,
+                                                        "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                                      },
+                                                      "minItems": 1,
+                                                      "maxItems": 5
+                                                    }
+                                                  ]
+                                                },
+                                                "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                                               }
                                             }
                                           }
@@ -6894,7 +7098,8 @@
                                   ]
                                 },
                                 "sanitizedHtml": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "description": "HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values."
                                 },
                                 "dataJson": {
                                   "allOf": [
@@ -7028,6 +7233,31 @@
                                             "link_card",
                                             "json"
                                           ]
+                                        },
+                                        "dataPaths": {
+                                          "type": "object",
+                                          "additionalProperties": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 300,
+                                                "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                              },
+                                              {
+                                                "type": "array",
+                                                "items": {
+                                                  "type": "string",
+                                                  "minLength": 1,
+                                                  "maxLength": 300,
+                                                  "pattern": "^(?:\\$|[A-Za-z0-9_$-]+)(?:\\.(?:[A-Za-z0-9_$-]+|\\d+))*$"
+                                                },
+                                                "minItems": 1,
+                                                "maxItems": 5
+                                              }
+                                            ]
+                                          },
+                                          "description": "Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks."
                                         }
                                       }
                                     }

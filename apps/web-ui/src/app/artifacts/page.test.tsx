@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ArtifactsPage from "./page";
 import { LIVE_ARTIFACT_DISCOVERY_PROMPT, PENDING_CHAT_PROMPT_STORAGE_KEY } from "../../lib/chat-prompt-seed";
-import type { LiveArtifactSourceState, LiveArtifactSummary } from "../../lib/live-artifacts-api";
+import type { LiveArtifactSummary } from "../../lib/live-artifacts-api";
 
 const listLiveArtifactsMock = vi.fn();
 const createSessionMock = vi.fn();
@@ -53,18 +53,6 @@ function summary(overrides: Partial<LiveArtifactSummary> & Pick<LiveArtifactSumm
   } as LiveArtifactSummary;
 }
 
-function sourceState(overrides: Pick<LiveArtifactSourceState, "tileId" | "tileTitle" | "state" | "message"> & Partial<LiveArtifactSourceState>): LiveArtifactSourceState {
-  return {
-    sourceType: "connector_tool",
-    toolName: "List records",
-    connectorId: "github",
-    connectorName: "GitHub",
-    accountLabel: "octocat@example.com",
-    providerToolId: "GITHUB_LIST_RECORDS",
-    ...overrides
-  };
-}
-
 function renderPage() {
   render(
     <MemoryRouter initialEntries={["/artifacts"]}>
@@ -92,10 +80,10 @@ describe("ArtifactsPage", () => {
     expect(await screen.findByRole("heading", { name: "No live artifacts yet." })).toBeInTheDocument();
     expect(screen.getByText(/Connector setup lives on the Connectors page/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Browse connectors" })[0]).toHaveAttribute("href", "/connectors");
-    expect(listLiveArtifactsMock).toHaveBeenCalledWith({ includeArchived: false });
+    expect(listLiveArtifactsMock).toHaveBeenCalledWith({ includeArchived: false, includeSourceStates: false });
   });
 
-  it("renders populated artifacts pinned first with connector states", async () => {
+  it("renders populated artifacts pinned first without connector state warnings", async () => {
     listLiveArtifactsMock.mockResolvedValue({
       artifacts: [
         summary({ id: "regular", title: "Regular report", updatedAt: "2026-04-27T10:00:00.000Z" }),
@@ -104,13 +92,9 @@ describe("ArtifactsPage", () => {
           title: "Pinned daily brief",
           description: "Morning source summary",
           pinned: true,
-          updatedAt: "2026-04-26T10:00:00.000Z",
-          sourceStates: [
-            sourceState({ tileId: "tile-1", tileTitle: "Inbox", state: "disconnected", message: "Reconnect Gmail." }),
-            sourceState({ tileId: "tile-2", tileTitle: "Calendar", state: "expired", message: "Calendar authorization expired." })
-          ]
+          updatedAt: "2026-04-26T10:00:00.000Z"
         }),
-        summary({ id: "stale", title: "Stale source report", sourceStates: [sourceState({ tileId: "tile-3", tileTitle: "Issues", state: "stale_provider_tool", message: "Tool changed." })] })
+        summary({ id: "stale", title: "Stale source report" })
       ]
     });
 
@@ -121,10 +105,10 @@ describe("ArtifactsPage", () => {
     expect(headings).toEqual(["Pinned daily brief", "Regular report", "Stale source report"]);
     expect(screen.getByText("Pinned")).toBeInTheDocument();
     expect(screen.getByText("Morning source summary")).toBeInTheDocument();
-    expect(screen.getByText("Disconnected")).toBeInTheDocument();
-    expect(screen.getByText("Expired")).toBeInTheDocument();
-    expect(screen.getByText("Stale tool")).toBeInTheDocument();
-    expect(screen.getByText(/Reconnect Gmail/i)).toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Expired")).not.toBeInTheDocument();
+    expect(screen.queryByText("Missing connector")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stale tool")).not.toBeInTheDocument();
   });
 
   it("seeds the new artifact discovery prompt before starting chat", async () => {

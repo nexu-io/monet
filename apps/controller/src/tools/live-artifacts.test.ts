@@ -100,7 +100,7 @@ const connectorTileSource = {
     providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
   },
   refreshPermission: "manual_refresh_granted_for_read_only",
-  outputMapping: { preferredKind: "table" }
+  outputMapping: { preferredKind: "table", dataPaths: { issues: "items" } }
 } as const;
 
 test("create_live_artifact auto-executes without confirmation", () => {
@@ -109,6 +109,12 @@ test("create_live_artifact auto-executes without confirmation", () => {
 
   assert.ok(createTool);
   assert.equal(createTool.metadata.requiresConfirmation, false);
+  assert.match(createTool.metadata.description, /document\.dataJson/);
+  assert.match(createTool.metadata.description, /data-bind=\"text:data\.foo\"/);
+  assert.match(createTool.metadata.description, /data-bind-attr=\"href:data\.url\"/);
+  assert.match(createTool.metadata.description, /data-bind-style=\"color:data\.color\"/);
+  assert.match(createTool.metadata.description, /data-repeat=\"data\.items\"/);
+  assert.match(createTool.metadata.description, /Do not hardcode refreshable values/);
 });
 
 test("update_live_artifact stays low-friction for title or description edits", () => {
@@ -205,6 +211,90 @@ test("artifact tool schemas validate HTML documents", () => {
   }) as { document: { sanitizedHtml: string } };
 
   assert.match(permissiveHtmlArtifact.document.sanitizedHtml, /onclick='alert\(1\)'/);
+
+  const canonicalizedHtmlArtifact = (createTool.inputSchema as ParsableSchema).parse({
+    title: "Canonicalized HTML page",
+    contentType: "html_page_v1",
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<main><strong data-bind=\"data.stars\"></strong><span data-bind=\"text:data.repo;data.owner\"></span><a data-bind-attr=\"href:data.url\"></a></main>",
+      dataJson: { stars: 166, repo: "open-design", owner: "nexu-io", url: "https://example.com" }
+    }
+  }) as { document: { sanitizedHtml: string } };
+
+  assert.equal(
+    canonicalizedHtmlArtifact.document.sanitizedHtml,
+    '<main><strong data-bind="text:data.stars"></strong><span data-bind="text:data.repo;text:data.owner"></span><a data-bind-attr="href:data.url"></a></main>'
+  );
+
+  assert.throws(
+    () => (createTool.inputSchema as ParsableSchema).parse({
+      title: "Static refreshable page",
+      contentType: "html_page_v1",
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><strong>166</strong></main>",
+        dataJson: { stars: 166 },
+        sourceJson: {
+          ...connectorTileSource,
+          input: { owner: "nexu-io", repo: "open-design" },
+          outputMapping: { preferredKind: "json", dataPaths: { stars: "stargazers_count" } }
+        }
+      }
+    }),
+    /Refreshable live artifacts must bind dataJson into sanitizedHtml/
+  );
+
+  assert.throws(
+    () => (createTool.inputSchema as ParsableSchema).parse({
+      title: "Script refreshable page",
+      contentType: "html_page_v1",
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main>{{data.stars}}</main><script>document.body.textContent = window.__DATA__.stars</script>",
+        dataJson: { stars: 166 },
+        sourceJson: {
+          ...connectorTileSource,
+          input: { owner: "nexu-io", repo: "open-design" },
+          outputMapping: { preferredKind: "json", dataPaths: { stars: "stargazers_count" } }
+        }
+      }
+    }),
+    /must not use script-based data injection/
+  );
+
+  assert.throws(
+    () => (createTool.inputSchema as ParsableSchema).parse({
+      title: "Empty data refreshable page",
+      contentType: "html_page_v1",
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main>{{data.stars}}</main>",
+        dataJson: {},
+        sourceJson: {
+          ...connectorTileSource,
+          input: { owner: "nexu-io", repo: "open-design" },
+          outputMapping: { preferredKind: "json" }
+        }
+      }
+    }),
+    /Refreshable live artifacts must put changing tool or connector values in a non-empty dataJson object/
+  );
+
+  assert.doesNotThrow(() => (createTool.inputSchema as ParsableSchema).parse({
+    title: "Bound refreshable page",
+    contentType: "html_page_v1",
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<main><strong data-bind=\"text:stars\"></strong></main>",
+      dataJson: { stars: 166 },
+      sourceJson: {
+        ...connectorTileSource,
+        input: { owner: "nexu-io", repo: "open-design" },
+        outputMapping: { preferredKind: "json", dataPaths: { stars: "stargazers_count" } }
+      }
+    }
+  }));
 });
 
 test("artifact tools sanitize document source input before persistence", () => {
@@ -234,8 +324,8 @@ test("artifact tools sanitize document source input before persistence", () => {
     title: "Open issues",
     document: {
       format: "html_template_v1",
-      sanitizedHtml: "<main>Issues</main>",
-      dataJson: {},
+      sanitizedHtml: "<main data-repeat=\"issues\" data-as=\"issue\"><span data-bind=\"text:issue.title\"></span></main>",
+      dataJson: { issues: [] },
       sourceJson: {
         ...connectorTileSource,
         input: {
@@ -243,6 +333,42 @@ test("artifact tools sanitize document source input before persistence", () => {
           filters: { since: "2026-04-01", status: "open" },
           limit: 10
         }
+      }
+    }
+  }, toolExecutionContext);
+});
+
+test("artifact tools canonicalize bare data-bind statements before persistence", () => {
+  const tools = Object.fromEntries(
+    createLiveArtifactToolDefinitions({
+      chatStorage: {
+        createLiveArtifact(input: { readonly document?: { readonly sanitizedHtml?: string } }) {
+          assert.equal(
+            input.document?.sanitizedHtml,
+            '<main><strong data-bind="text:data.stars"></strong><span data-bind="text:data.repo;text:data.owner"></span><a data-bind-attr="href:data.url"></a><div data-bind-style="color:data.color"></div></main>'
+          );
+          return sampleArtifact;
+        }
+      } as never,
+      runId: "run_test",
+      sessionId: "ses_test"
+    }).map((definition) => [definition.metadata.name, definition])
+  );
+  const createTool = tools.create_live_artifact;
+  assert.ok(createTool);
+
+  createTool.execute({
+    title: "Repo stats",
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml:
+        '<main><strong data-bind="data.stars"></strong><span data-bind="text:data.repo;data.owner"></span><a data-bind-attr="href:data.url"></a><div data-bind-style="color:data.color"></div></main>',
+      dataJson: {
+        stars: 166,
+        repo: "open-design",
+        owner: "nexu-io",
+        url: "https://example.com",
+        color: "green"
       }
     }
   }, toolExecutionContext);

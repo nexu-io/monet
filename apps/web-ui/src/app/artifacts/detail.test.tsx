@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ArtifactDetailPage from "./detail";
-import type { LiveArtifact, LiveArtifactSourceState, LiveArtifactTile } from "../../lib/live-artifacts-api";
+import type { LiveArtifact, LiveArtifactTile } from "../../lib/live-artifacts-api";
 
 const getLiveArtifactMock = vi.fn();
 const pinLiveArtifactMock = vi.fn();
@@ -60,18 +60,6 @@ function tile(overrides: Partial<LiveArtifactTile> & Pick<LiveArtifactTile, "id"
     updatedAt: "2026-04-25T10:00:00.000Z",
     ...rest
   } as LiveArtifactTile;
-}
-
-function sourceState(overrides: Pick<LiveArtifactSourceState, "tileId" | "tileTitle" | "state" | "message"> & Partial<LiveArtifactSourceState>): LiveArtifactSourceState {
-  return {
-    sourceType: "connector_tool",
-    toolName: "List records",
-    connectorId: "github",
-    connectorName: "GitHub",
-    accountLabel: "octocat@example.com",
-    providerToolId: "GITHUB_LIST_RECORDS",
-    ...overrides
-  };
 }
 
 function htmlDocument(sanitizedHtml = "<h1>Daily operations brief</h1>"): NonNullable<LiveArtifact["document"]> {
@@ -166,25 +154,32 @@ describe("ArtifactDetailPage", () => {
     expect(screen.getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/sessions/session-1");
   });
 
-  it("renders disconnected, expired, missing connector, and stale provider source states", async () => {
+  it("does not render connector source-state warnings", async () => {
     getLiveArtifactMock.mockResolvedValue({
       artifact: artifact({
         sourceStates: [
-          sourceState({ tileId: "a", tileTitle: "Mail", state: "disconnected", message: "Reconnect mail." }),
-          sourceState({ tileId: "b", tileTitle: "Calendar", state: "expired", message: "OAuth expired." }),
-          sourceState({ tileId: "c", tileTitle: "Docs", state: "missing_connector", message: "Connector missing." }),
-          sourceState({ tileId: "d", tileTitle: "Issues", state: "stale_provider_tool", message: "Tool ID changed." })
+          {
+            sourceType: "connector_tool",
+            toolName: "List records",
+            connectorId: "github",
+            connectorName: "GitHub",
+            accountLabel: "octocat@example.com",
+            providerToolId: "GITHUB_LIST_RECORDS",
+            tileId: "a",
+            tileTitle: "Mail",
+            state: "disconnected",
+            message: "Reconnect mail."
+          }
         ]
       })
     });
 
     renderDetail();
 
-    expect(await screen.findByText("4 connector sources need attention.")).toBeInTheDocument();
-    expect(screen.getByText((_content, element) => element?.textContent === "Mail: Disconnected — Reconnect mail.")).toBeInTheDocument();
-    expect(screen.getByText((_content, element) => element?.textContent === "Calendar: Expired — OAuth expired.")).toBeInTheDocument();
-    expect(screen.getByText((_content, element) => element?.textContent === "Docs: Missing connector — Connector missing.")).toBeInTheDocument();
-    expect(screen.getByText((_content, element) => element?.textContent === "Issues: Stale provider tool — Tool ID changed.")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Daily operations brief", level: 1 });
+    expect(screen.queryByText(/connector sources need attention/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reconnect mail\./i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
   });
 
   it("shows refresh loading and partial failure errors", async () => {

@@ -8,8 +8,7 @@ import { useSessions } from "../../components/session-provider";
 import {
   getLiveArtifact,
   refreshLiveArtifact,
-  type LiveArtifact,
-  type LiveArtifactSourceState
+  type LiveArtifact
 } from "../../lib/live-artifacts-api";
 
 type ArtifactLoadState =
@@ -24,61 +23,6 @@ const titleClassName = "m-0 font-heading text-xl font-semibold tracking-[-0.01em
 const descriptionClassName = "m-0 max-w-[68ch] leading-[1.6] text-text-muted";
 const primaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
 const secondaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-border-subtle bg-surface-0 px-3.5 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
-
-function getSourceStateLabel(state: LiveArtifactSourceState["state"]) {
-  switch (state) {
-    case "disconnected":
-      return "Disconnected";
-    case "expired":
-      return "Expired";
-    case "missing_connector":
-      return "Missing connector";
-    case "stale_provider_tool":
-      return "Stale provider tool";
-    case "ok":
-      return "Connected";
-  }
-}
-
-function getActionableSourceStates(sourceStates: readonly LiveArtifactSourceState[] | undefined) {
-  return (sourceStates ?? []).filter((sourceState) => sourceState.state !== "ok");
-}
-
-function SourceStateBadge({ sourceState }: { readonly sourceState: LiveArtifactSourceState }) {
-  const isOk = sourceState.state === "ok";
-
-  return (
-    <span
-      className={isOk
-        ? "inline-flex items-center gap-1.5 rounded-md border border-success/20 bg-success-subtle px-2 py-1 text-xs font-medium text-success"
-        : "inline-flex items-center gap-1.5 rounded-md border border-warning/20 bg-warning-subtle px-2 py-1 text-xs font-medium text-warning"}
-      title={sourceState.message}
-    >
-      {getSourceStateLabel(sourceState.state)}
-    </span>
-  );
-}
-
-function SourceStateNotice({ sourceStates }: { readonly sourceStates: readonly LiveArtifactSourceState[] | undefined }) {
-  const actionableStates = getActionableSourceStates(sourceStates);
-
-  if (actionableStates.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="rounded-lg border border-warning/20 bg-warning-subtle px-4 py-3 text-sm text-warning">
-      <p className="m-0 font-semibold">{actionableStates.length} connector source{actionableStates.length === 1 ? "" : "s"} need attention.</p>
-      <ul className="m-0 mt-2 list-disc space-y-1 pl-5">
-        {actionableStates.map((sourceState) => (
-          <li key={`${sourceState.tileId}-${sourceState.state}`}>
-            <span className="font-medium">{sourceState.tileTitle}:</span> {getSourceStateLabel(sourceState.state)} — {sourceState.message}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 export default function ArtifactDetailPage() {
   const { artifactId } = useParams<{ artifactId: string }>();
@@ -248,7 +192,6 @@ export default function ArtifactDetailPage() {
           This HTML artifact is static. Refresh becomes available when the artifact document includes a granted read-only data source.
         </div>
       )}
-      <SourceStateNotice sourceStates={artifact.sourceStates} />
       {artifact.lastRefreshError && !refreshError && (
         <div className="rounded-lg border border-warning/20 bg-warning-subtle px-4 py-3 text-sm text-warning">
           Last refresh error: {artifact.lastRefreshError}

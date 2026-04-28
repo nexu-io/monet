@@ -8,8 +8,6 @@ import {
   LiveArtifactSchema,
   LiveArtifactTileSchema,
   LiveArtifactWithTilesSchema,
-  type LiveArtifact,
-  type LiveArtifactTile,
   type LiveArtifactWithTiles
 } from "../live-artifacts/schema";
 import { refreshLiveArtifact } from "../live-artifacts/refresh";
@@ -57,33 +55,13 @@ const UpdateLiveArtifactRequestSchema = z
   )
   .openapi("UpdateLiveArtifactRequest");
 
-const LiveArtifactSourceStateSchema = z.object({
-  tileId: z.string(),
-  tileTitle: z.string(),
-  sourceType: z.enum(["tool", "connector_tool"]),
-  toolName: z.string(),
-  connectorId: z.string().nullable(),
-  connectorName: z.string().nullable(),
-  accountLabel: z.string().nullable(),
-  providerToolId: z.string().nullable(),
-  state: z.enum(["ok", "disconnected", "expired", "missing_connector", "stale_provider_tool"]),
-  message: z.string()
-}).openapi("LiveArtifactSourceState");
-
 const ListLiveArtifactsResponseSchema = z
   .object({
-    artifacts: z.array(LiveArtifactSchema.extend({
-      sourceStates: z.array(LiveArtifactSourceStateSchema).optional()
-    }))
+    artifacts: z.array(LiveArtifactSchema)
   })
   .openapi("ListLiveArtifactsResponse");
 
-const LiveArtifactDetailSchema = LiveArtifactWithTilesSchema.extend({
-  sourceStates: z.array(LiveArtifactSourceStateSchema).optional(),
-  tiles: z.array(z.intersection(LiveArtifactTileSchema, z.object({
-    sourceState: LiveArtifactSourceStateSchema.optional()
-  })))
-});
+const LiveArtifactDetailSchema = LiveArtifactWithTilesSchema;
 
 const LiveArtifactResponseSchema = z
   .object({
@@ -359,176 +337,6 @@ function createRefreshDisabledResponse() {
   };
 }
 
-type LiveArtifactSourceState = z.infer<typeof LiveArtifactSourceStateSchema>;
-type LiveArtifactWithSourceStates = LiveArtifact & { sourceStates?: LiveArtifactSourceState[] };
-type LiveArtifactTileWithSourceState = LiveArtifactTile & { sourceState?: LiveArtifactSourceState };
-type LiveArtifactDetailWithSourceStates = Omit<LiveArtifactWithTiles, "tiles"> & {
-  sourceStates?: LiveArtifactSourceState[];
-  tiles: LiveArtifactTileWithSourceState[];
-};
-
-async function resolveLiveArtifactSourceStates(options: {
-  readonly artifacts: readonly LiveArtifactWithTiles[];
-  readonly chatStorage: ChatStorage;
-  readonly toolRegistry: ToolRegistry | undefined;
-  readonly sessionWorkspaceService: SessionWorkspaceService | undefined;
-  readonly abortSignal: AbortSignal | undefined;
-}): Promise<Map<string, LiveArtifactSourceState[]>> {
-  const connectorTiles = options.artifacts.flatMap((artifact) =>
-    artifact.tiles
-      .filter((tile) => tile.sourceJson?.type === "connector_tool")
-      .map((tile) => ({ artifact, tile, source: tile.sourceJson! }))
-  );
-
-  const statesByArtifactId = new Map<string, LiveArtifactSourceState[]>();
-  if (connectorTiles.length === 0) {
-    return statesByArtifactId;
-  }
-
-  if (!options.toolRegistry || !options.sessionWorkspaceService) {
-    for (const { artifact, tile, source } of connectorTiles) {
-      addSourceState(statesByArtifactId, artifact.id, createSourceState(tile, "missing_connector", "Connector status is unavailable in this controller.", null));
-    }
-    return statesByArtifactId;
-  }
-
-  let definitions: Awaited<ReturnType<ToolRegistry["resolveTools"]>>;
-  try {
-    const sessionWorkspacePath = await options.sessionWorkspaceService.ensureWorkspace("ses_liveartifactstatus");
-    definitions = await options.toolRegistry.resolveTools({
-      runId: "live_artifact_status",
-      sessionId: "ses_liveartifactstatus",
-      sessionWorkspacePath,
-      chatStorage: options.chatStorage,
-      logger: liveArtifactsLogger,
-      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {})
-    });
-  } catch (error) {
-    liveArtifactsLogger.warn("live_artifacts.source_state_resolution_failed", {
-      error: error instanceof Error ? error.message : "unknown"
-    });
-    for (const { artifact, tile } of connectorTiles) {
-      addSourceState(statesByArtifactId, artifact.id, createSourceState(tile, "missing_connector", "Connector status could not be checked.", null));
-    }
-    return statesByArtifactId;
-  }
-
-  const definitionsByName = new Map(definitions.map((definition) => [definition.metadata.name, definition]));
-  const connectorIds = new Set(definitions.map((definition) => definition.metadata.connector?.connectorId).filter((id): id is string => Boolean(id)));
-
-  for (const { artifact, tile, source } of connectorTiles) {
-    const storedConnector = source.connector;
-    const definition = definitionsByName.get(source.toolName);
-    const currentConnector = definition?.metadata.connector;
-
-    if (!storedConnector || !connectorIds.has(storedConnector.connectorId)) {
-      addSourceState(statesByArtifactId, artifact.id, createSourceState(tile, "missing_connector", "This connector is no longer available.", currentConnector ?? null));
-      continue;
-    }
-
-    if (!definition || !currentConnector || currentConnector.connectorId !== storedConnector.connectorId || currentConnector.providerToolId !== storedConnector.providerToolId) {
-      addSourceState(statesByArtifactId, artifact.id, createSourceState(tile, "stale_provider_tool", "The saved provider tool no longer matches the current connector catalog.", currentConnector ?? null));
-      continue;
-    }
-
-    if (!storedConnector.accountLabel || !currentConnector.accountLabel || storedConnector.accountLabel !== currentConnector.accountLabel) {
-      addSourceState(
-        statesByArtifactId,
-        artifact.id,
-        createSourceState(tile, "disconnected", "The saved connector account no longer matches the connected account. Reconnect or recreate this source.", currentConnector)
-      );
-      continue;
-    }
-
-    if (currentConnector.connected !== true || currentConnector.connectionState !== "connected") {
-      const isExpired = currentConnector.connectionState === "expired";
-      addSourceState(
-        statesByArtifactId,
-        artifact.id,
-        createSourceState(
-          tile,
-          isExpired ? "expired" : "disconnected",
-          isExpired ? "The connector account has expired. Reconnect it to refresh this tile." : "The connector account is disconnected. Reconnect it to refresh this tile.",
-          currentConnector
-        )
-      );
-      continue;
-    }
-
-    addSourceState(statesByArtifactId, artifact.id, createSourceState(tile, "ok", "Connector source is connected and current.", currentConnector));
-  }
-
-  return statesByArtifactId;
-}
-
-function addSourceState(statesByArtifactId: Map<string, LiveArtifactSourceState[]>, artifactId: string, sourceState: LiveArtifactSourceState) {
-  const states = statesByArtifactId.get(artifactId) ?? [];
-  states.push(sourceState);
-  statesByArtifactId.set(artifactId, states);
-}
-
-function createSourceState(
-  tile: LiveArtifactTile,
-  state: LiveArtifactSourceState["state"],
-  message: string,
-  currentConnector: { readonly accountLabel: string | null; readonly providerToolId: string; readonly connectorName: string; readonly connectorId: string } | null
-): LiveArtifactSourceState {
-  const source = tile.sourceJson;
-  const storedConnector = source?.connector;
-
-  return {
-    tileId: tile.id,
-    tileTitle: tile.title,
-    sourceType: source?.type ?? "tool",
-    toolName: source?.toolName ?? "unknown",
-    connectorId: storedConnector?.connectorId ?? currentConnector?.connectorId ?? null,
-    connectorName: storedConnector?.connectorName ?? currentConnector?.connectorName ?? null,
-    accountLabel: currentConnector?.accountLabel ?? storedConnector?.accountLabel ?? null,
-    providerToolId: storedConnector?.providerToolId ?? currentConnector?.providerToolId ?? null,
-    state,
-    message
-  };
-}
-
-function attachSourceStatesToSummary(artifact: LiveArtifactWithTiles, states: LiveArtifactSourceState[] | undefined): LiveArtifactWithSourceStates {
-  const { tiles: _tiles, ...summary } = artifact;
-  return states && states.length > 0 ? { ...summary, sourceStates: states } : summary;
-}
-
-function attachSourceStatesToDetail(artifact: LiveArtifactWithTiles, states: LiveArtifactSourceState[] | undefined): LiveArtifactDetailWithSourceStates {
-  if (!states || states.length === 0) {
-    return artifact;
-  }
-
-  const statesByTileId = new Map(states.map((state) => [state.tileId, state]));
-  return {
-    ...artifact,
-    sourceStates: states,
-    tiles: artifact.tiles.map((tile) => {
-      const sourceState = statesByTileId.get(tile.id);
-      return sourceState ? { ...tile, sourceState } : tile;
-    })
-  };
-}
-
-async function attachCurrentSourceStatesToDetail(input: {
-  readonly artifact: LiveArtifactWithTiles;
-  readonly chatStorage: ChatStorage;
-  readonly toolRegistry: ToolRegistry | undefined;
-  readonly sessionWorkspaceService: SessionWorkspaceService | undefined;
-  readonly abortSignal: AbortSignal | undefined;
-}): Promise<LiveArtifactDetailWithSourceStates> {
-  const statesByArtifactId = await resolveLiveArtifactSourceStates({
-    artifacts: [input.artifact],
-    chatStorage: input.chatStorage,
-    toolRegistry: input.toolRegistry,
-    sessionWorkspaceService: input.sessionWorkspaceService,
-    abortSignal: input.abortSignal
-  });
-
-  return attachSourceStatesToDetail(input.artifact, statesByArtifactId.get(input.artifact.id));
-}
-
 export function registerLiveArtifactRoutes(app: ControllerApp, options: {
   getChatStorage: () => ChatStorage;
   toolRegistry?: ToolRegistry;
@@ -544,18 +352,8 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
     };
 
     const chatStorage = options.getChatStorage();
-    const artifacts = chatStorage.listLiveArtifacts(listInput).map((artifact) => chatStorage.getLiveArtifact(artifact.id));
-    const statesByArtifactId = await resolveLiveArtifactSourceStates({
-      artifacts,
-      chatStorage,
-      toolRegistry: options.toolRegistry,
-      sessionWorkspaceService: options.sessionWorkspaceService,
-      abortSignal: context.req.raw.signal
-    });
-
-    return context.json({
-      artifacts: artifacts.map((artifact) => attachSourceStatesToSummary(artifact, statesByArtifactId.get(artifact.id)))
-    }, 200);
+    const artifacts = chatStorage.listLiveArtifacts(listInput);
+    return context.json({ artifacts }, 200);
   });
 
   app.openapi(createLiveArtifactRoute, (context) => {
@@ -574,19 +372,10 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
     }
   });
 
-  app.openapi(getLiveArtifactRoute, async (context) => {
+  app.openapi(getLiveArtifactRoute, (context) => {
     try {
-      const chatStorage = options.getChatStorage();
-      const artifact = chatStorage.getLiveArtifact(context.req.valid("param").artifactId);
-      const artifactWithSourceStates = await attachCurrentSourceStatesToDetail({
-        artifact,
-        chatStorage,
-        toolRegistry: options.toolRegistry,
-        sessionWorkspaceService: options.sessionWorkspaceService,
-        abortSignal: context.req.raw.signal
-      });
-
-      return context.json({ artifact: artifactWithSourceStates }, 200);
+      const artifact = options.getChatStorage().getLiveArtifact(context.req.valid("param").artifactId);
+      return context.json({ artifact }, 200);
     } catch (error) {
       if (error instanceof ChatStorageResolutionError && error.statusCode === 404) {
         return context.json(createErrorResponse(error.errorCode, error.message), 404);
@@ -598,7 +387,7 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
     }
   });
 
-  app.openapi(updateLiveArtifactRoute, async (context) => {
+  app.openapi(updateLiveArtifactRoute, (context) => {
     const artifactId = context.req.valid("param").artifactId;
     const payload = context.req.valid("json");
 
@@ -617,16 +406,7 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
         artifact = options.getChatStorage().pinLiveArtifact(artifactId, payload.pinned);
       }
 
-      const chatStorage = options.getChatStorage();
-      const artifactWithSourceStates = await attachCurrentSourceStatesToDetail({
-        artifact,
-        chatStorage,
-        toolRegistry: options.toolRegistry,
-        sessionWorkspaceService: options.sessionWorkspaceService,
-        abortSignal: context.req.raw.signal
-      });
-
-      return context.json({ artifact: artifactWithSourceStates }, 200);
+      return context.json({ artifact }, 200);
     } catch (error) {
       if (error instanceof ChatStorageResolutionError) {
         if (error.statusCode === 404) {
@@ -665,15 +445,7 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
         logger: liveArtifactsLogger,
         abortSignal: context.req.raw.signal
       });
-      const artifactWithSourceStates = await attachCurrentSourceStatesToDetail({
-        artifact: result.artifact,
-        chatStorage: options.getChatStorage(),
-        toolRegistry: options.toolRegistry,
-        sessionWorkspaceService: options.sessionWorkspaceService,
-        abortSignal: context.req.raw.signal
-      });
-
-      return context.json({ artifact: artifactWithSourceStates, failures: [...result.failures] }, 200);
+      return context.json({ artifact: result.artifact, failures: [...result.failures] }, 200);
     } catch (error) {
       if (error instanceof ChatStorageResolutionError) {
         if (error.statusCode === 404) {

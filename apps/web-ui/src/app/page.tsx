@@ -14,7 +14,7 @@ import { sanitizeInternalRuntimeMessage } from "../components/workspace-copy";
 import { useControllerState } from "../lib/controller-state";
 import { PENDING_CHAT_PROMPT_STORAGE_KEY, stashPendingChatPrompt } from "../lib/chat-prompt-seed";
 import { getMonetClientConfig } from "../lib/monet-client";
-import { getLiveArtifact, type LiveArtifact } from "../lib/live-artifacts-api";
+import { getLiveArtifact, refreshLiveArtifact, type LiveArtifact } from "../lib/live-artifacts-api";
 import { fetchProviderTargets, type ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
 import { Button } from "@nexu-design/ui-web";
@@ -42,11 +42,24 @@ function mergeHeaders(baseHeaders: Record<string, string>, headers: HeadersInit 
   return merged;
 }
 
-function LiveArtifactSidePanel({ artifactId, onClose }: { readonly artifactId: string; readonly onClose: () => void }) {
+function getLiveArtifactRefreshErrorMessage(error: unknown) {
+  const maybeRefreshError = error as { readonly disabled?: boolean; readonly status?: number; readonly message?: string };
+
+  if (maybeRefreshError.disabled || maybeRefreshError.status === 501) {
+    return "Automatic refresh is not supported or currently disabled for this artifact.";
+  }
+
+  return maybeRefreshError.message || "Failed to refresh artifact.";
+}
+
+export function LiveArtifactSidePanel({ artifactId, onClose }: { readonly artifactId: string; readonly onClose: () => void }) {
   const [loadState, setLoadState] = useState<ArtifactPanelLoadState>({ status: "idle" });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const loadArtifact = useCallback(async () => {
     setLoadState({ status: "loading" });
+    setRefreshError(null);
 
     try {
       const response = await getLiveArtifact(artifactId);
@@ -58,6 +71,28 @@ function LiveArtifactSidePanel({ artifactId, onClose }: { readonly artifactId: s
       });
     }
   }, [artifactId]);
+
+  const handleRefresh = useCallback(async () => {
+    if (loadState.status !== "loaded") {
+      return;
+    }
+
+    setIsRefreshing(true);
+    setRefreshError(null);
+
+    try {
+      const response = await refreshLiveArtifact(artifactId);
+      setLoadState({ status: "loaded", artifact: response.artifact });
+
+      if (response.failures && response.failures.length > 0) {
+        setRefreshError(`Failed to refresh ${response.failures.length} tile(s).`);
+      }
+    } catch (error) {
+      setRefreshError(getLiveArtifactRefreshErrorMessage(error));
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [artifactId, loadState.status]);
 
   useEffect(() => {
     void loadArtifact();
@@ -75,8 +110,8 @@ function LiveArtifactSidePanel({ artifactId, onClose }: { readonly artifactId: s
           <Button type="button" variant="ghost" size="icon" title="Open full page" aria-label="Open full page" onClick={() => window.open(`/artifacts/${encodeURIComponent(artifactId)}`, "_blank", "noopener,noreferrer")}>
             <ExternalLink aria-hidden="true" className="size-4" strokeWidth={1.8} />
           </Button>
-          <Button type="button" variant="ghost" size="icon" title="Reload" aria-label="Reload" disabled={loadState.status === "loading"} onClick={() => void loadArtifact()}>
-            <RefreshCw aria-hidden="true" className={loadState.status === "loading" ? "size-4 animate-spin" : "size-4"} strokeWidth={1.8} />
+          <Button type="button" variant="ghost" size="icon" title="Refresh" aria-label={isRefreshing ? "Refreshing..." : "Refresh"} disabled={loadState.status === "loading" || isRefreshing} onClick={() => void handleRefresh()}>
+            <RefreshCw aria-hidden="true" className={isRefreshing ? "size-4 animate-spin" : "size-4"} strokeWidth={1.8} />
           </Button>
           <Button type="button" variant="ghost" size="icon" title="Close" aria-label="Close" onClick={onClose}>
             <X aria-hidden="true" className="size-4" strokeWidth={1.8} />
@@ -97,10 +132,28 @@ function LiveArtifactSidePanel({ artifactId, onClose }: { readonly artifactId: s
             <p className="m-0 mt-1">{loadState.message}</p>
           </div>
         ) : loadState.artifact.document ? (
-          <ArtifactHtmlFrame document={loadState.artifact.document} title={loadState.artifact.title} />
+          <div className="flex h-full flex-col">
+            {refreshError ? (
+              <div className="m-5 mb-0 rounded-xl border border-warning/20 bg-warning-subtle p-4 text-sm text-warning">
+                <p className="m-0 font-semibold">Refresh issue</p>
+                <p className="m-0 mt-1">{refreshError}</p>
+              </div>
+            ) : null}
+            <div className="min-h-0 flex-1">
+              <ArtifactHtmlFrame document={loadState.artifact.document} title={loadState.artifact.title} />
+            </div>
+          </div>
         ) : (
-          <div className="m-5 rounded-xl border border-border-subtle bg-surface-1 p-4 text-sm text-text-muted">
-            This artifact has no renderable content yet.
+          <div className="flex flex-col gap-5">
+            {refreshError ? (
+              <div className="mx-5 mt-5 rounded-xl border border-warning/20 bg-warning-subtle p-4 text-sm text-warning">
+                <p className="m-0 font-semibold">Refresh issue</p>
+                <p className="m-0 mt-1">{refreshError}</p>
+              </div>
+            ) : null}
+            <div className="m-5 mt-0 rounded-xl border border-border-subtle bg-surface-1 p-4 text-sm text-text-muted">
+              This artifact has no renderable content yet.
+            </div>
           </div>
         )}
       </div>

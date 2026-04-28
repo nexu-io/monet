@@ -1,5 +1,7 @@
 import type { LiveArtifactHtmlDocument } from "../../lib/live-artifacts-api";
 
+const LIVE_ARTIFACT_DATA_SCRIPT_ID = "live-artifact-data";
+
 function escapeJsonForHtml(value: unknown) {
   return JSON.stringify(value ?? {})
     .replace(/</g, "\\u003c")
@@ -18,6 +20,58 @@ function escapeHtmlText(value: unknown) {
     .replace(/'/g, "&#39;");
 }
 
+function isEmptyObject(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
+}
+
+function parseEmbeddedLiveArtifactData(html: string) {
+  if (typeof DOMParser !== "undefined") {
+    const parser = new DOMParser();
+    const parsed = parser.parseFromString(`<body>${html}</body>`, "text/html");
+    const script = parsed.body.querySelector(`script#${LIVE_ARTIFACT_DATA_SCRIPT_ID}[type="application/json"]`);
+
+    if (!script?.textContent?.trim()) {
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(script.textContent);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const match = html.match(/<script\b[^>]*\bid=(['"])live-artifact-data\1[^>]*\btype=(['"])application\/json\2[^>]*>([\s\S]*?)<\/script>/i)
+    ?? html.match(/<script\b[^>]*\btype=(['"])application\/json\1[^>]*\bid=(['"])live-artifact-data\2[^>]*>([\s\S]*?)<\/script>/i);
+  const content = match?.[3];
+
+  if (!content?.trim()) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(content);
+  } catch {
+    return undefined;
+  }
+}
+
+function stripEmbeddedLiveArtifactDataScripts(html: string) {
+  if (typeof DOMParser !== "undefined") {
+    const parser = new DOMParser();
+    const parsed = parser.parseFromString(`<body>${html}</body>`, "text/html");
+
+    for (const script of parsed.body.querySelectorAll(`script#${LIVE_ARTIFACT_DATA_SCRIPT_ID}[type="application/json"]`)) {
+      script.remove();
+    }
+
+    return parsed.body.innerHTML;
+  }
+
+  return html.replace(/<script\b[^>]*\bid=(['"])live-artifact-data\1[^>]*\btype=(['"])application\/json\2[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<script\b[^>]*\btype=(['"])application\/json\1[^>]*\bid=(['"])live-artifact-data\2[^>]*>[\s\S]*?<\/script>/gi, "");
+}
+
 function readDataPath(data: unknown, path: string) {
   return path.split(".").reduce<unknown>((current, segment) => {
     if (current === null || current === undefined || !segment) {
@@ -26,7 +80,7 @@ function readDataPath(data: unknown, path: string) {
     if (Array.isArray(current) && /^\d+$/.test(segment)) {
       return current[Number(segment)];
     }
-    if (typeof current === "object" && segment in current) {
+    if (typeof current === "object" && Object.prototype.hasOwnProperty.call(current, segment)) {
       return (current as Record<string, unknown>)[segment];
     }
     return undefined;
@@ -76,9 +130,11 @@ function applyTextBinding(element: Element, data: unknown, scope: Record<string,
 
   for (const statement of binding.split(";")) {
     const [target, ...expressionParts] = statement.split(":");
-    const expression = expressionParts.join(":");
+    const hasExplicitTarget = expressionParts.length > 0;
+    const trimmedTarget = target?.trim();
+    const expression = hasExplicitTarget ? expressionParts.join(":") : statement;
 
-    if (target?.trim() !== "text") {
+    if (hasExplicitTarget && trimmedTarget !== "text") {
       continue;
     }
 
@@ -200,9 +256,14 @@ export function bindLiveArtifactHtml(html: string, data: unknown) {
   return parsed.body.innerHTML;
 }
 
-function buildSandboxDocument(artifactDocument: LiveArtifactHtmlDocument) {
-  const dataJson = escapeJsonForHtml(artifactDocument.dataJson);
-  const boundHtml = bindLiveArtifactHtml(artifactDocument.sanitizedHtml, artifactDocument.dataJson);
+export function buildSandboxDocument(artifactDocument: LiveArtifactHtmlDocument) {
+  const embeddedData = parseEmbeddedLiveArtifactData(artifactDocument.sanitizedHtml);
+  const effectiveData = artifactDocument.dataJson === undefined || artifactDocument.dataJson === null || isEmptyObject(artifactDocument.dataJson)
+    ? (embeddedData ?? artifactDocument.dataJson)
+    : artifactDocument.dataJson;
+  const sanitizedHtml = stripEmbeddedLiveArtifactDataScripts(artifactDocument.sanitizedHtml);
+  const dataJson = escapeJsonForHtml(effectiveData);
+  const boundHtml = bindLiveArtifactHtml(sanitizedHtml, effectiveData);
 
   return `<!doctype html>
 <html lang="en">
@@ -221,7 +282,7 @@ function buildSandboxDocument(artifactDocument: LiveArtifactHtmlDocument) {
   </style>
 </head>
 <body>
-  <script id="live-artifact-data" type="application/json">${dataJson}</script>
+  <script id="${LIVE_ARTIFACT_DATA_SCRIPT_ID}" type="application/json">${dataJson}</script>
   ${boundHtml}
 </body>
 </html>`;

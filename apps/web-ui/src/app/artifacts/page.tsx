@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 import { PageFrame } from "../../components/page-frame";
 import { useSessions } from "../../components/session-provider";
 import { LIVE_ARTIFACT_DISCOVERY_PROMPT, stashPendingChatPrompt } from "../../lib/chat-prompt-seed";
-import { listLiveArtifacts, type LiveArtifactSourceState, type LiveArtifactSummary } from "../../lib/live-artifacts-api";
+import { listLiveArtifacts, type LiveArtifactSummary } from "../../lib/live-artifacts-api";
 
 type ArtifactsLoadState =
   | { readonly status: "idle" }
@@ -52,49 +52,6 @@ function ArtifactStatusBadge({ artifact }: { readonly artifact: LiveArtifactSumm
   return null;
 }
 
-function getActionableSourceStates(sourceStates: readonly LiveArtifactSourceState[] | undefined) {
-  return (sourceStates ?? []).filter((sourceState) => sourceState.state !== "ok");
-}
-
-function getSourceStateLabel(state: LiveArtifactSourceState["state"]) {
-  switch (state) {
-    case "disconnected":
-      return "Disconnected";
-    case "expired":
-      return "Expired";
-    case "missing_connector":
-      return "Missing connector";
-    case "stale_provider_tool":
-      return "Stale tool";
-    case "ok":
-      return "Connected";
-  }
-}
-
-function SourceStateSummary({ sourceStates }: { readonly sourceStates: readonly LiveArtifactSourceState[] | undefined }) {
-  const actionableStates = getActionableSourceStates(sourceStates);
-
-  if (actionableStates.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border border-warning/20 bg-warning-subtle px-3 py-2 text-sm text-warning">
-      <div className="flex flex-wrap gap-1.5">
-        {actionableStates.slice(0, 3).map((sourceState) => (
-          <span key={`${sourceState.tileId}-${sourceState.state}`} className="inline-flex items-center rounded-full border border-warning/25 bg-surface-0/60 px-2 py-0.5 text-xs font-semibold text-warning">
-            {getSourceStateLabel(sourceState.state)}
-          </span>
-        ))}
-        {actionableStates.length > 3 ? <span className="text-xs font-semibold text-warning">+{actionableStates.length - 3} more</span> : null}
-      </div>
-      <p className="m-0 line-clamp-2">
-        {actionableStates[0]?.message} {actionableStates.length > 1 ? `(${actionableStates.length} source issues)` : ""}
-      </p>
-    </div>
-  );
-}
-
 function ArtifactCard({ artifact }: { readonly artifact: LiveArtifactSummary }) {
   const description = artifact.description?.trim() || "No description yet.";
 
@@ -117,9 +74,6 @@ function ArtifactCard({ artifact }: { readonly artifact: LiveArtifactSummary }) 
         </div>
 
         <p className="m-0 line-clamp-2 text-sm leading-[1.5] text-text-secondary">{description}</p>
-
-        <SourceStateSummary sourceStates={artifact.sourceStates} />
-
         {artifact.lastRefreshError ? <p className="m-0 rounded-lg border border-warning/20 bg-warning-subtle px-3 py-2 text-sm text-warning">{artifact.lastRefreshError}</p> : null}
       </div>
       </article>
@@ -213,7 +167,7 @@ export default function ArtifactsPage() {
     setLoadState({ status: "loading" });
 
     try {
-      const response = await listLiveArtifacts({ includeArchived: false });
+      const response = await listLiveArtifacts({ includeArchived: false, includeSourceStates: false });
       setLoadState({ status: "loaded", artifacts: response.artifacts });
     } catch (error) {
       setLoadState({
