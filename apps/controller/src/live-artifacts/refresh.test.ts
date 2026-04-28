@@ -764,6 +764,46 @@ test("live artifact refresh blocks connector execution when current audit metada
   }
 });
 
+test("live artifact refresh blocks connector tools stored as generic tool sources", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload("Connector audit report", {
+      type: "tool",
+      toolName: "github_search_issues",
+      input: { query: "repo:acme/widgets is:open" },
+      refreshPermission: "manual_refresh_granted_for_read_only",
+      outputMapping: { dataPaths: { summary: "summary" } }
+    }));
+
+    let executions = 0;
+    const registry = createToolRegistry([
+      createConnectorDefinition("github_search_issues", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        execute() {
+          executions += 1;
+          return { summary: "fresh issues" };
+        }
+      })
+    ]);
+
+    await assert.rejects(() => refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    }), /Connector refresh source is missing audit metadata: github_search_issues/);
+
+    assert.equal(executions, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 function createHtmlArtifactPayload(title: string, sourceJson?: LiveArtifactTileSource): LiveArtifactCreateInput {
   return {
     title,

@@ -392,6 +392,38 @@ export const LiveArtifactTileConnectorSourceSchema = z.object({
   providerToolId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.providerToolId).nullable()
 });
 
+function normalizeLiveArtifactTileSourceInput(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const source = { ...(value as Record<string, unknown>) };
+  const connector = source.connector;
+  const refreshPermission = source.refreshPermission;
+  const isRefreshable = refreshPermission === "manual_refresh_granted_for_read_only";
+
+  if (source.type === undefined) {
+    source.type = connector && typeof connector === "object" && !Array.isArray(connector) ? "connector_tool" : "tool";
+  }
+
+  if (connector && typeof connector === "object" && !Array.isArray(connector)) {
+    source.connector = {
+      ...connector as Record<string, unknown>,
+      accountLabel: (connector as Record<string, unknown>).accountLabel ?? null,
+      providerToolId: (connector as Record<string, unknown>).providerToolId ?? null
+    };
+  }
+
+  if (!isRefreshable) {
+    source.toolName ??= "unknown";
+    source.input ??= {};
+    source.refreshPermission ??= "requires_confirmation";
+    source.outputMapping ??= {};
+  }
+
+  return source;
+}
+
 export const LiveArtifactProvenanceConnectorSchema = z.object({
   connectorId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.connectorId),
   connectorName: LiveArtifactRedactedSafeTextSchema(LIVE_ARTIFACT_LIMITS.connectorName, 1),
@@ -425,23 +457,54 @@ export const LiveArtifactProvenanceJsonSchema = z
     }
   });
 
-export const LiveArtifactTileSourceSchema = z
+export const LiveArtifactTileSourceSchema = z.preprocess(normalizeLiveArtifactTileSourceInput, z
   .object({
     type: LiveArtifactTileSourceTypeSchema,
-    toolName: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.toolName),
-    input: liveArtifactSourceInputSchema,
+    toolName: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.toolName).optional(),
+    input: liveArtifactSourceInputSchema.optional(),
     connector: LiveArtifactTileConnectorSourceSchema.optional(),
-    refreshPermission: LiveArtifactRefreshPermissionSchema,
+    refreshPermission: LiveArtifactRefreshPermissionSchema.optional(),
     outputMapping: z.object({
       preferredKind: LiveArtifactTileKindSchema.optional(),
       dataPaths: z.record(
         liveArtifactOutputDestinationPathSchema,
         z.union([liveArtifactOutputSourcePathSchema, z.array(liveArtifactOutputSourcePathSchema).min(1).max(5)])
       ).optional().describe("Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.")
-    })
+    }).optional()
   })
   .superRefine((value, ctx) => {
-    if (value.outputMapping.dataPaths && Object.keys(value.outputMapping.dataPaths).length > 100) {
+    if (!value.toolName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toolName"],
+        message: value.refreshPermission === "manual_refresh_granted_for_read_only"
+          ? "Refreshable live artifacts must include a real toolName"
+          : "toolName is required"
+      });
+      return;
+    }
+
+    if (!value.input) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["input"],
+        message: value.refreshPermission === "manual_refresh_granted_for_read_only"
+          ? "Refreshable live artifacts must include explicit input"
+          : "input is required"
+      });
+    }
+
+    if (!value.outputMapping) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputMapping"],
+        message: value.refreshPermission === "manual_refresh_granted_for_read_only"
+          ? "Refreshable live artifacts must include outputMapping"
+          : "outputMapping is required"
+      });
+    }
+
+    if (value.outputMapping?.dataPaths && Object.keys(value.outputMapping.dataPaths).length > 100) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["outputMapping", "dataPaths"],
@@ -456,13 +519,41 @@ export const LiveArtifactTileSourceSchema = z
         message: "connector_tool sources require connector metadata"
       });
     }
+    if (value.refreshPermission === "manual_refresh_granted_for_read_only" && value.toolName === "unknown") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toolName"],
+        message: "Refreshable live artifacts must include a real toolName"
+      });
+    }
+    if (value.refreshPermission === "manual_refresh_granted_for_read_only" && !value.input) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["input"],
+        message: "Refreshable live artifacts must include explicit input"
+      });
+    }
+    if (value.refreshPermission === "manual_refresh_granted_for_read_only" && !value.outputMapping?.dataPaths) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputMapping", "dataPaths"],
+        message: "Refreshable live artifacts must include outputMapping.dataPaths"
+      });
+    }
     if (getJsonByteLength(value) > LIVE_ARTIFACT_LIMITS.sourceJsonBytes) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Tile source JSON exceeds max size of ${LIVE_ARTIFACT_LIMITS.sourceJsonBytes} bytes`
       });
     }
-  });
+  })
+  .transform((value) => ({
+    ...value,
+    toolName: value.toolName ?? "unknown",
+    input: value.input ?? {},
+    refreshPermission: value.refreshPermission ?? "requires_confirmation",
+    outputMapping: value.outputMapping ?? {}
+  })));
 
 function normalizeLiveArtifactHtml(value: string) {
   let html = value.trim().replace(/<!doctype\b[^>]*>/gi, "");

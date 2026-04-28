@@ -274,7 +274,7 @@ test("artifact tool schemas validate HTML documents", () => {
         sourceJson: {
           ...connectorTileSource,
           input: { owner: "nexu-io", repo: "open-design" },
-          outputMapping: { preferredKind: "json" }
+          outputMapping: { preferredKind: "json", dataPaths: { stars: "stargazers_count" } }
         }
       }
     }),
@@ -336,6 +336,117 @@ test("artifact tools sanitize document source input before persistence", () => {
       }
     }
   }, toolExecutionContext);
+});
+
+test("create_live_artifact accepts provenance-like source metadata for static HTML artifacts", () => {
+  const tools = Object.fromEntries(
+    createLiveArtifactToolDefinitions({
+      chatStorage: {
+        createLiveArtifact(input: { readonly document?: { readonly sourceJson?: unknown } }) {
+          assert.deepEqual(input.document?.sourceJson, {
+            type: "connector_tool",
+            toolName: "github_get_a_repository",
+            input: {},
+            connector: {
+              connectorId: "github",
+              connectorName: "GitHub",
+              accountLabel: "octo-org",
+              providerToolId: "GITHUB_GET_A_REPOSITORY"
+            },
+            refreshPermission: "requires_confirmation",
+            outputMapping: {}
+          });
+          return sampleArtifact;
+        }
+      } as never,
+      runId: "run_test",
+      sessionId: "ses_test"
+    }).map((definition) => [definition.metadata.name, definition])
+  );
+  const createTool = tools.create_live_artifact;
+  assert.ok(createTool);
+
+  assert.doesNotThrow(() => createTool.execute({
+    title: "Repo stats",
+    description: "Static repository summary",
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: '<main><h1 data-bind="text:data.repo"></h1><p data-bind="text:data.stars"></p></main>',
+      dataJson: { repo: "monet-connectors", stars: 166 },
+      sourceJson: {
+        type: "connector_tool",
+        toolName: "github_get_a_repository",
+        connector: {
+          connectorId: "github",
+          connectorName: "GitHub",
+          accountLabel: "octo-org",
+          providerToolId: "GITHUB_GET_A_REPOSITORY"
+        }
+      }
+    }
+  }, toolExecutionContext));
+});
+
+test("create_live_artifact tolerates common static sourceJson omissions but keeps refresh strict", () => {
+  const tools = Object.fromEntries(
+    createLiveArtifactToolDefinitions({
+      chatStorage: {
+        createLiveArtifact(input: { readonly document?: { readonly sourceJson?: unknown } }) {
+          assert.deepEqual(input.document?.sourceJson, {
+            type: "connector_tool",
+            toolName: "unknown",
+            input: {},
+            connector: {
+              connectorId: "github",
+              connectorName: "GitHub",
+              accountLabel: null,
+              providerToolId: null
+            },
+            refreshPermission: "requires_confirmation",
+            outputMapping: {}
+          });
+          return sampleArtifact;
+        }
+      } as never,
+      runId: "run_test",
+      sessionId: "ses_test"
+    }).map((definition) => [definition.metadata.name, definition])
+  );
+  const createTool = tools.create_live_artifact;
+  assert.ok(createTool);
+
+  assert.doesNotThrow(() => createTool.execute({
+    title: "Repo stats",
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<main><p>Static repo summary</p></main>",
+      dataJson: { repo: "monet-connectors" },
+      sourceJson: {
+        connector: {
+          connectorId: "github",
+          connectorName: "GitHub"
+        }
+      }
+    }
+  }, toolExecutionContext));
+
+  assert.throws(
+    () => createTool.execute({
+      title: "Refreshable repo stats",
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: '<main><span data-bind="text:data.repo"></span></main>',
+        dataJson: { repo: "monet-connectors" },
+        sourceJson: {
+          type: "tool",
+          refreshPermission: "manual_refresh_granted_for_read_only",
+          input: { repo: "monet-connectors" },
+          outputMapping: { dataPaths: { repo: "name" } }
+        }
+      }
+    }, toolExecutionContext),
+    /real toolName/
+  );
 });
 
 test("artifact tools canonicalize bare data-bind statements before persistence", () => {

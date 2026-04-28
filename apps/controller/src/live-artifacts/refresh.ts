@@ -294,14 +294,15 @@ function validateRefreshSourceBeforeExecution(source: LiveArtifactTileSource, de
     throw new Error(`Refresh source input no longer matches current tool schema for ${source.toolName}: ${schemaError}`);
   }
 
-  if (source.type !== "connector_tool") {
+  const currentConnector = definition.metadata.connector;
+
+  if (!currentConnector && source.type !== "connector_tool") {
     return;
   }
 
-  const currentConnector = definition.metadata.connector;
   const storedConnector = source.connector;
 
-  if (!storedConnector || !currentConnector) {
+  if (source.type !== "connector_tool" || !storedConnector || !currentConnector) {
     throw new Error(`Connector refresh source is missing audit metadata: ${source.toolName}`);
   }
 

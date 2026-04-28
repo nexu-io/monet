@@ -131,4 +131,123 @@ describe("live artifact tile source input validation", () => {
       /prototype-sensitive/
     );
   });
+
+  it("accepts provenance-like connector metadata as a non-refreshable source", () => {
+    const source = LiveArtifactTileSourceSchema.parse({
+      type: "connector_tool",
+      toolName: "github_get_a_repository",
+      connector: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        accountLabel: "octo-org",
+        providerToolId: "github.get_a_repository"
+      }
+    });
+
+    assert.deepEqual(source, {
+      type: "connector_tool",
+      toolName: "github_get_a_repository",
+      input: {},
+      connector: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        accountLabel: "octo-org",
+        providerToolId: "github.get_a_repository"
+      },
+      refreshPermission: "requires_confirmation",
+      outputMapping: {}
+    });
+  });
+
+  it("infers connector_tool type and defaults nullable connector metadata for static sources", () => {
+    const source = LiveArtifactTileSourceSchema.parse({
+      connector: {
+        connectorId: "github",
+        connectorName: " GitHub "
+      }
+    });
+
+    assert.deepEqual(source, {
+      type: "connector_tool",
+      toolName: "unknown",
+      input: {},
+      connector: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        accountLabel: null,
+        providerToolId: null
+      },
+      refreshPermission: "requires_confirmation",
+      outputMapping: {}
+    });
+  });
+
+  it("defaults missing toolName only for non-refreshable metadata", () => {
+    const source = LiveArtifactTileSourceSchema.parse({
+      type: "tool"
+    });
+
+    assert.equal(source.toolName, "unknown");
+  });
+
+  it("rejects refreshable sources without a real toolName", () => {
+    assert.throws(
+      () => LiveArtifactTileSourceSchema.parse({
+        refreshPermission: "manual_refresh_granted_for_read_only",
+        input: { query: "status:open" },
+        outputMapping: { dataPaths: { issues: "items" } }
+      }),
+      /real toolName/
+    );
+
+    assert.throws(
+      () => LiveArtifactTileSourceSchema.parse({
+        type: "tool",
+        toolName: "unknown",
+        refreshPermission: "manual_refresh_granted_for_read_only",
+        input: { query: "status:open" },
+        outputMapping: { dataPaths: { issues: "items" } }
+      }),
+      /real toolName/
+    );
+  });
+
+  it("rejects refreshable sources without explicit input and output data paths", () => {
+    assert.throws(
+      () => LiveArtifactTileSourceSchema.parse({
+        type: "tool",
+        toolName: "x",
+        refreshPermission: "manual_refresh_granted_for_read_only"
+      }),
+      /explicit input|outputMapping\.dataPaths/
+    );
+
+    assert.throws(
+      () => LiveArtifactTileSourceSchema.parse({
+        type: "tool",
+        toolName: "x",
+        refreshPermission: "manual_refresh_granted_for_read_only",
+        input: { query: "status:open" }
+      }),
+      /outputMapping\.dataPaths/
+    );
+  });
+
+  it("accepts refreshable sources with explicit input and output data paths", () => {
+    const source = LiveArtifactTileSourceSchema.parse({
+      type: "tool",
+      toolName: "x",
+      refreshPermission: "manual_refresh_granted_for_read_only",
+      input: { query: "status:open" },
+      outputMapping: { dataPaths: { issues: "items" } }
+    });
+
+    assert.deepEqual(source, {
+      type: "tool",
+      toolName: "x",
+      refreshPermission: "manual_refresh_granted_for_read_only",
+      input: { query: "status:open" },
+      outputMapping: { dataPaths: { issues: "items" } }
+    });
+  });
 });
