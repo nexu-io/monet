@@ -710,12 +710,62 @@ test("connector disconnect endpoint revokes provider access and marks local conn
   let requested: { userId: string; connectorId: string } | null = null;
   let canceledConnectorId: string | null = null;
   let disconnected: { userId: string; connectorId: string; provider: string } | null = null;
+  const events: string[] = [];
 
   registerConnectorRoutes(app, {
     connectorService: {
       ...createUnusedConnectorService(),
       async disconnect(input) {
+        events.push("disconnect");
         requested = { userId: input.userId, connectorId: input.connectorId };
+      }
+    },
+    getChatStorage: () =>
+      ({
+        getMonetInstallId() {
+          return monetInstallId;
+        },
+        cancelPendingConnectorApprovals(input: { connectorId: string }) {
+          events.push("cancel");
+          canceledConnectorId = input.connectorId;
+          return 0;
+        },
+        markConnectorConnectionDisconnected(input: { userId: string; connectorId: string; provider: string }) {
+          events.push("mark-disconnected");
+          disconnected = input;
+          events.push("cancel");
+          canceledConnectorId = input.connectorId;
+          return null;
+        }
+      }) as never
+  });
+
+  const response = await app.request("http://127.0.0.1:42831/api/connectors/github/connection", {
+    method: "DELETE"
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    connectorId: "github",
+    status: "not_connected"
+  });
+  assert.equal(canceledConnectorId, "github");
+  assert.deepEqual(requested, { userId: monetInstallId, connectorId: "github" });
+  assert.deepEqual(disconnected, { userId: monetInstallId, connectorId: "github", provider: "composio" });
+  assert.deepEqual(events, ["disconnect", "mark-disconnected", "cancel"]);
+});
+
+test("connector disconnect endpoint preserves pending approvals when provider disconnect fails", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  const monetInstallId = "monet-install-id-disconnect-failure";
+  let canceledConnectorId: string | null = null;
+  let disconnected: { userId: string; connectorId: string; provider: string } | null = null;
+
+  registerConnectorRoutes(app, {
+    connectorService: {
+      ...createUnusedConnectorService(),
+      async disconnect() {
+        throw Object.assign(new Error("provider unavailable"), { statusCode: 503, code: "provider_error" });
       }
     },
     getChatStorage: () =>
@@ -738,14 +788,9 @@ test("connector disconnect endpoint revokes provider access and marks local conn
     method: "DELETE"
   });
 
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
-    connectorId: "github",
-    status: "not_connected"
-  });
-  assert.equal(canceledConnectorId, "github");
-  assert.deepEqual(requested, { userId: monetInstallId, connectorId: "github" });
-  assert.deepEqual(disconnected, { userId: monetInstallId, connectorId: "github", provider: "composio" });
+  assert.equal(response.status, 503);
+  assert.equal(canceledConnectorId, null);
+  assert.equal(disconnected, null);
 });
 
 function createUnusedConnectorService(): ConnectorService {

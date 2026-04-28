@@ -2938,6 +2938,19 @@ function getToolCallRow(connection: DatabaseSync, toolCallId: string) {
 }
 
 function cancelPendingConnectorApprovals(connection: DatabaseSync, connectorId: string, now: string): number {
+  const affectedRunIds = (
+    connection
+      .prepare(
+        `SELECT DISTINCT run_id
+         FROM tool_calls
+         WHERE connector_id = ?
+           AND confirmation_token_hash IS NOT NULL
+           AND approval_decision IS NULL
+           AND status = 'pending'`
+      )
+      .all(connectorId) as Array<{ run_id: string }>
+  ).map((row) => row.run_id);
+
   const result = connection
     .prepare(
       `UPDATE tool_calls
@@ -2953,6 +2966,18 @@ function cancelPendingConnectorApprovals(connection: DatabaseSync, connectorId: 
          AND status = 'pending'`
     )
     .run(now, now, connectorId);
+
+  if (affectedRunIds.length > 0 && result.changes > 0) {
+    const placeholders = affectedRunIds.map(() => "?").join(", ");
+    connection
+      .prepare(
+        `UPDATE runs
+         SET status = 'interrupted', finish_reason = 'connector_disconnected', ended_at = ?
+         WHERE status = 'pending'
+           AND id IN (${placeholders})`
+      )
+      .run(now, ...affectedRunIds);
+  }
 
   return Number(result.changes);
 }

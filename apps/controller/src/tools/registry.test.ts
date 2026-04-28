@@ -42,6 +42,12 @@ interface CapturedLogEntry {
   readonly context: Record<string, unknown> | undefined;
 }
 
+interface RunRow {
+  readonly status: string;
+  readonly finish_reason: string | null;
+  readonly ended_at: string | null;
+}
+
 function createCapturingLogger(entries: CapturedLogEntry[]): Logger {
   return {
     child() {
@@ -128,6 +134,18 @@ function getToolCalls(databasePath: string) {
           ORDER BY started_at ASC`
       )
       .all() as unknown as ToolCallRow[];
+  } finally {
+    connection.close();
+  }
+}
+
+function getRun(databasePath: string, runId: string) {
+  const connection = new DatabaseSync(databasePath);
+
+  try {
+    return connection
+      .prepare(`SELECT status, finish_reason, ended_at FROM runs WHERE id = ?`)
+      .get(runId) as RunRow | undefined;
   } finally {
     connection.close();
   }
@@ -1113,6 +1131,11 @@ test("disconnect cancellation rejects only pending approvals for the disconnecte
     assert.equal(notionRow?.approval_decision, null);
     assert.equal(typeof notionRow?.confirmation_token_hash, "string");
     assert.equal(notionRow?.error_message, null);
+
+    const run = getRun(fixture.databasePath, prepared.runId);
+    assert.equal(run?.status, "interrupted");
+    assert.equal(run?.finish_reason, "connector_disconnected");
+    assert.equal(Boolean(run?.ended_at), true);
   } finally {
     fixture.cleanup();
   }
