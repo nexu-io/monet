@@ -388,7 +388,7 @@ function mapToolOutputToRenderJson(output: unknown, preferredKind: LiveArtifactT
 
   switch (preferredKind) {
     case "markdown":
-      return { kind: "markdown", markdown: stringifyDisplayValue(output) };
+      return { kind: "markdown", markdown: extractMarkdownSummary(output, fallbackLabel) };
     case "metric":
       return { kind: "metric", label: fallbackLabel, value: extractMetricValue(output) };
     case "list":
@@ -433,9 +433,7 @@ function extractMetricValue(output: unknown): string {
 }
 
 function extractListItems(output: unknown): { title: string; subtitle?: string; url?: string }[] {
-  const items = Array.isArray(output) ? output : output && typeof output === "object" && Array.isArray((output as Record<string, unknown>).items)
-    ? (output as Record<string, unknown>).items as unknown[]
-    : [output];
+  const items = extractPrimaryArray(output) ?? [output];
 
   return items.slice(0, LIVE_ARTIFACT_LIMITS.listItems).map((item, index) => {
     if (item && typeof item === "object" && !Array.isArray(item)) {
@@ -454,10 +452,47 @@ function extractListItems(output: unknown): { title: string; subtitle?: string; 
   });
 }
 
+function extractMarkdownSummary(output: unknown, fallbackLabel: string): string {
+  const items = extractListItems(output).slice(0, 20);
+  if (items.length > 1) {
+    const lines = items.map((item) => {
+      const subtitle = item.subtitle ? ` — ${item.subtitle}` : "";
+      const title = item.url ? `[${item.title}](${item.url})` : item.title;
+      return `- ${title}${subtitle}`;
+    });
+    return [`## ${fallbackLabel}`, "", ...lines].join("\n");
+  }
+
+  return stringifyDisplayValue(output);
+}
+
+function extractPrimaryArray(output: unknown): unknown[] | null {
+  if (Array.isArray(output)) {
+    return output;
+  }
+  if (!output || typeof output !== "object") {
+    return null;
+  }
+
+  const record = output as Record<string, unknown>;
+  for (const key of ["items", "repositories", "repos", "records", "data", "values"]) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 function extractTable(output: unknown): LiveArtifactRenderJson | null {
-  const rows = Array.isArray(output) ? output : output && typeof output === "object" && Array.isArray((output as Record<string, unknown>).rows)
-    ? (output as Record<string, unknown>).rows as unknown[]
-    : null;
+  const rows = extractPrimaryArray(output);
   if (!rows || rows.length === 0 || !rows.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
     return null;
   }

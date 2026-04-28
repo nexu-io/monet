@@ -113,7 +113,7 @@ test("Composio connector provider classifies allowlisted tools from safety hints
         {
           slug: "GITHUB_LIST_RELEASES",
           name: "List releases",
-          description: "read_only alone is ignored.",
+          description: "Missing provider tags falls back to the curated catalog policy.",
           toolkit: { slug: "github" },
           read_only: true,
           input_parameters: { type: "object" }
@@ -148,7 +148,7 @@ test("Composio connector provider classifies allowlisted tools from safety hints
   assert.deepEqual(policiesByToolId.GITHUB_SEARCH_REPOSITORIES, { sideEffect: "read", approval: "never" });
   assert.deepEqual(policiesByToolId.GITHUB_LIST_PULL_REQUESTS, { sideEffect: "write", approval: "always" });
   assert.deepEqual(policiesByToolId.GITHUB_LIST_COMMITS, { sideEffect: "write", approval: "always" });
-  assert.deepEqual(policiesByToolId.GITHUB_LIST_RELEASES, { sideEffect: "write", approval: "always" });
+  assert.deepEqual(policiesByToolId.GITHUB_LIST_RELEASES, { sideEffect: "read", approval: "never" });
   assert.deepEqual(policiesByToolId.GITHUB_GET_A_REPOSITORY, { sideEffect: "destructive", approval: "always" });
 });
 

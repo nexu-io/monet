@@ -27,6 +27,7 @@ import type {
 
 const COMPOSIO_PROVIDER = "composio";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const KNOWN_COMPOSIO_SAFETY_HINTS = new Set(["readOnlyHint", "destructiveHint", "idempotentHint"]);
 
 type ConnectorStorage = Pick<ChatStorage, "createConnectorOAuthState" | "getConnectorConnection" | "getConnectorProviderComposioSettings">;
 
@@ -709,21 +710,39 @@ function mapComposioToolDefinition(
     displayName: providerDisplayName ?? allowedTool.displayName,
     description: providerDescription ?? allowedTool.summary,
     inputSchema: getComposioInputSchema(providerTool),
-    policy: classifyConnectorToolSafety(getComposioToolSafetyClassificationInput(providerTool))
+    policy: classifyConnectorToolSafety(getComposioToolSafetyClassificationInput(providerTool, allowedTool))
   };
 }
 
-function getComposioToolSafetyClassificationInput(providerTool: ComposioToolResponse): {
+function getComposioToolSafetyClassificationInput(
+  providerTool: ComposioToolResponse,
+  allowedTool: ConnectorAllowedTool
+): {
   safetyHints: readonly string[];
   oauthScopes: readonly string[];
 } {
   const metadata = getRecord(providerTool.metadata);
+  const rawProviderSafetyHints = uniqueStrings([
+    ...getStringArray(providerTool.tags),
+    ...getStringArray(metadata?.tags),
+    ...getStringArray(metadata?.safety_tags),
+    ...getStringArray(metadata?.safetyTags)
+  ]);
+  const knownProviderSafetyHints = rawProviderSafetyHints.filter((hint) => KNOWN_COMPOSIO_SAFETY_HINTS.has(hint));
+  const useCuratedReadHint =
+    allowedTool.policy.sideEffect === "read" &&
+    !knownProviderSafetyHints.includes("readOnlyHint") &&
+    !knownProviderSafetyHints.includes("destructiveHint") &&
+    !knownProviderSafetyHints.includes("idempotentHint");
+  const providerSafetyHints =
+    allowedTool.policy.sideEffect === "read" && (useCuratedReadHint || knownProviderSafetyHints.includes("readOnlyHint"))
+      ? knownProviderSafetyHints
+      : rawProviderSafetyHints;
+  const catalogSafetyHints = useCuratedReadHint ? ["readOnlyHint"] : [];
   return {
     safetyHints: uniqueStrings([
-      ...getStringArray(providerTool.tags),
-      ...getStringArray(metadata?.tags),
-      ...getStringArray(metadata?.safety_tags),
-      ...getStringArray(metadata?.safetyTags)
+      ...catalogSafetyHints,
+      ...providerSafetyHints
     ]),
     oauthScopes: uniqueStrings([
       ...getStringArray(providerTool.scopes),
@@ -797,10 +816,20 @@ function mapComposioConnectionStatus(
 ): ConnectorConnectionStatus {
   const providerStatus = getString(providerConnection.status)?.toUpperCase();
   const localStatus = mapPersistedConnectionStatus(connectorId, connection);
+  const accountLabel = getComposioAccountLabel(providerConnection) ?? connection.accountLabel ?? connection.providerConnectionId ?? undefined;
+  const accountId = getComposioAccountId(providerConnection);
+  const providerConnectorId = getString(providerConnection.toolkit?.slug);
+  const account = {
+    ...localStatus.account,
+    ...(accountLabel ? { accountLabel } : {}),
+    ...(accountId ? { accountId } : {}),
+    ...(providerConnectorId ? { providerConnectorId } : {})
+  };
 
   if (providerStatus === "ACTIVE") {
     return {
       ...localStatus,
+      account,
       state: "connected",
       connected: true
     };
@@ -809,6 +838,7 @@ function mapComposioConnectionStatus(
   if (isDisconnectedComposioStatus(providerStatus)) {
     return {
       ...localStatus,
+      account,
       state: "disconnected",
       connected: false
     };
@@ -817,6 +847,7 @@ function mapComposioConnectionStatus(
   if (isExpiredComposioStatus(providerStatus)) {
     return {
       ...localStatus,
+      account,
       state: "expired",
       connected: false,
       lastErrorCode: "connection_expired",
@@ -826,6 +857,7 @@ function mapComposioConnectionStatus(
 
   return {
     ...localStatus,
+    account,
     state: providerStatus === "INITIATED" || providerStatus === "INITIALIZING" ? "not_connected" : localStatus.state,
     connected: providerStatus === "INITIATED" || providerStatus === "INITIALIZING" ? false : localStatus.connected
   };
@@ -998,7 +1030,8 @@ function getComposioAccountLabel(response: ComposioConnectedAccountResponse): st
     getString(metadata?.account_label) ??
     getString(metadata?.accountLabel) ??
     getString(metadata?.email) ??
-    getString(metadata?.name)
+    getString(metadata?.name) ??
+    getComposioConnectionId(response)
   );
 }
 
