@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { themeVariables } from "@nexu-design/tokens";
 
 import "./app/globals.css";
+import ArtifactsPage from "./app/artifacts/page";
 import ConnectorsPage from "./app/connectors/page";
 import HomePage from "./app/page";
 import { AppProviders } from "./app/providers";
@@ -30,6 +31,7 @@ createRoot(rootElement).render(
         <AppProviders>
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/artifacts" element={<ArtifactsPage />} />
             <Route path="/connectors" element={<ConnectorsPage />} />
             <Route path="/sessions" element={<Navigate to="/" replace />} />
             <Route path="/settings" element={<SettingsLayout />}>
