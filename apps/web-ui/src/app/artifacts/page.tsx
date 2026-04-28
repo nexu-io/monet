@@ -104,9 +104,9 @@ function ArtifactCard({ artifact }: { readonly artifact: LiveArtifactSummary }) 
       </div>
 
       <div className="flex flex-col gap-2 border-t border-border-subtle pt-4 sm:flex-row sm:items-center">
-        <button className={primaryButtonClassName} type="button" disabled title="Artifact details will be available in the next Live Artifacts increment.">
+        <Link className={primaryButtonClassName} to={`/artifacts/${artifact.id}`}>
           Open artifact
-        </button>
+        </Link>
         <Link className={secondaryButtonClassName} to="/connectors">
           Browse connectors
         </Link>
