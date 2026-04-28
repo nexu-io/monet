@@ -33,16 +33,11 @@ function getStatusHint(status: ComposerProps["status"], disabledReason?: string)
     return disabledReason;
   }
 
-  switch (status) {
-    case "submitted":
-      return "Sending prompt…";
-    case "streaming":
-      return "Streaming reply…";
-    case "error":
-      return "Last request failed. Edit the prompt and send again to retry.";
-    default:
-      return null;
+  if (status === "error") {
+    return "Last request failed. Edit the prompt and send again to retry.";
   }
+
+  return null;
 }
 
 export function Composer({

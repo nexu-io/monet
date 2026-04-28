@@ -25,6 +25,8 @@ const sampleArtifact: LiveArtifactWithTiles = {
   title: "Revenue dashboard",
   slug: "revenue-dashboard",
   description: "Daily revenue summary",
+  contentType: "html_page_v1",
+  currentRevisionId: null,
   status: "active",
   pinned: false,
   refreshStatus: "idle",
@@ -33,6 +35,12 @@ const sampleArtifact: LiveArtifactWithTiles = {
   updatedAt: "2026-04-28T00:00:00.000Z",
   lastRefreshedAt: null,
   lastRefreshError: null,
+  document: {
+    format: "html_template_v1",
+    sanitizedHtml: "<main>Revenue dashboard</main>",
+    dataJson: {},
+    sanitizerVersion: "basic-html-v1"
+  },
   tiles: [{
     id: "tile_123",
     artifactId: "art_123",
@@ -95,12 +103,12 @@ const connectorTileSource = {
   outputMapping: { preferredKind: "table" }
 } as const;
 
-test("create_live_artifact requires confirmation", () => {
+test("create_live_artifact auto-executes without confirmation", () => {
   const tools = getLiveArtifactTools();
   const createTool = tools.create_live_artifact;
 
   assert.ok(createTool);
-  assert.equal(createTool.metadata.requiresConfirmation, true);
+  assert.equal(createTool.metadata.requiresConfirmation, false);
 });
 
 test("update_live_artifact stays low-friction for title or description edits", () => {
@@ -108,35 +116,16 @@ test("update_live_artifact stays low-friction for title or description edits", (
   const updateTool = tools.update_live_artifact;
 
   assert.ok(updateTool);
-  const needsApproval = updateTool.needsApproval;
 
   assert.equal(updateTool.metadata.requiresConfirmation, false);
-  assert.ok(needsApproval);
-  assert.equal(needsApproval({ artifactId: "art_123", title: "Updated title" }, {} as never), false);
-  assert.equal(needsApproval({ artifactId: "art_123", description: "Updated description" }, {} as never), false);
 });
 
-test("update_live_artifact requires approval when tiles are provided", () => {
+test("update_live_artifact rejects legacy tile updates", () => {
   const tools = getLiveArtifactTools();
   const updateTool = tools.update_live_artifact;
 
   assert.ok(updateTool);
-  const needsApproval = updateTool.needsApproval;
-  assert.ok(needsApproval);
-  assert.equal(
-    needsApproval({
-      artifactId: "art_123",
-      tiles: [{
-        title: "Tile title",
-        kind: "markdown",
-        renderJson: {
-          kind: "markdown",
-          markdown: "Updated markdown"
-        }
-      }]
-    }, {} as never),
-    true
-  );
+  assert.throws(() => (updateTool.inputSchema as ParsableSchema).parse({ artifactId: "art_123", tiles: [] }), /Unrecognized key/);
 });
 
 test("create_live_artifact returns linkable artifact identifiers and concise provenance", () => {
@@ -159,15 +148,11 @@ test("create_live_artifact returns linkable artifact identifiers and concise pro
   const output = createTool.execute({
     title: "Revenue dashboard",
     description: "Daily revenue summary",
-    tiles: [{
-      title: "Revenue",
-      kind: "metric",
-      renderJson: {
-        kind: "metric",
-        label: "Revenue",
-        value: "$42"
-      }
-    }]
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<main>Revenue</main>",
+      dataJson: { revenue: "$42" }
+    }
   }, toolExecutionContext) as Record<string, unknown>;
 
   assert.equal(output.artifactId, "art_123");
@@ -175,49 +160,20 @@ test("create_live_artifact returns linkable artifact identifiers and concise pro
   assert.deepEqual(output.provenance, {
     createdByRunId: "run_test",
     createdByToolCallId: "tcl_test",
-    tileCount: 1,
-    sourceCount: 1,
-    sources: [{
-      tileId: "tile_123",
-      tileTitle: "Revenue",
-      type: "connector_tool",
-      label: "Stripe balance",
-      toolName: "stripe_get_balance",
-      connector: {
-        connectorId: "stripe",
-        connectorName: "Stripe",
-        accountLabel: "Acme Stripe",
-        providerToolId: "stripe.get_balance"
-      },
-      querySummary: "Current balance only",
-      recordCount: 1,
-      refreshedAt: "2026-04-28T00:00:00.000Z"
-    }]
+    hasDocument: true,
+    sourceCount: 0,
+    sources: []
   });
 });
 
-test("artifact tool schemas validate tile render kinds and source metadata", () => {
+test("artifact tool schemas validate HTML documents", () => {
   const tools = getLiveArtifactTools();
   const createTool = tools.create_live_artifact;
   const updateTool = tools.update_live_artifact;
 
   assert.ok(createTool);
   assert.ok(updateTool);
-  assert.throws(
-    () => (createTool.inputSchema as ParsableSchema).parse({
-      title: "Mismatched tile",
-      tiles: [{
-        title: "Revenue",
-        kind: "markdown",
-        renderJson: {
-          kind: "metric",
-          label: "Revenue",
-          value: "$42"
-        }
-      }]
-    }),
-    /Tile kind must match renderJson kind/
-  );
+  assert.throws(() => (createTool.inputSchema as ParsableSchema).parse({ title: "Missing document" }), /Required/);
 
   assert.throws(
     () => (updateTool.inputSchema as ParsableSchema).parse({
@@ -226,36 +182,37 @@ test("artifact tool schemas validate tile render kinds and source metadata", () 
     /At least one update field is required/
   );
 
-  assert.throws(
-    () => (createTool.inputSchema as ParsableSchema).parse({
-      title: "Missing connector metadata",
-      tiles: [{
-        title: "Issues",
-        kind: "table",
-        renderJson: {
-          kind: "table",
-          columns: ["Issue"],
-          rows: [["Bug"]]
-        },
-        sourceJson: {
-          type: "connector_tool",
-          toolName: "github_search_issues",
-          input: { query: "is:open" },
-          refreshPermission: "manual_refresh_granted_for_read_only",
-          outputMapping: { preferredKind: "table" }
-        }
-      }]
-    }),
-    /connector_tool sources require connector metadata/
-  );
+  const htmlArtifact = (createTool.inputSchema as ParsableSchema).parse({
+    title: "HTML page",
+    contentType: "html_page_v1",
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>Demo</title><style>.hero{color:red}</style></head><body><main class='hero'>{{data.title}}</main></body></html>",
+      dataJson: { title: "Demo" }
+    }
+  }) as { document: { sanitizedHtml: string } };
+
+  assert.equal(htmlArtifact.document.sanitizedHtml, "<style>.hero{color:red}</style>\n<main class='hero'>{{data.title}}</main>");
+
+  const permissiveHtmlArtifact = (createTool.inputSchema as ParsableSchema).parse({
+    title: "Permissive HTML page",
+    contentType: "html_page_v1",
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<!doctype html><html><head><script>window.__x=1</script></head><body><main onclick='alert(1)'>Allowed in storage; sandbox blocks execution</main></body></html>",
+      dataJson: {}
+    }
+  }) as { document: { sanitizedHtml: string } };
+
+  assert.match(permissiveHtmlArtifact.document.sanitizedHtml, /onclick='alert\(1\)'/);
 });
 
-test("artifact tools sanitize source input before persistence and reject unsafe source payloads", () => {
+test("artifact tools sanitize document source input before persistence", () => {
   const tools = Object.fromEntries(
     createLiveArtifactToolDefinitions({
       chatStorage: {
-        createLiveArtifact(input: { readonly tiles: ReadonlyArray<{ readonly sourceJson?: unknown }> }) {
-          assert.deepEqual(input.tiles[0]?.sourceJson, {
+        createLiveArtifact(input: { readonly document?: { readonly sourceJson?: unknown } }) {
+          assert.deepEqual(input.document?.sourceJson, {
             ...connectorTileSource,
             input: {
               query: "is:open repo:acme/app",
@@ -275,14 +232,10 @@ test("artifact tools sanitize source input before persistence and reject unsafe 
 
   createTool.execute({
     title: "Open issues",
-    tiles: [{
-      title: "Issues",
-      kind: "table",
-      renderJson: {
-        kind: "table",
-        columns: ["Issue"],
-        rows: [["Bug"]]
-      },
+    document: {
+      format: "html_template_v1",
+      sanitizedHtml: "<main>Issues</main>",
+      dataJson: {},
       sourceJson: {
         ...connectorTileSource,
         input: {
@@ -291,37 +244,11 @@ test("artifact tools sanitize source input before persistence and reject unsafe 
           limit: 10
         }
       }
-    }]
+    }
   }, toolExecutionContext);
-
-  for (const unsafeInput of [
-    { query: "status:open", access_token: "secret-token" },
-    { query: "status:open", response: { items: [{ id: "issue-1" }] } },
-    { query: "from:customer@example.test", messages: [{ body: "private message" }] }
-  ]) {
-    assert.throws(
-      () => (createTool.inputSchema as ParsableSchema).parse({
-        title: "Unsafe source",
-        tiles: [{
-          title: "Issues",
-          kind: "table",
-          renderJson: {
-            kind: "table",
-            columns: ["Issue"],
-            rows: [["Bug"]]
-          },
-          sourceJson: {
-            ...connectorTileSource,
-            input: unsafeInput
-          }
-        }]
-      }),
-      /credential or token fields|raw provider responses|minimize broad personal data/
-    );
-  }
 });
 
-test("list_live_artifacts is read-only and update approval escalates for refresh-capable tile sources", () => {
+test("list_live_artifacts and update_live_artifact are read-only or low-friction", () => {
   const tools = getLiveArtifactTools();
   const listTool = tools.list_live_artifacts;
   const updateTool = tools.update_live_artifact;
@@ -331,20 +258,5 @@ test("list_live_artifacts is read-only and update approval escalates for refresh
   assert.equal(listTool.metadata.requiresConfirmation, false);
   assert.equal(listTool.needsApproval, undefined);
   assert.equal(updateTool.metadata.requiresConfirmation, false);
-  assert.equal(updateTool.needsApproval?.({
-    artifactId: "art_123",
-    tiles: [{
-      title: "Issues",
-      kind: "table",
-      renderJson: {
-        kind: "table",
-        columns: ["Issue"],
-        rows: [["Bug"]]
-      },
-      sourceJson: {
-        ...connectorTileSource,
-        input: { query: "is:open", limit: 10 }
-      }
-    }]
-  }, {} as never), true);
+  assert.equal(updateTool.needsApproval, undefined);
 });

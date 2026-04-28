@@ -1325,6 +1325,22 @@
                   "minLength": 1,
                   "maxLength": 1000
                 },
+                "contentType": {
+                  "type": "string",
+                  "enum": [
+                    "html_page_v1"
+                  ],
+                  "default": "html_page_v1"
+                },
+                "currentRevisionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "default": null
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -1502,6 +1518,22 @@
                 ],
                 "minLength": 1,
                 "maxLength": 1000
+              },
+              "contentType": {
+                "type": "string",
+                "enum": [
+                  "html_page_v1"
+                ],
+                "default": "html_page_v1"
+              },
+              "currentRevisionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128,
+                "default": null
               },
               "status": {
                 "type": "string",
@@ -2065,6 +2097,179 @@
                   ]
                 }
               },
+              "document": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "html_template_v1"
+                    ]
+                  },
+                  "sanitizedHtml": {
+                    "type": "string"
+                  },
+                  "dataJson": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                      },
+                      {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "object",
+                          "array",
+                          "null",
+                          "null"
+                        ]
+                      }
+                    ]
+                  },
+                  "dataSchemaJson": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                      },
+                      {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "object",
+                          "array",
+                          "null",
+                          "null"
+                        ]
+                      }
+                    ]
+                  },
+                  "sourceJson": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "tool",
+                          "connector_tool"
+                        ]
+                      },
+                      "toolName": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "input": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                            },
+                            {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "object",
+                                "array",
+                                "null",
+                                "null"
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "connector": {
+                        "type": "object",
+                        "properties": {
+                          "connectorId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "connectorName": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 120
+                          },
+                          "accountLabel": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "minLength": 0,
+                            "maxLength": 200
+                          },
+                          "providerToolId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "minLength": 1,
+                            "maxLength": 200
+                          }
+                        },
+                        "required": [
+                          "connectorId",
+                          "connectorName",
+                          "accountLabel",
+                          "providerToolId"
+                        ]
+                      },
+                      "refreshPermission": {
+                        "type": "string",
+                        "enum": [
+                          "manual_refresh_granted_for_read_only",
+                          "requires_confirmation"
+                        ]
+                      },
+                      "outputMapping": {
+                        "type": "object",
+                        "properties": {
+                          "preferredKind": {
+                            "type": "string",
+                            "enum": [
+                              "markdown",
+                              "metric",
+                              "list",
+                              "table",
+                              "link_card",
+                              "json"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "toolName",
+                      "input",
+                      "refreshPermission",
+                      "outputMapping"
+                    ]
+                  },
+                  "sanitizerVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "default": "basic-html-v1"
+                  }
+                },
+                "default": null,
+                "required": [
+                  "format",
+                  "sanitizedHtml"
+                ],
+                "additionalProperties": false
+              },
               "sourceStates": {
                 "type": "array",
                 "items": {
@@ -2187,6 +2392,22 @@
                 ],
                 "minLength": 1,
                 "maxLength": 1000
+              },
+              "contentType": {
+                "type": "string",
+                "enum": [
+                  "html_page_v1"
+                ],
+                "default": "html_page_v1"
+              },
+              "currentRevisionId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128,
+                "default": null
               },
               "status": {
                 "type": "string",
@@ -2764,6 +2985,179 @@
                     }
                   ]
                 }
+              },
+              "document": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "html_template_v1"
+                    ]
+                  },
+                  "sanitizedHtml": {
+                    "type": "string"
+                  },
+                  "dataJson": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                      },
+                      {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "object",
+                          "array",
+                          "null",
+                          "null"
+                        ]
+                      }
+                    ]
+                  },
+                  "dataSchemaJson": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                      },
+                      {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "object",
+                          "array",
+                          "null",
+                          "null"
+                        ]
+                      }
+                    ]
+                  },
+                  "sourceJson": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "tool",
+                          "connector_tool"
+                        ]
+                      },
+                      "toolName": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "input": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                            },
+                            {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "object",
+                                "array",
+                                "null",
+                                "null"
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "connector": {
+                        "type": "object",
+                        "properties": {
+                          "connectorId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "connectorName": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 120
+                          },
+                          "accountLabel": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "minLength": 0,
+                            "maxLength": 200
+                          },
+                          "providerToolId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "minLength": 1,
+                            "maxLength": 200
+                          }
+                        },
+                        "required": [
+                          "connectorId",
+                          "connectorName",
+                          "accountLabel",
+                          "providerToolId"
+                        ]
+                      },
+                      "refreshPermission": {
+                        "type": "string",
+                        "enum": [
+                          "manual_refresh_granted_for_read_only",
+                          "requires_confirmation"
+                        ]
+                      },
+                      "outputMapping": {
+                        "type": "object",
+                        "properties": {
+                          "preferredKind": {
+                            "type": "string",
+                            "enum": [
+                              "markdown",
+                              "metric",
+                              "list",
+                              "table",
+                              "link_card",
+                              "json"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "toolName",
+                      "input",
+                      "refreshPermission",
+                      "outputMapping"
+                    ]
+                  },
+                  "sanitizerVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "default": "basic-html-v1"
+                  }
+                },
+                "default": null,
+                "required": [
+                  "format",
+                  "sanitizedHtml"
+                ],
+                "additionalProperties": false
               },
               "sourceStates": {
                 "type": "array",
@@ -4626,7 +5020,7 @@
           "Live Artifacts"
         ],
         "summary": "Create live artifact",
-        "description": "Creates a persisted static live artifact with sanitized tile render JSON and source metadata.",
+        "description": "Creates a persisted HTML live artifact document with sandboxed markup and embedded JSON data.",
         "requestBody": {
           "required": true,
           "content": {
@@ -4637,7 +5031,8 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 160
+                    "maxLength": 160,
+                    "description": "Short title for the HTML live artifact."
                   },
                   "description": {
                     "type": [
@@ -4645,7 +5040,8 @@
                       "null"
                     ],
                     "minLength": 1,
-                    "maxLength": 1000
+                    "maxLength": 1000,
+                    "description": "Optional human-readable description."
                   },
                   "sessionId": {
                     "type": [
@@ -4655,459 +5051,190 @@
                     "minLength": 1,
                     "maxLength": 128
                   },
-                  "tiles": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "title": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 160
-                        },
-                        "kind": {
-                          "type": "string",
-                          "enum": [
-                            "markdown",
-                            "metric",
-                            "list",
-                            "table",
-                            "link_card",
-                            "json"
-                          ]
-                        },
-                        "renderJson": {
-                          "anyOf": [
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "markdown"
-                                  ]
-                                },
-                                "markdown": {
-                                  "type": "string",
-                                  "minLength": 0,
-                                  "maxLength": 20000
-                                }
-                              },
-                              "required": [
-                                "kind",
-                                "markdown"
-                              ]
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "metric"
-                                  ]
-                                },
-                                "label": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 120
-                                },
-                                "value": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 200
-                                },
-                                "caption": {
-                                  "type": "string",
-                                  "minLength": 0,
-                                  "maxLength": 500
-                                },
-                                "trend": {
-                                  "type": "string",
-                                  "enum": [
-                                    "up",
-                                    "down",
-                                    "flat"
-                                  ]
-                                }
-                              },
-                              "required": [
-                                "kind",
-                                "label",
-                                "value"
-                              ]
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "list"
-                                  ]
-                                },
-                                "items": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "object",
-                                    "properties": {
-                                      "title": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 300
-                                      },
-                                      "subtitle": {
-                                        "type": "string",
-                                        "minLength": 0,
-                                        "maxLength": 700
-                                      },
-                                      "url": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 2000,
-                                        "format": "uri"
-                                      }
-                                    },
-                                    "required": [
-                                      "title"
-                                    ]
-                                  },
-                                  "maxItems": 100
-                                }
-                              },
-                              "required": [
-                                "kind",
-                                "items"
-                              ]
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "table"
-                                  ]
-                                },
-                                "columns": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "maxLength": 1000
-                                  },
-                                  "minItems": 1,
-                                  "maxItems": 30
-                                },
-                                "rows": {
-                                  "type": "array",
-                                  "items": {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string",
-                                      "minLength": 0,
-                                      "maxLength": 1000
-                                    },
-                                    "maxItems": 30
-                                  },
-                                  "maxItems": 200
-                                }
-                              },
-                              "required": [
-                                "kind",
-                                "columns",
-                                "rows"
-                              ]
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "link_card"
-                                  ]
-                                },
-                                "title": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 160
-                                },
-                                "url": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 2000,
-                                  "format": "uri"
-                                },
-                                "description": {
-                                  "type": "string",
-                                  "minLength": 0,
-                                  "maxLength": 1000
-                                },
-                                "sourceLabel": {
-                                  "type": "string",
-                                  "minLength": 0,
-                                  "maxLength": 120
-                                }
-                              },
-                              "required": [
-                                "kind",
-                                "title",
-                                "url"
-                              ]
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "kind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "json"
-                                  ]
-                                },
-                                "value": {
-                                  "allOf": [
-                                    {
-                                      "$ref": "#/components/schemas/LiveArtifactJsonValue"
-                                    },
-                                    {
-                                      "type": [
-                                        "string",
-                                        "number",
-                                        "boolean",
-                                        "object",
-                                        "array",
-                                        "null",
-                                        "null"
-                                      ]
-                                    }
-                                  ]
-                                }
-                              },
-                              "required": [
-                                "kind",
-                                "value"
-                              ]
-                            }
-                          ]
-                        },
-                        "provenanceJson": {
-                          "type": [
-                            "object",
-                            "null"
-                          ],
-                          "properties": {
-                            "sources": {
-                              "type": "array",
-                              "items": {
-                                "type": "object",
-                                "properties": {
-                                  "type": {
-                                    "type": "string",
-                                    "enum": [
-                                      "static",
-                                      "tool",
-                                      "connector_tool"
-                                    ]
-                                  },
-                                  "label": {
-                                    "type": "string"
-                                  },
-                                  "toolName": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "maxLength": 200
-                                  },
-                                  "connector": {
-                                    "type": "object",
-                                    "properties": {
-                                      "connectorId": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 100
-                                      },
-                                      "connectorName": {
-                                        "type": "string"
-                                      },
-                                      "accountLabel": {
-                                        "type": [
-                                          "string",
-                                          "null"
-                                        ]
-                                      },
-                                      "providerToolId": {
-                                        "type": [
-                                          "string",
-                                          "null"
-                                        ],
-                                        "minLength": 1,
-                                        "maxLength": 200
-                                      }
-                                    },
-                                    "required": [
-                                      "connectorId",
-                                      "connectorName",
-                                      "accountLabel",
-                                      "providerToolId"
-                                    ]
-                                  },
-                                  "querySummary": {
-                                    "type": "string"
-                                  },
-                                  "recordCount": {
-                                    "type": "integer",
-                                    "minimum": 0,
-                                    "maximum": 1000000
-                                  },
-                                  "refreshedAt": {
-                                    "type": "string",
-                                    "format": "date-time"
-                                  }
-                                },
-                                "required": [
-                                  "type"
-                                ]
-                              },
-                              "maxItems": 20,
-                              "default": []
-                            },
-                            "notes": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              },
-                              "maxItems": 20
-                            },
-                            "generatedAt": {
-                              "type": "string",
-                              "format": "date-time"
-                            }
-                          },
-                          "additionalProperties": false
-                        },
-                        "sourceJson": {
-                          "type": [
-                            "object",
-                            "null"
-                          ],
-                          "properties": {
-                            "type": {
-                              "type": "string",
-                              "enum": [
-                                "tool",
-                                "connector_tool"
-                              ]
-                            },
-                            "toolName": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 200
-                            },
-                            "input": {
-                              "type": "object",
-                              "additionalProperties": {
-                                "allOf": [
-                                  {
-                                    "$ref": "#/components/schemas/LiveArtifactJsonValue"
-                                  },
-                                  {
-                                    "type": [
-                                      "string",
-                                      "number",
-                                      "boolean",
-                                      "object",
-                                      "array",
-                                      "null",
-                                      "null"
-                                    ]
-                                  }
-                                ]
-                              }
-                            },
-                            "connector": {
-                              "type": "object",
-                              "properties": {
-                                "connectorId": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 100
-                                },
-                                "connectorName": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 120
-                                },
-                                "accountLabel": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ],
-                                  "minLength": 0,
-                                  "maxLength": 200
-                                },
-                                "providerToolId": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ],
-                                  "minLength": 1,
-                                  "maxLength": 200
-                                }
-                              },
-                              "required": [
-                                "connectorId",
-                                "connectorName",
-                                "accountLabel",
-                                "providerToolId"
-                              ]
-                            },
-                            "refreshPermission": {
-                              "type": "string",
-                              "enum": [
-                                "manual_refresh_granted_for_read_only",
-                                "requires_confirmation"
-                              ]
-                            },
-                            "outputMapping": {
-                              "type": "object",
-                              "properties": {
-                                "preferredKind": {
-                                  "type": "string",
-                                  "enum": [
-                                    "markdown",
-                                    "metric",
-                                    "list",
-                                    "table",
-                                    "link_card",
-                                    "json"
-                                  ]
-                                }
-                              }
-                            }
-                          },
-                          "required": [
-                            "type",
-                            "toolName",
-                            "input",
-                            "refreshPermission",
-                            "outputMapping"
-                          ]
-                        }
+                  "contentType": {
+                    "type": "string",
+                    "enum": [
+                      "html_page_v1"
+                    ],
+                    "default": "html_page_v1",
+                    "description": "Must be html_page_v1."
+                  },
+                  "document": {
+                    "type": "object",
+                    "properties": {
+                      "format": {
+                        "type": "string",
+                        "enum": [
+                          "html_template_v1"
+                        ]
                       },
-                      "required": [
-                        "title",
-                        "kind",
-                        "renderJson"
-                      ]
+                      "sanitizedHtml": {
+                        "type": "string"
+                      },
+                      "dataJson": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                          },
+                          {
+                            "type": [
+                              "string",
+                              "number",
+                              "boolean",
+                              "object",
+                              "array",
+                              "null",
+                              "null"
+                            ]
+                          }
+                        ]
+                      },
+                      "dataSchemaJson": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                          },
+                          {
+                            "type": [
+                              "string",
+                              "number",
+                              "boolean",
+                              "object",
+                              "array",
+                              "null",
+                              "null"
+                            ]
+                          }
+                        ]
+                      },
+                      "sourceJson": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "tool",
+                              "connector_tool"
+                            ]
+                          },
+                          "toolName": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "input": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "allOf": [
+                                {
+                                  "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                },
+                                {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "object",
+                                    "array",
+                                    "null",
+                                    "null"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "connector": {
+                            "type": "object",
+                            "properties": {
+                              "connectorId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100
+                              },
+                              "connectorName": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "accountLabel": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "minLength": 0,
+                                "maxLength": 200
+                              },
+                              "providerToolId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "minLength": 1,
+                                "maxLength": 200
+                              }
+                            },
+                            "required": [
+                              "connectorId",
+                              "connectorName",
+                              "accountLabel",
+                              "providerToolId"
+                            ]
+                          },
+                          "refreshPermission": {
+                            "type": "string",
+                            "enum": [
+                              "manual_refresh_granted_for_read_only",
+                              "requires_confirmation"
+                            ]
+                          },
+                          "outputMapping": {
+                            "type": "object",
+                            "properties": {
+                              "preferredKind": {
+                                "type": "string",
+                                "enum": [
+                                  "markdown",
+                                  "metric",
+                                  "list",
+                                  "table",
+                                  "link_card",
+                                  "json"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "toolName",
+                          "input",
+                          "refreshPermission",
+                          "outputMapping"
+                        ]
+                      },
+                      "sanitizerVersion": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "default": "basic-html-v1"
+                      }
                     },
-                    "minItems": 1,
-                    "maxItems": 50
+                    "required": [
+                      "format",
+                      "sanitizedHtml"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Required HTML page document. Put the page markup in sanitizedHtml and dynamic values in dataJson. Do not send tiles or renderJson."
                   }
                 },
                 "required": [
                   "title",
-                  "tiles"
-                ]
+                  "document"
+                ],
+                "additionalProperties": false
               }
             }
           }
@@ -5152,7 +5279,7 @@
           "Live Artifacts"
         ],
         "summary": "Get live artifact detail",
-        "description": "Returns a single live artifact and its tiles.",
+        "description": "Returns a single HTML live artifact document and refresh metadata.",
         "parameters": [
           {
             "schema": {
@@ -5234,6 +5361,22 @@
                               ],
                               "minLength": 1,
                               "maxLength": 1000
+                            },
+                            "contentType": {
+                              "type": "string",
+                              "enum": [
+                                "html_page_v1"
+                              ],
+                              "default": "html_page_v1"
+                            },
+                            "currentRevisionId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "default": null
                             },
                             "status": {
                               "type": "string",
@@ -5811,6 +5954,179 @@
                                   }
                                 ]
                               }
+                            },
+                            "document": {
+                              "type": [
+                                "object",
+                                "null"
+                              ],
+                              "properties": {
+                                "format": {
+                                  "type": "string",
+                                  "enum": [
+                                    "html_template_v1"
+                                  ]
+                                },
+                                "sanitizedHtml": {
+                                  "type": "string"
+                                },
+                                "dataJson": {
+                                  "allOf": [
+                                    {
+                                      "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                    },
+                                    {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "object",
+                                        "array",
+                                        "null",
+                                        "null"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "dataSchemaJson": {
+                                  "allOf": [
+                                    {
+                                      "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                    },
+                                    {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "object",
+                                        "array",
+                                        "null",
+                                        "null"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "sourceJson": {
+                                  "type": [
+                                    "object",
+                                    "null"
+                                  ],
+                                  "properties": {
+                                    "type": {
+                                      "type": "string",
+                                      "enum": [
+                                        "tool",
+                                        "connector_tool"
+                                      ]
+                                    },
+                                    "toolName": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "input": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "allOf": [
+                                          {
+                                            "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                          },
+                                          {
+                                            "type": [
+                                              "string",
+                                              "number",
+                                              "boolean",
+                                              "object",
+                                              "array",
+                                              "null",
+                                              "null"
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "connector": {
+                                      "type": "object",
+                                      "properties": {
+                                        "connectorId": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 100
+                                        },
+                                        "connectorName": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 120
+                                        },
+                                        "accountLabel": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ],
+                                          "minLength": 0,
+                                          "maxLength": 200
+                                        },
+                                        "providerToolId": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ],
+                                          "minLength": 1,
+                                          "maxLength": 200
+                                        }
+                                      },
+                                      "required": [
+                                        "connectorId",
+                                        "connectorName",
+                                        "accountLabel",
+                                        "providerToolId"
+                                      ]
+                                    },
+                                    "refreshPermission": {
+                                      "type": "string",
+                                      "enum": [
+                                        "manual_refresh_granted_for_read_only",
+                                        "requires_confirmation"
+                                      ]
+                                    },
+                                    "outputMapping": {
+                                      "type": "object",
+                                      "properties": {
+                                        "preferredKind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "markdown",
+                                            "metric",
+                                            "list",
+                                            "table",
+                                            "link_card",
+                                            "json"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "toolName",
+                                    "input",
+                                    "refreshPermission",
+                                    "outputMapping"
+                                  ]
+                                },
+                                "sanitizerVersion": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80,
+                                  "default": "basic-html-v1"
+                                }
+                              },
+                              "default": null,
+                              "required": [
+                                "format",
+                                "sanitizedHtml"
+                              ],
+                              "additionalProperties": false
                             },
                             "sourceStates": {
                               "type": "array",
@@ -5966,6 +6282,22 @@
                               "minLength": 1,
                               "maxLength": 1000
                             },
+                            "contentType": {
+                              "type": "string",
+                              "enum": [
+                                "html_page_v1"
+                              ],
+                              "default": "html_page_v1"
+                            },
+                            "currentRevisionId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "default": null
+                            },
                             "status": {
                               "type": "string",
                               "enum": [
@@ -6543,6 +6875,179 @@
                                 ]
                               }
                             },
+                            "document": {
+                              "type": [
+                                "object",
+                                "null"
+                              ],
+                              "properties": {
+                                "format": {
+                                  "type": "string",
+                                  "enum": [
+                                    "html_template_v1"
+                                  ]
+                                },
+                                "sanitizedHtml": {
+                                  "type": "string"
+                                },
+                                "dataJson": {
+                                  "allOf": [
+                                    {
+                                      "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                    },
+                                    {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "object",
+                                        "array",
+                                        "null",
+                                        "null"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "dataSchemaJson": {
+                                  "allOf": [
+                                    {
+                                      "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                    },
+                                    {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "object",
+                                        "array",
+                                        "null",
+                                        "null"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "sourceJson": {
+                                  "type": [
+                                    "object",
+                                    "null"
+                                  ],
+                                  "properties": {
+                                    "type": {
+                                      "type": "string",
+                                      "enum": [
+                                        "tool",
+                                        "connector_tool"
+                                      ]
+                                    },
+                                    "toolName": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "input": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "allOf": [
+                                          {
+                                            "$ref": "#/components/schemas/LiveArtifactJsonValue"
+                                          },
+                                          {
+                                            "type": [
+                                              "string",
+                                              "number",
+                                              "boolean",
+                                              "object",
+                                              "array",
+                                              "null",
+                                              "null"
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "connector": {
+                                      "type": "object",
+                                      "properties": {
+                                        "connectorId": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 100
+                                        },
+                                        "connectorName": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 120
+                                        },
+                                        "accountLabel": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ],
+                                          "minLength": 0,
+                                          "maxLength": 200
+                                        },
+                                        "providerToolId": {
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ],
+                                          "minLength": 1,
+                                          "maxLength": 200
+                                        }
+                                      },
+                                      "required": [
+                                        "connectorId",
+                                        "connectorName",
+                                        "accountLabel",
+                                        "providerToolId"
+                                      ]
+                                    },
+                                    "refreshPermission": {
+                                      "type": "string",
+                                      "enum": [
+                                        "manual_refresh_granted_for_read_only",
+                                        "requires_confirmation"
+                                      ]
+                                    },
+                                    "outputMapping": {
+                                      "type": "object",
+                                      "properties": {
+                                        "preferredKind": {
+                                          "type": "string",
+                                          "enum": [
+                                            "markdown",
+                                            "metric",
+                                            "list",
+                                            "table",
+                                            "link_card",
+                                            "json"
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "toolName",
+                                    "input",
+                                    "refreshPermission",
+                                    "outputMapping"
+                                  ]
+                                },
+                                "sanitizerVersion": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80,
+                                  "default": "basic-html-v1"
+                                }
+                              },
+                              "default": null,
+                              "required": [
+                                "format",
+                                "sanitizedHtml"
+                              ],
+                              "additionalProperties": false
+                            },
                             "sourceStates": {
                               "type": "array",
                               "items": {
@@ -6693,51 +7198,6 @@
           },
           "501": {
             "description": "Live artifact refresh is not enabled in this increment.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LiveArtifactRefreshDisabledResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/live-artifacts/{artifactId}/tiles/{tileId}/refresh": {
-      "post": {
-        "tags": [
-          "Live Artifacts"
-        ],
-        "summary": "Refresh live artifact tile",
-        "description": "Disabled by the Live Artifacts refresh phase gate until connector readiness gates pass. Static artifact creation, list, detail, update, pin, and archive remain available.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "example": "art_123"
-            },
-            "required": true,
-            "name": "artifactId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "example": "til_123"
-            },
-            "required": true,
-            "name": "tileId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "501": {
-            "description": "Live artifact tile refresh is not enabled in this increment.",
             "content": {
               "application/json": {
                 "schema": {

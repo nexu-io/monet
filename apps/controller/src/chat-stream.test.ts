@@ -11,6 +11,7 @@ import {
   createChatStreamResponse,
   isExpiredWallClockBudget,
   isToolCallBudgetExhausted,
+  resolveStepUsageTokenIncrement,
   resolveObservedRunUsage
 } from "./chat-stream";
 import { createChatStorage } from "./chat-storage";
@@ -150,6 +151,13 @@ test("isToolCallBudgetExhausted aborts once the configured tool-call limit is re
   assert.equal(isToolCallBudgetExhausted(0, 1), false);
   assert.equal(isToolCallBudgetExhausted(1, 1), true);
   assert.equal(isToolCallBudgetExhausted(2, 1), true);
+});
+
+test("resolveStepUsageTokenIncrement handles cumulative and per-step usage reports", () => {
+  assert.equal(resolveStepUsageTokenIncrement(0, 10), 10);
+  assert.equal(resolveStepUsageTokenIncrement(10, 25), 15);
+  assert.equal(resolveStepUsageTokenIncrement(25, 8), 8);
+  assert.equal(resolveStepUsageTokenIncrement(25, 0), 0);
 });
 
 test("chat stream threads session workspace context into runtime tools", async () => {

@@ -26,10 +26,6 @@ const artifactIdParamSchema = z.object({
   artifactId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.id).openapi({ example: "art_123" })
 });
 
-const tileRefreshParamSchema = artifactIdParamSchema.extend({
-  tileId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.id).openapi({ example: "til_123" })
-});
-
 const ListLiveArtifactsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().openapi({ example: "false" }),
   sessionId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.id).optional().openapi({ example: "ses_123" }),
@@ -154,7 +150,7 @@ const createLiveArtifactRoute = createRoute({
   path: "/api/live-artifacts",
   tags: ["Live Artifacts"],
   summary: "Create live artifact",
-  description: "Creates a persisted static live artifact with sanitized tile render JSON and source metadata.",
+  description: "Creates a persisted HTML live artifact document with sandboxed markup and embedded JSON data.",
   request: {
     body: {
       required: true,
@@ -198,7 +194,7 @@ const getLiveArtifactRoute = createRoute({
   path: "/api/live-artifacts/{artifactId}",
   tags: ["Live Artifacts"],
   summary: "Get live artifact detail",
-  description: "Returns a single live artifact and its tiles.",
+  description: "Returns a single HTML live artifact document and refresh metadata.",
   request: {
     params: artifactIdParamSchema
   },
@@ -347,28 +343,6 @@ const refreshLiveArtifactRoute = createRoute({
       content: {
         "application/json": {
           schema: ErrorResponseSchema
-        }
-      }
-    }
-  }
-});
-
-const refreshLiveArtifactTileRoute = createRoute({
-  method: "post",
-  path: "/api/live-artifacts/{artifactId}/tiles/{tileId}/refresh",
-  tags: ["Live Artifacts"],
-  summary: "Refresh live artifact tile",
-  description:
-    "Disabled by the Live Artifacts refresh phase gate until connector readiness gates pass. Static artifact creation, list, detail, update, pin, and archive remain available.",
-  request: {
-    params: tileRefreshParamSchema
-  },
-  responses: {
-    501: {
-      description: "Live artifact tile refresh is not enabled in this increment.",
-      content: {
-        "application/json": {
-          schema: RefreshDisabledResponseSchema
         }
       }
     }
@@ -722,9 +696,4 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
     }
   });
 
-  app.openapi(refreshLiveArtifactTileRoute, (context) => {
-    void context.req.valid("param");
-
-    return context.json(createRefreshDisabledResponse(), 501);
-  });
 }

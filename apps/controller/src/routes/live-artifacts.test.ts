@@ -112,21 +112,22 @@ function createControllerOptions(fixture: ReturnType<typeof createStorageFixture
 }
 
 function createArtifactPayload(title = "Quarterly dashboard") {
+  return createHtmlArtifactPayload(title);
+}
+
+function createHtmlArtifactPayload(title = "HTML dashboard") {
   return {
     title,
-    description: "Controller test artifact",
-    tiles: [{
-      title: "Revenue",
-      kind: "metric" as const,
-      renderJson: {
-        kind: "metric" as const,
-        label: "Revenue",
-        value: "$42"
+    description: "HTML page artifact",
+    contentType: "html_page_v1" as const,
+    document: {
+      format: "html_template_v1" as const,
+      sanitizedHtml: "<main><h1>Repository status</h1><p>Rendered as a sandboxed HTML page.</p></main>",
+      dataJson: {
+        repositories: [{ name: "monet-connectors", openIssues: 3 }]
       },
-      provenanceJson: {
-        sources: [{ type: "static" as const, label: "fixture" }]
-      }
-    }]
+      sanitizerVersion: "basic-html-v1"
+    }
   };
 }
 
@@ -160,15 +161,10 @@ test("live artifact refresh routes fail closed when refresh dependencies are una
 
   assert.equal(LIVE_ARTIFACT_REFRESH_PHASE_GATE.enabled, true);
   assert.equal(artifactRefreshResponse.status, 501);
-  assert.equal(tileRefreshResponse.status, 501);
+  assert.equal(tileRefreshResponse.status, 404);
   assert.equal(storageAccesses, 0);
 
   assert.deepEqual(await artifactRefreshResponse.json(), {
-    error: LIVE_ARTIFACT_REFRESH_PHASE_GATE.errorCode,
-    message: LIVE_ARTIFACT_REFRESH_PHASE_GATE.message,
-    disabled: true
-  });
-  assert.deepEqual(await tileRefreshResponse.json(), {
     error: LIVE_ARTIFACT_REFRESH_PHASE_GATE.errorCode,
     message: LIVE_ARTIFACT_REFRESH_PHASE_GATE.message,
     disabled: true
@@ -191,9 +187,10 @@ test("live artifact migrations create schema, constraints, indexes, and migratio
         .all() as Array<{ name: string }>;
       const latestMigration = connection
         .prepare("SELECT COUNT(*) AS count FROM __drizzle_migrations WHERE created_at = ?")
-        .get(1760000008000) as { count: number };
+        .get(1760000009000) as { count: number };
 
       assert.deepEqual(tables.map((row) => row.name), [
+        "live_artifact_documents",
         "live_artifact_refresh_steps",
         "live_artifact_refreshes",
         "live_artifact_tiles",
@@ -201,6 +198,7 @@ test("live artifact migrations create schema, constraints, indexes, and migratio
       ]);
       assert.ok(indexes.some((row) => row.name === "idx_live_artifacts_pinned_updated_at"));
       assert.ok(indexes.some((row) => row.name === "idx_live_artifact_tiles_artifact_position"));
+      assert.ok(indexes.some((row) => row.name === "idx_live_artifact_documents_artifact_created_at"));
       assert.ok(indexes.some((row) => row.name === "idx_live_artifact_refresh_steps_status"));
       assert.equal(latestMigration.count, 1);
     } finally {
@@ -237,9 +235,27 @@ test("live artifact CRUD routes validate input, hide archived artifacts by defau
     const alpha = (await alphaResponse.json() as { artifact: { id: string; title: string; pinned: boolean } }).artifact;
     const beta = (await betaResponse.json() as { artifact: { id: string; title: string; pinned: boolean } }).artifact;
 
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const now = new Date().toISOString();
+      connection.exec("PRAGMA ignore_check_constraints = ON");
+      connection
+        .prepare(
+          `INSERT INTO live_artifacts (
+             id, schema_version, title, slug, description, content_type, current_revision_id, status, pinned, refresh_status,
+             created_at, updated_at
+           ) VALUES ('art_legacy_tiles', 1, 'Legacy tiles', 'legacy-tiles', NULL, 'tiles_v1', NULL, 'active', 0, 'idle', ?, ?)`
+        )
+        .run(now, now);
+      connection.exec("PRAGMA ignore_check_constraints = OFF");
+    } finally {
+      connection.exec("PRAGMA ignore_check_constraints = OFF");
+      connection.close();
+    }
+
     const detailResponse = await requestJson(app, `/api/live-artifacts/${alpha.id}`);
     assert.equal(detailResponse.status, 200);
-    assert.equal((await detailResponse.json() as { artifact: { title: string; tiles: unknown[] } }).artifact.tiles.length, 1);
+    assert.equal((await detailResponse.json() as { artifact: { title: string; document: unknown } }).artifact.document !== null, true);
 
     const updateResponse = await requestJson(app, `/api/live-artifacts/${alpha.id}`, {
       method: "PATCH",
@@ -265,6 +281,7 @@ test("live artifact CRUD routes validate input, hide archived artifacts by defau
     assert.equal(defaultListResponse.status, 200);
     const defaultList = await defaultListResponse.json() as { artifacts: Array<{ id: string; pinned: boolean; status: string }> };
     assert.deepEqual(defaultList.artifacts.map((artifact) => artifact.id), [alpha.id]);
+    assert.equal(defaultList.artifacts.some((artifact) => artifact.id === "art_legacy_tiles"), false);
     assert.equal(defaultList.artifacts[0]?.pinned, true);
 
     const includeArchivedResponse = await requestJson(app, "/api/live-artifacts?includeArchived=true");
@@ -280,7 +297,75 @@ test("live artifact CRUD routes validate input, hide archived artifacts by defau
   }
 });
 
-test("live artifact storage rolls back failed creates and preserves existing tiles on failed replacement", () => {
+test("live artifact routes create and return sandboxable HTML page documents", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const app = createRouteApp(createStorage(fixture.databasePath));
+    const createResponse = await requestJson(app, "/api/live-artifacts", {
+      method: "POST",
+      body: JSON.stringify(createHtmlArtifactPayload("HTML status page"))
+    });
+
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json() as {
+      artifact: {
+        id: string;
+        contentType: string;
+        currentRevisionId: string | null;
+        tiles: unknown[];
+        document: { sanitizedHtml: string; dataJson: { repositories: Array<{ name: string }> } } | null;
+      };
+    };
+
+    assert.equal(created.artifact.contentType, "html_page_v1");
+    assert.ok(created.artifact.currentRevisionId);
+    assert.equal(created.artifact.tiles.length, 0);
+    assert.equal(created.artifact.document?.sanitizedHtml.includes("<main>"), true);
+    assert.equal(created.artifact.document?.dataJson.repositories[0]?.name, "monet-connectors");
+
+    const detailResponse = await requestJson(app, `/api/live-artifacts/${created.artifact.id}`);
+    assert.equal(detailResponse.status, 200);
+    const detail = await detailResponse.json() as typeof created;
+    assert.equal(detail.artifact.document?.sanitizedHtml, created.artifact.document?.sanitizedHtml);
+
+    const unsafeResponse = await requestJson(app, "/api/live-artifacts", {
+      method: "POST",
+      body: JSON.stringify({
+        ...createHtmlArtifactPayload("Unsafe HTML"),
+        document: {
+          ...createHtmlArtifactPayload("Unsafe HTML").document,
+          sanitizedHtml: "<main onclick=alert(1)>Unsafe</main><script>alert(1)</script>"
+        }
+      })
+    });
+    assert.equal(unsafeResponse.status, 201);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact storage accepts creation metadata outside public tool schema", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      ...createHtmlArtifactPayload("Metadata artifact"),
+      createdByRunId: null,
+      createdByToolCallId: null
+    });
+
+    assert.equal(artifact.createdByRunId, null);
+    assert.equal(artifact.createdByToolCallId, null);
+    assert.equal(artifact.contentType, "html_page_v1");
+    assert.ok(artifact.document);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact storage rolls back failed creates and preserves documents on failed legacy replacement", () => {
   const fixture = createStorageFixture();
 
   try {
@@ -288,12 +373,13 @@ test("live artifact storage rolls back failed creates and preserves existing til
     const connection = new DatabaseSync(fixture.databasePath);
 
     try {
-      assert.throws(() => storage.createLiveArtifact({ ...createArtifactPayload("Missing session"), sessionId: "ses_missing" }));
+      assert.throws(() => storage.createLiveArtifact({ ...createHtmlArtifactPayload("Missing session"), sessionId: "ses_missing" }));
       const artifactCount = connection.prepare("SELECT COUNT(*) AS count FROM live_artifacts").get() as { count: number };
       assert.equal(artifactCount.count, 0);
 
-      const artifact = storage.createLiveArtifact(createArtifactPayload("Stable tiles"));
-      assert.equal(artifact.tiles.length, 1);
+      const artifact = storage.createLiveArtifact(createHtmlArtifactPayload("Stable document"));
+      assert.equal(artifact.tiles.length, 0);
+      assert.ok(artifact.document?.sanitizedHtml);
 
       assert.throws(() => storage.replaceLiveArtifactTiles({
         artifactId: artifact.id,
@@ -309,8 +395,8 @@ test("live artifact storage rolls back failed creates and preserves existing til
       }));
 
       const afterFailure = storage.getLiveArtifact(artifact.id);
-      assert.equal(afterFailure.tiles.length, 1);
-      assert.equal(afterFailure.tiles[0]?.title, "Revenue");
+      assert.equal(afterFailure.tiles.length, 0);
+      assert.equal(afterFailure.document?.sanitizedHtml, artifact.document?.sanitizedHtml);
     } finally {
       connection.close();
     }
@@ -325,9 +411,8 @@ test("live artifact database constraints and foreign-key behavior are enforced",
   try {
     const storage = createStorage(fixture.databasePath);
     const session = storage.createSession({ title: "Artifact session" });
-    const artifact = storage.createLiveArtifact({ ...createArtifactPayload("Session artifact"), sessionId: session.id });
-    const tileId = artifact.tiles[0]?.id;
-    assert.ok(tileId);
+    const artifact = storage.createLiveArtifact({ ...createHtmlArtifactPayload("Session artifact"), sessionId: session.id });
+    const tileId = "til_constraint_test";
 
     const connection = new DatabaseSync(fixture.databasePath);
     try {
@@ -348,6 +433,19 @@ test("live artifact database constraints and foreign-key behavior are enforced",
           .run(artifact.id, new Date().toISOString(), new Date().toISOString());
       });
 
+      connection
+        .prepare(
+          `INSERT INTO live_artifact_tiles (id, artifact_id, schema_version, position, title, kind, render_json, created_at, updated_at)
+           VALUES (?, ?, 1, 0, 'Legacy tile', 'markdown', ?, ?, ?)`
+        )
+        .run(
+          tileId,
+          artifact.id,
+          JSON.stringify({ kind: "markdown", markdown: "Legacy tile" }),
+          new Date().toISOString(),
+          new Date().toISOString()
+        );
+
       storage.deleteSession(session.id);
       assert.equal(storage.getLiveArtifact(artifact.id).sessionId, null);
 
@@ -362,7 +460,7 @@ test("live artifact database constraints and foreign-key behavior are enforced",
   }
 });
 
-test("live artifact routes reject unsafe oversized render JSON", async () => {
+test("live artifact routes reject legacy tile payloads", async () => {
   const fixture = createStorageFixture();
 
   try {
@@ -370,13 +468,13 @@ test("live artifact routes reject unsafe oversized render JSON", async () => {
     const response = await requestJson(app, "/api/live-artifacts", {
       method: "POST",
       body: JSON.stringify({
-        title: "Oversized render",
+        title: "Legacy tiles",
         tiles: [{
-          title: "Huge markdown",
+          title: "Markdown",
           kind: "markdown",
           renderJson: {
             kind: "markdown",
-            markdown: "x".repeat(20_001)
+            markdown: "Legacy tile content"
           }
         }]
       })

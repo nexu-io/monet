@@ -19,6 +19,7 @@ export const LIVE_ARTIFACT_LIMITS = {
   provenanceNote: 500,
   provenanceSources: 20,
   markdown: 20_000,
+  html: 120_000,
   metricLabel: 120,
   metricValue: 200,
   metricCaption: 500,
@@ -49,6 +50,7 @@ const htmlLikePattern = /<\s*\/?\s*(?:!doctype|html|head|body|script|iframe|obje
 const scriptLikePattern = /(?:javascript\s*:|on[a-z]+\s*=|<\s*script\b|<\s*\/\s*script\s*>)/i;
 
 export const LiveArtifactStatusSchema = z.enum(["draft", "active", "archived"]);
+export const LiveArtifactContentTypeSchema = z.literal("html_page_v1");
 export const LiveArtifactRefreshStatusSchema = z.enum(["idle", "refreshing", "failed"]);
 export const LiveArtifactTileKindSchema = z.enum(["markdown", "metric", "list", "table", "link_card", "json"]);
 export const LiveArtifactTileSourceTypeSchema = z.enum(["tool", "connector_tool"]);
@@ -443,6 +445,49 @@ export const LiveArtifactTileSourceSchema = z
     }
   });
 
+function normalizeLiveArtifactHtml(value: string) {
+  let html = value.trim().replace(/<!doctype\b[^>]*>/gi, "");
+  const styleBlocks = Array.from(html.matchAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi), (match) => match[0] ?? "");
+
+  html = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+
+  const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+  if (bodyMatch) {
+    html = bodyMatch[1] ?? "";
+  } else {
+    html = html
+      .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, "")
+      .replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, "")
+      .replace(/<meta\b[^>]*>/gi, "")
+      .replace(/<\/?(?:html|head|body)\b[^>]*>/gi, "");
+  }
+
+  return [...styleBlocks, html].join("\n").trim();
+}
+
+export const LiveArtifactHtmlDocumentSchema = z.object({
+  format: z.literal("html_template_v1"),
+  sanitizedHtml: z
+    .string()
+    .trim()
+    .transform((value) => normalizeLiveArtifactHtml(value))
+    .pipe(z.string()
+    .min(1)
+    .max(LIVE_ARTIFACT_LIMITS.html)),
+  dataJson: LiveArtifactJsonValueSchema.default({}),
+  dataSchemaJson: LiveArtifactJsonValueSchema.nullable().optional(),
+  sourceJson: LiveArtifactTileSourceSchema.nullable().optional(),
+  sanitizerVersion: z.string().trim().min(1).max(80).default("basic-html-v1")
+}).strict().superRefine((value, ctx) => {
+  if (getJsonByteLength(value.dataJson) > LIVE_ARTIFACT_LIMITS.renderJsonBytes) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dataJson"],
+      message: `Document data JSON exceeds max size of ${LIVE_ARTIFACT_LIMITS.renderJsonBytes} bytes`
+    });
+  }
+});
+
 export const LiveArtifactSchema = z.object({
   id: idSchema,
   schemaVersion: z.literal(LIVE_ARTIFACT_SCHEMA_VERSION),
@@ -452,6 +497,8 @@ export const LiveArtifactSchema = z.object({
   title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1),
   slug: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.slug).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   description: nullableBoundedString(LIVE_ARTIFACT_LIMITS.description),
+  contentType: LiveArtifactContentTypeSchema.default("html_page_v1"),
+  currentRevisionId: idSchema.nullable().default(null),
   status: LiveArtifactStatusSchema,
   pinned: z.boolean(),
   refreshStatus: LiveArtifactRefreshStatusSchema,
@@ -491,7 +538,8 @@ export const LiveArtifactTileSchema = z
   });
 
 export const LiveArtifactWithTilesSchema = LiveArtifactSchema.extend({
-  tiles: z.array(LiveArtifactTileSchema)
+  tiles: z.array(LiveArtifactTileSchema),
+  document: LiveArtifactHtmlDocumentSchema.nullable().default(null)
 });
 
 export const LiveArtifactCreateTileInputSchema = z
@@ -513,13 +561,19 @@ export const LiveArtifactCreateTileInputSchema = z
   });
 
 export const LiveArtifactCreateInputSchema = z.object({
-  title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1),
-  description: optionalBoundedString(LIVE_ARTIFACT_LIMITS.description).nullable(),
+  title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1).describe("Short title for the HTML live artifact."),
+  description: optionalBoundedString(LIVE_ARTIFACT_LIMITS.description).nullable().describe("Optional human-readable description."),
   sessionId: idSchema.optional().nullable(),
-  tiles: z.array(LiveArtifactCreateTileInputSchema).min(1).max(50)
+  contentType: LiveArtifactContentTypeSchema.optional().default("html_page_v1").describe("Must be html_page_v1."),
+  document: LiveArtifactHtmlDocumentSchema.describe("Required HTML page document. Put the page markup in sanitizedHtml and dynamic values in dataJson. Do not send tiles or renderJson.")
+}).strict().superRefine((value, ctx) => {
+  if (value.contentType !== "html_page_v1") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contentType"], message: "Only html_page_v1 live artifacts are supported" });
+  }
 });
 
 export type LiveArtifactStatus = z.infer<typeof LiveArtifactStatusSchema>;
+export type LiveArtifactContentType = z.infer<typeof LiveArtifactContentTypeSchema>;
 export type LiveArtifactRefreshStatus = z.infer<typeof LiveArtifactRefreshStatusSchema>;
 export type LiveArtifactTileKind = z.infer<typeof LiveArtifactTileKindSchema>;
 export type LiveArtifactRefreshPermission = z.infer<typeof LiveArtifactRefreshPermissionSchema>;
@@ -537,7 +591,8 @@ export type LiveArtifactProvenanceSource = z.infer<typeof LiveArtifactProvenance
 export type LiveArtifactProvenanceJson = z.infer<typeof LiveArtifactProvenanceJsonSchema>;
 export type LiveArtifactTileSource = z.infer<typeof LiveArtifactTileSourceSchema>;
 export type LiveArtifact = z.infer<typeof LiveArtifactSchema>;
+export type LiveArtifactHtmlDocument = z.infer<typeof LiveArtifactHtmlDocumentSchema>;
 export type LiveArtifactTile = z.infer<typeof LiveArtifactTileSchema>;
 export type LiveArtifactWithTiles = z.infer<typeof LiveArtifactWithTilesSchema>;
 export type LiveArtifactCreateTileInput = z.infer<typeof LiveArtifactCreateTileInputSchema>;
-export type LiveArtifactCreateInput = z.infer<typeof LiveArtifactCreateInputSchema>;
+export type LiveArtifactCreateInput = z.input<typeof LiveArtifactCreateInputSchema>;

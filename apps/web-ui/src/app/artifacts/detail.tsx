@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, Download, MessageSquare, RefreshCw, RotateCw } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
-import { ArtifactTileRenderContent } from "../../components/artifact-tile-renderer";
+import { ArtifactHtmlFrame } from "../../components/live-artifacts/artifact-html-frame";
 import { PageFrame } from "../../components/page-frame";
 import { useSessions } from "../../components/session-provider";
 import {
   getLiveArtifact,
-  pinLiveArtifact,
   refreshLiveArtifact,
   type LiveArtifact,
-  type LiveArtifactSourceState,
-  type LiveArtifactTile
+  type LiveArtifactSourceState
 } from "../../lib/live-artifacts-api";
 
 type ArtifactLoadState =
@@ -23,43 +22,8 @@ const statePanelClassName = "rounded-2xl border border-border-subtle bg-surface-
 const eyebrowClassName = "m-0 text-xs font-semibold uppercase tracking-[0.1em] text-text-tertiary";
 const titleClassName = "m-0 font-heading text-xl font-semibold tracking-[-0.01em] text-text-heading";
 const descriptionClassName = "m-0 max-w-[68ch] leading-[1.6] text-text-muted";
-const primaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
-const secondaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-border-subtle bg-surface-0 px-3.5 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "Not refreshed yet";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(date);
-}
-
-function ArtifactStatusBadge({ artifact }: { readonly artifact: LiveArtifact }) {
-  if (artifact.refreshStatus === "refreshing") {
-    return <span className="inline-flex items-center rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">Refreshing</span>;
-  }
-
-  if (artifact.refreshStatus === "failed") {
-    return <span className="inline-flex items-center rounded-full border border-warning/25 bg-warning-subtle px-2.5 py-1 text-xs font-semibold text-warning">Refresh issue</span>;
-  }
-
-  if (artifact.status === "draft") {
-    return <span className="inline-flex items-center rounded-full border border-border-strong bg-surface-2 px-2.5 py-1 text-xs font-semibold text-text-tertiary">Draft</span>;
-  }
-
-  return <span className="inline-flex items-center rounded-full border border-success/25 bg-success-subtle px-2.5 py-1 text-xs font-semibold text-success">Active</span>;
-}
+const primaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
+const secondaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-border-subtle bg-surface-0 px-3.5 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
 
 function getSourceStateLabel(state: LiveArtifactSourceState["state"]) {
   switch (state) {
@@ -116,70 +80,9 @@ function SourceStateNotice({ sourceStates }: { readonly sourceStates: readonly L
   );
 }
 
-function TileSourceBadge({ tile }: { readonly tile: LiveArtifactTile }) {
-  const source = tile.sourceJson;
-
-  if (!source) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-2 px-2 py-1 text-xs font-medium text-text-secondary">
-        Static (No source)
-      </span>
-    );
-  }
-
-  const isConnector = source.type === "connector_tool" && source.connector;
-  const name = isConnector ? source.connector?.connectorName : source.toolName;
-  const account = isConnector ? source.connector?.accountLabel : null;
-  
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-2 px-2 py-1 text-xs font-medium text-text-secondary">
-        Source: {name} {account ? `(${account})` : ""}
-      </span>
-      {source.refreshPermission === "manual_refresh_granted_for_read_only" ? (
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-success/20 bg-success-subtle px-2 py-1 text-xs font-medium text-success">
-          Refresh permitted
-        </span>
-      ) : source.refreshPermission === "requires_confirmation" ? (
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-warning/20 bg-warning-subtle px-2 py-1 text-xs font-medium text-warning">
-          Requires confirmation
-        </span>
-      ) : null}
-      {tile.sourceState ? <SourceStateBadge sourceState={tile.sourceState} /> : null}
-    </div>
-  );
-}
-
-function TileRenderer({ tile }: { readonly tile: LiveArtifactTile }) {
-  return (
-    <div className="flex flex-col gap-4 rounded-xl border border-border-subtle bg-surface-1 p-5 shadow-xs">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <h3 className="m-0 font-heading text-lg font-semibold text-text-heading">{tile.title}</h3>
-        <TileSourceBadge tile={tile} />
-      </div>
-      
-      <div className="rounded-lg bg-surface-0 p-4 border border-border-subtle/50">
-        <ArtifactTileRenderContent renderJson={tile.renderJson} />
-      </div>
-
-      <div className="flex items-center justify-between gap-3 border-t border-border-subtle pt-3 text-xs text-text-tertiary">
-        <span>Last refreshed: {formatDateTime(tile.lastRefreshedAt)}</span>
-        {tile.refreshStatus === "refreshing" && <span className="text-accent">Refreshing...</span>}
-        {tile.refreshStatus === "failed" && <span className="text-warning">Refresh failed</span>}
-      </div>
-      {tile.lastError && (
-        <div className="rounded-md bg-warning-subtle px-3 py-2 text-xs text-warning border border-warning/20">
-          {tile.lastError}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function ArtifactDetailPage() {
   const { artifactId } = useParams<{ artifactId: string }>();
   const [loadState, setLoadState] = useState<ArtifactLoadState>({ status: "idle" });
-  const [isPinning, setIsPinning] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
@@ -203,22 +106,6 @@ export default function ArtifactDetailPage() {
   useEffect(() => {
     void loadArtifact();
   }, [loadArtifact]);
-
-  const handlePinToggle = async () => {
-    if (loadState.status !== "loaded" || !artifactId) return;
-    
-    const currentPinned = loadState.artifact.pinned;
-    setIsPinning(true);
-    
-    try {
-      const response = await pinLiveArtifact(artifactId, !currentPinned);
-      setLoadState({ status: "loaded", artifact: response.artifact });
-    } catch (error) {
-      // Ignore error for now, maybe show toast in a real app
-    } finally {
-      setIsPinning(false);
-    }
-  };
 
   const handleRefresh = async () => {
     if (loadState.status !== "loaded" || !artifactId) return;
@@ -273,9 +160,11 @@ export default function ArtifactDetailPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className={secondaryButtonClassName} type="button" onClick={() => void loadArtifact()}>
+                <RotateCw className="size-3.5" aria-hidden="true" />
                 Try again
               </button>
               <Link className={secondaryButtonClassName} to="/artifacts">
+                <ArrowLeft className="size-3.5" aria-hidden="true" />
                 Back to Artifacts
               </Link>
             </div>
@@ -286,6 +175,7 @@ export default function ArtifactDetailPage() {
   }
 
   const artifact = loadState.artifact;
+  const isStaticHtmlArtifact = artifact.contentType === "html_page_v1" && artifact.document?.sourceJson?.refreshPermission !== "manual_refresh_granted_for_read_only";
   
   // Check if session is available
   const matchingSession = artifact.sessionId ? sessions.find(s => s.id === artifact.sessionId) : null;
@@ -298,41 +188,21 @@ export default function ArtifactDetailPage() {
   
   const header = (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-2 text-sm font-medium text-text-tertiary">
-        <Link to="/artifacts" className="hover:text-text-primary transition-colors">Artifacts</Link>
-        <span>/</span>
-        <span className="text-text-primary truncate max-w-[200px]">{artifact.title}</span>
-      </div>
-      
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex flex-col gap-2 min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {artifact.pinned ? <span className="inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">Pinned</span> : null}
-            <ArtifactStatusBadge artifact={artifact} />
-            <span className="inline-flex items-center rounded-full border border-border-subtle bg-surface-2 px-2.5 py-1 text-xs font-medium text-text-secondary">
-              Refreshed {formatDateTime(artifact.lastRefreshedAt)}
-            </span>
-          </div>
-          <h1 className="m-0 font-heading text-3xl font-bold tracking-[-0.01em] text-text-heading">{artifact.title}</h1>
-          {artifact.description && <p className="m-0 max-w-[68ch] text-text-secondary">{artifact.description}</p>}
+          <h1 className="m-0 font-heading text-xl font-bold tracking-[-0.01em] text-text-heading">{artifact.title}</h1>
+          {artifact.description && <p className="m-0 max-w-[68ch] text-sm text-text-secondary">{artifact.description}</p>}
         </div>
         
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button 
             className={secondaryButtonClassName} 
             type="button" 
-            onClick={handlePinToggle}
-            disabled={isPinning}
-          >
-            {artifact.pinned ? "Unpin" : "Pin"}
-          </button>
-          
-          <button 
-            className={secondaryButtonClassName} 
-            type="button" 
             onClick={handleRefresh}
-            disabled={isRefreshing || artifact.refreshStatus === "refreshing"}
+            disabled={isRefreshing || artifact.refreshStatus === "refreshing" || isStaticHtmlArtifact}
+            title={isStaticHtmlArtifact ? "This HTML artifact has no refreshable data source yet." : undefined}
           >
+            <RefreshCw className={isRefreshing || artifact.refreshStatus === "refreshing" ? "size-3.5 animate-spin" : "size-3.5"} aria-hidden="true" />
             {isRefreshing || artifact.refreshStatus === "refreshing" ? "Refreshing..." : "Refresh"}
           </button>
           
@@ -342,6 +212,7 @@ export default function ArtifactDetailPage() {
             disabled 
             title="Download as PDF will be available in a future update."
           >
+            <Download className="size-3.5" aria-hidden="true" />
             Download PDF
           </button>
           
@@ -350,7 +221,8 @@ export default function ArtifactDetailPage() {
               className={primaryButtonClassName} 
               to={buildSessionHref("/", artifact.sessionId)}
             >
-              Open creating chat
+              <MessageSquare className="size-3.5" aria-hidden="true" />
+              Open chat
             </Link>
           ) : (
             <button 
@@ -359,7 +231,8 @@ export default function ArtifactDetailPage() {
               disabled 
               title={creatingChatUnavailableReason}
             >
-              {artifact.sessionId && isSessionsLoading ? "Checking chat…" : "Open creating chat"}
+              <MessageSquare className="size-3.5" aria-hidden="true" />
+              {artifact.sessionId && isSessionsLoading ? "Checking chat…" : "Open chat"}
             </button>
           )}
         </div>
@@ -368,6 +241,11 @@ export default function ArtifactDetailPage() {
       {refreshError && (
         <div className="rounded-lg border border-warning/20 bg-warning-subtle px-4 py-3 text-sm text-warning">
           {refreshError}
+        </div>
+      )}
+      {isStaticHtmlArtifact && (
+        <div className="rounded-lg border border-border-subtle bg-surface-1 px-4 py-3 text-sm text-text-muted">
+          This HTML artifact is static. Refresh becomes available when the artifact document includes a granted read-only data source.
         </div>
       )}
       <SourceStateNotice sourceStates={artifact.sourceStates} />
@@ -383,23 +261,18 @@ export default function ArtifactDetailPage() {
     <PageFrame
       pathname={`/artifacts/${artifact.id}`}
       title={artifact.title}
-      description={artifact.description || `Live artifact with ${artifact.tiles.length} tile(s)`}
+      description={artifact.description || "Live artifact"}
       header={header}
-      contentClassName="w-full !max-w-[calc(var(--spacing)*340)]"
+      contentClassName="w-full"
+      contentWrapper="none"
     >
-      <div className="flex flex-col gap-6">
-        {artifact.tiles.length === 0 ? (
-          <div className={statePanelClassName}>
-            <p className="m-0 text-center text-text-muted">This artifact has no content tiles yet.</p>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {artifact.tiles.map((tile) => (
-              <TileRenderer key={tile.id} tile={tile} />
-            ))}
-          </div>
-        )}
-      </div>
+      {artifact.document ? (
+        <ArtifactHtmlFrame document={artifact.document} title={artifact.title} />
+      ) : (
+        <div className={statePanelClassName}>
+          <p className="m-0 text-center text-text-muted">This artifact has no renderable content yet.</p>
+        </div>
+      )}
     </PageFrame>
   );
 }

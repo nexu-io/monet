@@ -20,6 +20,14 @@ vi.mock("../../components/page-frame", async () => {
   };
 });
 
+vi.mock("../../components/live-artifacts/artifact-html-frame", async () => {
+  const React = await import("react");
+
+  return {
+    ArtifactHtmlFrame: ({ document, title }: { readonly document: { readonly sanitizedHtml: string }; readonly title: string }) => React.createElement("section", { "aria-label": "Artifact document" }, React.createElement("h2", null, title), React.createElement("p", null, document.sanitizedHtml))
+  };
+});
+
 vi.mock("../../components/session-provider", () => ({
   useSessions: () => ({
     buildSessionHref: (_pathname: string, sessionId: string) => `/sessions/${sessionId}`,
@@ -66,6 +74,14 @@ function sourceState(overrides: Pick<LiveArtifactSourceState, "tileId" | "tileTi
   };
 }
 
+function htmlDocument(sanitizedHtml = "<h1>Daily operations brief</h1>"): NonNullable<LiveArtifact["document"]> {
+  return {
+    format: "html_template_v1",
+    sanitizedHtml,
+    sourceJson: { refreshPermission: "manual_refresh_granted_for_read_only" }
+  } as NonNullable<LiveArtifact["document"]>;
+}
+
 function artifact(overrides: Partial<LiveArtifact> = {}): LiveArtifact {
   return {
     id: "artifact-1",
@@ -86,6 +102,8 @@ function artifact(overrides: Partial<LiveArtifact> = {}): LiveArtifact {
     createdByRunId: "run-1",
     createdByToolCallId: "tool-call-1",
     provenanceJson: { createdFrom: "chat" },
+    contentType: "html_page_v1",
+    document: htmlDocument(),
     sourceStates: [],
     tiles: [
       tile({ id: "markdown", title: "Summary", renderJson: { kind: "markdown", markdown: "## Wins\n- Shipped artifacts" } }),
@@ -118,7 +136,7 @@ describe("ArtifactDetailPage", () => {
     cleanup();
   });
 
-  it("renders detail header, tiles, source badges, and creating chat action", async () => {
+  it("renders detail header, document, and creating chat action", async () => {
     getLiveArtifactMock.mockResolvedValue({
       artifact: artifact({
         tiles: [
@@ -143,13 +161,9 @@ describe("ArtifactDetailPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Daily operations brief", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("Refreshable status dashboard")).toBeInTheDocument();
-    expect(screen.getByText((_content, element) => element?.textContent?.startsWith("Refreshed ") ?? false)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "GitHub Issues" })).toBeInTheDocument();
-    expect(screen.getByText((_content, element) => element?.textContent === "Source: GitHub (octocat@example.com)")).toBeInTheDocument();
-    expect(screen.getByText("Refresh permitted")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Bug 123" })).toHaveAttribute("href", "https://example.com/bug");
+    expect(screen.getByRole("region", { name: "Artifact document" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "Open creating chat" })).toHaveAttribute("href", "/sessions/session-1");
+    expect(screen.getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/sessions/session-1");
   });
 
   it("renders disconnected, expired, missing connector, and stale provider source states", async () => {
@@ -200,14 +214,12 @@ describe("ArtifactDetailPage", () => {
     expect(await screen.findByText("Automatic refresh is not supported or currently disabled for this artifact.")).toBeInTheDocument();
   });
 
-  it("preserves safe rendering for unsafe payloads in detail tiles", async () => {
-    getLiveArtifactMock.mockResolvedValue({ artifact: artifact({ tiles: [tile({ id: "unsafe", title: "Unsafe markdown", renderJson: { kind: "markdown", markdown: "<img src=x onerror=alert(1)>\n[bad](javascript:alert(1))" } })] }) });
+  it("renders html document through the artifact frame", async () => {
+    getLiveArtifactMock.mockResolvedValue({ artifact: artifact({ document: htmlDocument("<p>Unsafe markdown</p>") }) });
 
     renderDetail();
 
-    await screen.findByRole("heading", { name: "Unsafe markdown" });
-    expect(screen.getAllByText((_content, element) => element?.textContent?.includes("<img src=x onerror=alert(1)>") ?? false).length).toBeGreaterThan(0);
-    expect(document.querySelector("img")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "bad" })).not.toBeInTheDocument();
+    await screen.findByRole("region", { name: "Artifact document" });
+    expect(screen.getByText("<p>Unsafe markdown</p>")).toBeInTheDocument();
   });
 });

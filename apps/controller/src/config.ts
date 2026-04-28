@@ -6,7 +6,7 @@ const defaultControllerHost = "127.0.0.1";
 const defaultAllowedOrigins = ["null", "app://monet", "http://127.0.0.1:42832", "http://localhost:42832"] as const;
 const defaultAllowedToolDirectories: readonly string[] = [];
 const defaultAgentMaxStepsPerRun = 8;
-const defaultAgentMaxTokensPerRun = 32_768;
+const defaultAgentMaxTokensPerRun = 524_288;
 const defaultAgentWallClockBudgetMs = 60_000;
 const defaultAgentMaxToolCallsPerRun = 16;
 

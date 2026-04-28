@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { Component } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Button,
@@ -37,22 +38,12 @@ function isArtifactsNavigationActive(pathname: string) {
   return pathname === "/artifacts" || pathname.startsWith("/artifacts/");
 }
 
-function formatSessionPreview(updatedAt: string) {
-  const value = new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(new Date(updatedAt));
-
-  return value;
-}
-
 export function AppShell({
   pathname,
   header,
   composer,
   contentClassName,
+  contentWrapper,
   onDesktopStopShortcut,
   children
 }: {
@@ -60,6 +51,7 @@ export function AppShell({
   header?: ReactNode;
   composer?: ReactNode;
   contentClassName?: string;
+  contentWrapper?: "default" | "none";
   onDesktopStopShortcut?: () => void;
   children: ReactNode;
 }) {
@@ -181,7 +173,7 @@ export function AppShell({
         </SidebarHeader>
 
         <SidebarContent className="flex min-h-0 flex-1 flex-col">
-          <section className="flex min-h-0 flex-1 flex-col gap-2" aria-labelledby="recent-sessions-heading">
+          <section className="flex min-h-0 flex-1 flex-col gap-1.5" aria-labelledby="recent-sessions-heading">
             <div className="flex items-baseline justify-between gap-2 px-2">
               <NavigationMenuLabel className="text-2xs font-semibold tracking-[0.1em] text-text-tertiary uppercase" id="recent-sessions-heading">
                 Recent
@@ -205,12 +197,11 @@ export function AppShell({
                     key={session.id}
                     type="button"
                     selected={isActive}
-                    className="grid grid-cols-[minmax(0,1fr)] gap-0 rounded-md px-2.5 py-2 text-left text-text-secondary hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus data-[state=selected]:bg-app-hover data-[state=selected]:text-text-heading"
+                    className="grid grid-cols-[minmax(0,1fr)] rounded-md px-2.5 py-1.5 text-left text-text-secondary hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus data-[state=selected]:bg-surface-3 data-[state=selected]:text-text-heading data-[state=selected]:hover:bg-surface-3"
                     aria-current={isActive ? "page" : undefined}
                     onClick={() => openSession(session.id, "/")}
                   >
-                    <span className="overflow-hidden text-ellipsis whitespace-nowrap text-lg leading-[1.3] font-medium text-inherit">{session.title}</span>
-                    <span className="text-xs leading-[1.3] text-text-tertiary">{formatSessionPreview(session.updatedAt)}</span>
+                    <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-5 font-medium text-inherit">{session.title}</span>
                   </NavItem>
                 );
               })}
@@ -229,12 +220,7 @@ export function AppShell({
                 >
                   <Link to="/artifacts" aria-current={isArtifactsOpen ? "page" : undefined}>
                     <span className="inline-flex size-[18px] items-center justify-center text-current opacity-75 group-hover:opacity-100 group-data-[active=true]:opacity-100" aria-hidden="true">
-                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="2" y="3" width="12" height="10" rx="2" />
-                        <path d="M5 6h6" />
-                        <path d="M5 9h3" />
-                        <path d="M10.5 9h.5" />
-                      </svg>
+                      <Component className="size-3.5" strokeWidth={1.8} />
                     </span>
                     <span>Live Artifacts</span>
                   </Link>
@@ -295,8 +281,10 @@ export function AppShell({
         data-has-composer={composer ? "true" : "false"}
       >
         {header ? <div className="border-b border-border-subtle bg-app-canvas px-[var(--app-page-padding-x)] pt-5 pb-4">{header}</div> : null}
-        <div className="min-h-0 overflow-auto" data-chat-scroll-container="true">
-          <div className={`mx-auto flex max-w-[var(--app-content-max-width)] flex-col gap-[var(--app-section-gap)] px-[var(--app-page-padding-x)] pt-6 pb-8 ${contentClassName ?? ""}`}>{children}</div>
+        <div className={`min-h-0 overflow-auto ${contentWrapper === "none" ? contentClassName ?? "" : ""}`} data-chat-scroll-container="true">
+          {contentWrapper === "none" ? children : (
+            <div className={`mx-auto flex max-w-[var(--app-content-max-width)] flex-col gap-[var(--app-section-gap)] px-[var(--app-page-padding-x)] pt-6 pb-8 ${contentClassName ?? ""}`}>{children}</div>
+          )}
         </div>
         {composer ? (
           <div className="bg-app-canvas [&>*]:mx-auto [&>*]:mb-4 [&>*]:max-w-[var(--app-content-max-width)] [&>*]:px-[var(--app-page-padding-x)] [&>*]:pt-4 [&>*]:pb-5">

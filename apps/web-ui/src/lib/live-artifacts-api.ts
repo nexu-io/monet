@@ -9,10 +9,26 @@ import type {
   UpdateLiveArtifactRequest
 } from "./api";
 
+export interface LiveArtifactHtmlDocument {
+  readonly format: "html_template_v1";
+  readonly sanitizedHtml: string;
+  readonly dataJson?: unknown;
+  readonly dataSchemaJson?: unknown | null;
+  readonly sourceJson?: unknown | null;
+  readonly sanitizerVersion?: string;
+}
+
+export type LiveArtifactContentType = "html_page_v1";
+
 export type LiveArtifactSummary = ListLiveArtifactsResponse["artifacts"][number] & {
+  readonly contentType?: LiveArtifactContentType;
+  readonly currentRevisionId?: string | null;
   readonly sourceStates?: readonly LiveArtifactSourceState[];
 };
 export type LiveArtifact = Omit<LiveArtifactResponse["artifact"], "tiles"> & {
+  readonly contentType?: LiveArtifactContentType;
+  readonly currentRevisionId?: string | null;
+  readonly document?: LiveArtifactHtmlDocument | null;
   readonly sourceStates?: readonly LiveArtifactSourceState[];
   readonly tiles: readonly LiveArtifactTile[];
 };
@@ -186,11 +202,4 @@ export async function refreshLiveArtifact(artifactId: string) {
   return requestJson<LiveArtifactRefreshResponse>(`/api/live-artifacts/${encodeURIComponent(artifactId)}/refresh`, {
     method: "POST"
   });
-}
-
-export async function refreshLiveArtifactTile(artifactId: string, tileId: string) {
-  return requestJson<LiveArtifactRefreshResponse>(
-    `/api/live-artifacts/${encodeURIComponent(artifactId)}/tiles/${encodeURIComponent(tileId)}/refresh`,
-    { method: "POST" }
-  );
 }

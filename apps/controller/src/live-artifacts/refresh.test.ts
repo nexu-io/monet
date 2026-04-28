@@ -9,6 +9,7 @@ import { createChatStorage } from "../chat-storage";
 import { createLogger } from "../logger";
 import { createToolRegistry } from "../tools/registry";
 import { refreshLiveArtifact } from "./refresh";
+import type { LiveArtifactCreateInput, LiveArtifactJsonValue, LiveArtifactTileSource } from "./schema";
 
 function createStorageFixture() {
   const fixtureDir = mkdtempSync(join(tmpdir(), "monet-live-artifact-refresh-tests-"));
@@ -43,73 +44,40 @@ function createStorage(databasePath: string) {
   });
 }
 
-test("live artifact refresh preserves previous tile render JSON on partial failure and returns failures", async () => {
+test("html page live artifact refresh updates data JSON and advances document revision", async () => {
   const fixture = createStorageFixture();
 
   try {
     const storage = createStorage(fixture.databasePath);
     const artifact = storage.createLiveArtifact({
-      title: "Refreshable report",
+      title: "HTML report",
       description: null,
-      tiles: [
-        {
-          title: "Successful metric",
-          kind: "metric",
-          renderJson: {
-            kind: "metric",
-            label: "Successful metric",
-            value: "1"
-          },
-          sourceJson: {
-            type: "tool",
-            toolName: "get_metric",
-            input: { accountId: "acct_123" },
-            refreshPermission: "manual_refresh_granted_for_read_only",
-            outputMapping: { preferredKind: "metric" }
-          }
+      contentType: "html_page_v1",
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><h1>{{data.title}}</h1><p>{{data.count}}</p></main>",
+        dataJson: { title: "Previous", count: 1 },
+        sourceJson: {
+          type: "tool",
+          toolName: "get_report_data",
+          input: { reportId: "rep_123" },
+          refreshPermission: "manual_refresh_granted_for_read_only",
+          outputMapping: { preferredKind: "json" }
         },
-        {
-          title: "Failing metric",
-          kind: "metric",
-          renderJson: {
-            kind: "metric",
-            label: "Failing metric",
-            value: "previous"
-          },
-          sourceJson: {
-            type: "tool",
-            toolName: "get_failing_metric",
-            input: { accountId: "acct_123" },
-            refreshPermission: "manual_refresh_granted_for_read_only",
-            outputMapping: { preferredKind: "metric" }
-          }
-        }
-      ]
+        sanitizerVersion: "basic-html-v1"
+      }
     });
-
-    const successfulTileId = artifact.tiles[0]!.id;
-    const failingTileId = artifact.tiles[1]!.id;
+    const previousRevisionId = artifact.currentRevisionId;
     const registry = createToolRegistry([
       {
         metadata: {
-          name: "get_metric",
-          description: "Return a metric",
+          name: "get_report_data",
+          description: "Return report data",
           requiresConfirmation: false
         },
         inputSchema: {},
         execute() {
-          return { value: "42" };
-        }
-      },
-      {
-        metadata: {
-          name: "get_failing_metric",
-          description: "Fail a metric refresh",
-          requiresConfirmation: false
-        },
-        inputSchema: {},
-        execute() {
-          throw new Error("provider temporarily unavailable");
+          return { dataJson: { title: "Updated", count: 42, items: ["a", "b"] } };
         }
       }
     ]);
@@ -122,47 +90,27 @@ test("live artifact refresh preserves previous tile render JSON on partial failu
       logger: createLogger("test", { component: "live-artifact-refresh-test" })
     });
 
-    assert.deepEqual(result.failures, [{
-      tileId: failingTileId,
-      tileTitle: "Failing metric",
-      toolName: "get_failing_metric",
-      error: "provider temporarily unavailable"
-    }]);
-
-    const successfulTile = result.artifact.tiles.find((tile) => tile.id === successfulTileId);
-    const failingTile = result.artifact.tiles.find((tile) => tile.id === failingTileId);
-
-    assert.ok(successfulTile);
-    assert.equal(successfulTile.renderJson.kind, "metric");
-    assert.equal(successfulTile.renderJson.value, "42");
-    assert.equal(successfulTile.lastError, null);
-
-    assert.ok(failingTile);
-    assert.deepEqual(failingTile.renderJson, {
-      kind: "metric",
-      label: "Failing metric",
-      value: "previous"
-    });
-    assert.equal(failingTile.refreshStatus, "failed");
-    assert.equal(failingTile.lastError, "provider temporarily unavailable");
-    assert.equal(result.artifact.refreshStatus, "failed");
-    assert.equal(result.artifact.lastRefreshError, "1 tile failed to refresh.");
+    assert.deepEqual(result.failures, []);
+    assert.equal(result.artifact.contentType, "html_page_v1");
+    assert.notEqual(result.artifact.currentRevisionId, previousRevisionId);
+    assert.deepEqual(result.artifact.document?.dataJson, { title: "Updated", count: 42, items: ["a", "b"] });
+    assert.equal(result.artifact.document?.sanitizedHtml, artifact.document?.sanitizedHtml);
+    assert.equal(result.artifact.document?.sourceJson?.toolName, "get_report_data");
+    assert.equal(result.artifact.lastRefreshError, null);
 
     const connection = new DatabaseSync(fixture.databasePath);
     try {
-      const refresh = connection
-        .prepare("SELECT status, error_message FROM live_artifact_refreshes WHERE artifact_id = ? ORDER BY started_at DESC LIMIT 1")
-        .get(artifact.id) as { status: string; error_message: string | null };
-      const steps = connection
-        .prepare("SELECT tile_id, status, error_message FROM live_artifact_refresh_steps ORDER BY started_at ASC")
-        .all() as Array<{ tile_id: string; status: string; error_message: string | null }>;
+      const documentCount = connection
+        .prepare("SELECT COUNT(*) AS count FROM live_artifact_documents WHERE artifact_id = ?")
+        .get(artifact.id) as { count: number };
+      const step = connection
+        .prepare("SELECT tile_id, status, tool_name FROM live_artifact_refresh_steps ORDER BY started_at DESC LIMIT 1")
+        .get() as { tile_id: string | null; status: string; tool_name: string };
 
-      assert.equal(refresh.status, "partial_failed");
-      assert.equal(refresh.error_message, "1 tile failed to refresh.");
-      assert.deepEqual(steps.map((step) => ({ tileId: step.tile_id, status: step.status, error: step.error_message })), [
-        { tileId: successfulTileId, status: "completed", error: null },
-        { tileId: failingTileId, status: "failed", error: "provider temporarily unavailable" }
-      ]);
+      assert.equal(documentCount.count, 2);
+      assert.equal(step.tile_id, null);
+      assert.equal(step.status, "completed");
+      assert.equal(step.tool_name, "get_report_data");
     } finally {
       connection.close();
     }
@@ -176,30 +124,10 @@ test("live artifact refresh validates connector source metadata before execution
 
   try {
     const storage = createStorage(fixture.databasePath);
-    const artifact = storage.createLiveArtifact({
-      title: "Connector report",
-      description: null,
-      tiles: [
-        {
-          title: "Open issues",
-          kind: "markdown",
-          renderJson: { kind: "markdown", markdown: "previous" },
-          sourceJson: {
-            type: "connector_tool",
-            toolName: "github_search_issues",
-            input: { query: "repo:acme/widgets is:open" },
-            connector: {
-              connectorId: "github",
-              connectorName: "GitHub",
-              accountLabel: "octocat",
-              providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
-            },
-            refreshPermission: "manual_refresh_granted_for_read_only",
-            outputMapping: { preferredKind: "markdown" }
-          }
-        }
-      ]
-    });
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload(
+      "Connector report",
+      createConnectorSource("github_search_issues", { query: "repo:acme/widgets is:open" })
+    ));
 
     let executions = 0;
     const registry = createToolRegistry([
@@ -227,7 +155,7 @@ test("live artifact refresh validates connector source metadata before execution
         },
         execute() {
           executions += 1;
-          return { kind: "markdown", markdown: "fresh issues" };
+          return { dataJson: { summary: "fresh issues" } };
         }
       }
     ]);
@@ -242,20 +170,21 @@ test("live artifact refresh validates connector source metadata before execution
 
     assert.equal(executions, 1);
     assert.deepEqual(result.failures, []);
-    assert.equal(result.artifact.tiles[0]!.lastError, null);
-    assert.deepEqual(result.artifact.tiles[0]!.renderJson, { kind: "markdown", markdown: "fresh issues" });
+    assert.deepEqual(result.artifact.document?.dataJson, { summary: "fresh issues" });
 
     const connection = new DatabaseSync(fixture.databasePath);
     try {
       const step = connection
-        .prepare("SELECT connector_id, connector_account_label, connector_provider_tool_id, approval_basis FROM live_artifact_refresh_steps LIMIT 1")
+        .prepare("SELECT tile_id, connector_id, connector_account_label, connector_provider_tool_id, approval_basis FROM live_artifact_refresh_steps LIMIT 1")
         .get() as {
+          tile_id: string | null;
           connector_id: string;
           connector_account_label: string;
           connector_provider_tool_id: string;
           approval_basis: string;
         };
 
+      assert.equal(step.tile_id, null);
       assert.equal(step.connector_id, "github");
       assert.equal(step.connector_account_label, "octocat");
       assert.equal(step.connector_provider_tool_id, "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS");
@@ -268,71 +197,100 @@ test("live artifact refresh validates connector source metadata before execution
   }
 });
 
-test("live artifact refresh fails closed for stale connector metadata and current schema mismatch", async () => {
+test("html artifact refresh remaps connector repository output into existing template data", async () => {
   const fixture = createStorageFixture();
 
   try {
     const storage = createStorage(fixture.databasePath);
     const artifact = storage.createLiveArtifact({
-      title: "Connector report",
-      description: null,
-      tiles: [
-        {
-          title: "Stale tool",
-          kind: "json",
-          renderJson: { kind: "json", value: { previous: true } },
-          sourceJson: {
-            type: "connector_tool",
-            toolName: "github_stale",
-            input: { query: "is:open" },
-            connector: {
-              connectorId: "github",
-              connectorName: "GitHub",
-              accountLabel: "octocat",
-              providerToolId: "GITHUB_OLD_TOOL"
-            },
-            refreshPermission: "manual_refresh_granted_for_read_only",
-            outputMapping: { preferredKind: "json" }
-          }
+      ...createHtmlArtifactPayload(
+        "GitHub repos",
+        createConnectorSource("github_search_repositories", { q: "agent stars:>1000", sort: "stars", order: "desc", per_page: 2 })
+      ),
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main data-repeat='repos' data-as='r'><a data-bind-attr='href:r.url'><span data-bind='text:r.name'></span></a></main>",
+        dataJson: {
+          badge: "TOP 2 · LIVE",
+          repos: [
+            { rank: "01", name: "Old", owner: "old", url: "#", avatar: "", description: "old", topics: [], stars: "0", forks: "0", language: "Unknown", c1: "#fff" },
+            { rank: "02", name: "Old 2", owner: "old", url: "#", avatar: "", description: "old", topics: [], stars: "0", forks: "0", language: "Unknown", c1: "#000" }
+          ]
         },
-        {
-          title: "Schema mismatch",
-          kind: "json",
-          renderJson: { kind: "json", value: { previous: true } },
-          sourceJson: {
-            type: "connector_tool",
-            toolName: "github_schema",
-            input: { oldQuery: "is:open" },
-            connector: {
-              connectorId: "github",
-              connectorName: "GitHub",
-              accountLabel: "octocat",
-              providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
-            },
-            refreshPermission: "manual_refresh_granted_for_read_only",
-            outputMapping: { preferredKind: "json" }
-          }
-        },
-        {
-          title: "Expired account",
-          kind: "json",
-          renderJson: { kind: "json", value: { previous: true } },
-          sourceJson: {
-            type: "connector_tool",
-            toolName: "github_expired",
-            input: { query: "is:open" },
-            connector: {
-              connectorId: "github",
-              connectorName: "GitHub",
-              accountLabel: "octocat",
-              providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
-            },
-            refreshPermission: "manual_refresh_granted_for_read_only",
-            outputMapping: { preferredKind: "json" }
-          }
-        }
-      ]
+        sourceJson: createConnectorSource("github_search_repositories", { q: "agent stars:>1000", sort: "stars", order: "desc", per_page: 2 }),
+        sanitizerVersion: "basic-html-v1"
+      }
     });
+    const registry = createToolRegistry([
+      createConnectorDefinition("github_search_repositories", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        inputSchema: { type: "object" },
+        execute() {
+          return {
+            items: [
+              {
+                name: "crewAI",
+                full_name: "crewAIInc/crewAI",
+                html_url: "https://github.com/crewAIInc/crewAI",
+                description: "Agent framework",
+                stargazers_count: 50123,
+                forks_count: 6897,
+                language: "Python",
+                topics: ["agents", "ai"],
+                owner: { login: "crewAIInc", avatar_url: "https://avatars.githubusercontent.com/u/1?v=4" }
+              },
+              {
+                name: "khoj",
+                full_name: "khoj-ai/khoj",
+                html_url: "https://github.com/khoj-ai/khoj",
+                description: "AI second brain",
+                stargazers_count: 34300,
+                forks_count: 2200,
+                language: "Python",
+                topics: ["rag"],
+                owner: { login: "khoj-ai", avatar_url: "https://avatars.githubusercontent.com/u/2?v=4" }
+              }
+            ]
+          };
+        }
+      })
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    const dataJson = result.artifact.document?.dataJson as { repos: Array<{ name: string; owner: string; stars: string; c1: string }> };
+    assert.equal(dataJson.repos[0]?.name, "crewAI");
+    assert.equal(dataJson.repos[0]?.owner, "crewAIInc");
+    assert.equal(dataJson.repos[0]?.stars, "50.1k");
+    assert.equal(dataJson.repos[0]?.c1, "#fff");
+    assert.equal(dataJson.repos[1]?.name, "khoj");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh fails closed for stale connector metadata", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload("Connector report", {
+      ...createConnectorSource("github_stale", { query: "is:open" }),
+      connector: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        accountLabel: "octocat",
+        providerToolId: "GITHUB_OLD_TOOL"
+      }
+    }));
 
     let executions = 0;
     const registry = createToolRegistry([
@@ -344,7 +302,35 @@ test("live artifact refresh fails closed for stale connector metadata and curren
           executions += 1;
           return { ok: true };
         }
-      }),
+      })
+    ]);
+
+    await assert.rejects(() => refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    }), /Connector refresh source provider tool ID is stale: github_stale/);
+
+    assert.equal(executions, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh fails closed for current schema mismatch", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload(
+      "Connector report",
+      createConnectorSource("github_schema", { oldQuery: "is:open" })
+    ));
+
+    let executions = 0;
+    const registry = createToolRegistry([
       createConnectorDefinition("github_schema", {
         providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
         connected: true,
@@ -359,55 +345,32 @@ test("live artifact refresh fails closed for stale connector metadata and curren
           executions += 1;
           return { ok: true };
         }
-      }),
-      createConnectorDefinition("github_expired", {
-        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
-        connected: false,
-        connectionState: "expired",
-        execute() {
-          executions += 1;
-          return { ok: true };
-        }
       })
     ]);
 
-    const result = await refreshLiveArtifact({
+    await assert.rejects(() => refreshLiveArtifact({
       artifactId: artifact.id,
       chatStorage: storage,
       toolRegistry: registry,
       sessionWorkspacePath: fixture.workspaceDir,
       logger: createLogger("test", { component: "live-artifact-refresh-test" })
-    });
+    }), /Refresh source input no longer matches current tool schema for github_schema: input\.query is required by the current tool schema/);
 
     assert.equal(executions, 0);
-    assert.deepEqual(result.failures.map((failure) => failure.error), [
-      "Connector refresh source provider tool ID is stale: github_stale",
-      "Refresh source input no longer matches current tool schema for github_schema: input.query is required by the current tool schema",
-      "Connector account is not available for refresh: github_expired"
-    ]);
-    assert.equal(result.artifact.refreshStatus, "failed");
   } finally {
     fixture.cleanup();
   }
 });
 
-test("live artifact refresh rejects unsafe, stale, and unclassified connector sources before execution", async () => {
+test("live artifact refresh rejects unsafe connector sources before execution", async () => {
   const fixture = createStorageFixture();
 
   try {
     const storage = createStorage(fixture.databasePath);
-    const artifact = storage.createLiveArtifact({
-      title: "Unsafe connector report",
-      description: null,
-      tiles: [
-        createConnectorTile("Write-capable", "github_write"),
-        createConnectorTile("Destructive", "github_delete"),
-        createConnectorTile("External send", "github_send"),
-        createConnectorTile("Unknown", "github_unknown"),
-        createConnectorTile("Unclassified", "github_unclassified"),
-        createConnectorTile("Stale account", "github_stale_account")
-      ]
-    });
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload(
+      "Unsafe connector report",
+      createConnectorSource("github_write", { query: "is:open" })
+    ));
 
     let executions = 0;
     const registry = createToolRegistry([
@@ -420,204 +383,18 @@ test("live artifact refresh rejects unsafe, stale, and unclassified connector so
           executions += 1;
           return { ok: true };
         }
-      }),
-      createConnectorDefinition("github_delete", {
-        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
-        connected: true,
-        connectionState: "connected",
-        approvalPolicy: { sideEffect: "destructive", approval: "always" },
-        execute() {
-          executions += 1;
-          return { ok: true };
-        }
-      }),
-      createConnectorDefinition("github_send", {
-        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
-        connected: true,
-        connectionState: "connected",
-        approvalPolicy: { sideEffect: "external_send", approval: "always" },
-        execute() {
-          executions += 1;
-          return { ok: true };
-        }
-      }),
-      createConnectorDefinition("github_unknown", {
-        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
-        connected: true,
-        connectionState: "connected",
-        approvalPolicy: { sideEffect: "unknown", approval: "always" },
-        execute() {
-          executions += 1;
-          return { ok: true };
-        }
-      }),
-      createConnectorDefinition("github_unclassified", {
-        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
-        connected: true,
-        connectionState: "connected",
-        approvalPolicy: null,
-        execute() {
-          executions += 1;
-          return { ok: true };
-        }
-      }),
-      createConnectorDefinition("github_stale_account", {
-        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
-        connected: true,
-        connectionState: "connected",
-        accountLabel: "renamed-account",
-        execute() {
-          executions += 1;
-          return { ok: true };
-        }
       })
     ]);
 
-    const result = await refreshLiveArtifact({
+    await assert.rejects(() => refreshLiveArtifact({
       artifactId: artifact.id,
       chatStorage: storage,
       toolRegistry: registry,
       sessionWorkspacePath: fixture.workspaceDir,
       logger: createLogger("test", { component: "live-artifact-refresh-test" })
-    });
+    }), /Connector refresh source is not currently classified as read-only: github_write/);
 
     assert.equal(executions, 0);
-    assert.deepEqual(result.failures.map((failure) => failure.error), [
-      "Connector refresh source is not currently classified as read-only: github_write",
-      "Connector refresh source is not currently classified as read-only: github_delete",
-      "Connector refresh source is not currently classified as read-only: github_send",
-      "Connector refresh source is not currently classified as read-only: github_unknown",
-      "Connector refresh source is not currently classified as read-only: github_unclassified",
-      "Connector refresh source account is stale: github_stale_account"
-    ]);
-    assert.equal(result.artifact.refreshStatus, "failed");
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("live artifact refresh skips no-source tiles and records no refresh steps", async () => {
-  const fixture = createStorageFixture();
-
-  try {
-    const storage = createStorage(fixture.databasePath);
-    const artifact = storage.createLiveArtifact({
-      title: "Static report",
-      description: null,
-      tiles: [{
-        title: "Summary",
-        kind: "markdown",
-        renderJson: { kind: "markdown", markdown: "No source" }
-      }]
-    });
-
-    let executions = 0;
-    const registry = createToolRegistry([{
-      metadata: {
-        name: "unused_tool",
-        description: "Unused tool",
-        requiresConfirmation: false
-      },
-      inputSchema: {},
-      execute() {
-        executions += 1;
-        return { ok: true };
-      }
-    }]);
-
-    const result = await refreshLiveArtifact({
-      artifactId: artifact.id,
-      chatStorage: storage,
-      toolRegistry: registry,
-      sessionWorkspacePath: fixture.workspaceDir,
-      logger: createLogger("test", { component: "live-artifact-refresh-test" })
-    });
-
-    assert.equal(executions, 0);
-    assert.deepEqual(result.failures, []);
-    assert.deepEqual(result.artifact.tiles[0]?.renderJson, { kind: "markdown", markdown: "No source" });
-
-    const connection = new DatabaseSync(fixture.databasePath);
-    try {
-      const refresh = connection
-        .prepare("SELECT status, error_message FROM live_artifact_refreshes WHERE artifact_id = ? ORDER BY started_at DESC LIMIT 1")
-        .get(artifact.id) as { status: string; error_message: string | null };
-      const steps = connection
-        .prepare("SELECT COUNT(*) AS count FROM live_artifact_refresh_steps")
-        .get() as { count: number };
-
-      assert.equal(refresh.status, "completed");
-      assert.equal(refresh.error_message, null);
-      assert.equal(steps.count, 0);
-    } finally {
-      connection.close();
-    }
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("live artifact refresh rejects unsafe refresh output and preserves previous render JSON", async () => {
-  const fixture = createStorageFixture();
-
-  try {
-    const storage = createStorage(fixture.databasePath);
-    const artifact = storage.createLiveArtifact({
-      title: "Unsafe refresh report",
-      description: null,
-      tiles: [{
-        title: "Notes",
-        kind: "markdown",
-        renderJson: { kind: "markdown", markdown: "# Previous" },
-        sourceJson: {
-          type: "tool",
-          toolName: "get_notes",
-          input: {},
-          refreshPermission: "manual_refresh_granted_for_read_only",
-          outputMapping: { preferredKind: "markdown" }
-        }
-      }]
-    });
-
-    let executions = 0;
-    const registry = createToolRegistry([{
-      metadata: {
-        name: "get_notes",
-        description: "Return unsafe notes",
-        requiresConfirmation: false
-      },
-      inputSchema: {},
-      execute() {
-        executions += 1;
-        return { kind: "markdown", markdown: "<script>alert(1)</script>" };
-      }
-    }]);
-
-    const result = await refreshLiveArtifact({
-      artifactId: artifact.id,
-      chatStorage: storage,
-      toolRegistry: registry,
-      sessionWorkspacePath: fixture.workspaceDir,
-      logger: createLogger("test", { component: "live-artifact-refresh-test" })
-    });
-
-    assert.equal(executions, 1);
-    assert.equal(result.failures.length, 1);
-    assert.match(result.failures[0]!.error, /Raw HTML content|Script-like content/);
-    assert.deepEqual(result.artifact.tiles[0]!.renderJson, { kind: "markdown", markdown: "# Previous" });
-    assert.equal(result.artifact.tiles[0]!.refreshStatus, "failed");
-
-    const connection = new DatabaseSync(fixture.databasePath);
-    try {
-      const step = connection
-        .prepare("SELECT status, error_message FROM live_artifact_refresh_steps LIMIT 1")
-        .get() as { status: string; error_message: string | null };
-
-      assert.equal(step.status, "failed");
-      assert.match(step.error_message ?? "", /Raw HTML content|Script-like content/);
-    } finally {
-      connection.close();
-    }
   } finally {
     fixture.cleanup();
   }
@@ -628,28 +405,10 @@ test("live artifact refresh blocks connector execution when current audit metada
 
   try {
     const storage = createStorage(fixture.databasePath);
-    const artifact = storage.createLiveArtifact({
-      title: "Connector audit report",
-      description: null,
-      tiles: [{
-        title: "Open issues",
-        kind: "json",
-        renderJson: { kind: "json", value: { previous: true } },
-        sourceJson: {
-          type: "connector_tool",
-          toolName: "github_search_issues",
-          input: { query: "repo:acme/widgets is:open" },
-          connector: {
-            connectorId: "github",
-            connectorName: "GitHub",
-            accountLabel: "octocat",
-            providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
-          },
-          refreshPermission: "manual_refresh_granted_for_read_only",
-          outputMapping: { preferredKind: "json" }
-        }
-      }]
-    });
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload(
+      "Connector audit report",
+      createConnectorSource("github_search_issues", { query: "repo:acme/widgets is:open" })
+    ));
 
     let executions = 0;
     const registry = createToolRegistry([{
@@ -665,42 +424,48 @@ test("live artifact refresh blocks connector execution when current audit metada
       }
     }]);
 
-    const result = await refreshLiveArtifact({
+    await assert.rejects(() => refreshLiveArtifact({
       artifactId: artifact.id,
       chatStorage: storage,
       toolRegistry: registry,
       sessionWorkspacePath: fixture.workspaceDir,
       logger: createLogger("test", { component: "live-artifact-refresh-test" })
-    });
+    }), /Connector refresh source is missing audit metadata: github_search_issues/);
 
     assert.equal(executions, 0);
-    assert.deepEqual(result.failures.map((failure) => failure.error), [
-      "Connector refresh source is missing audit metadata: github_search_issues"
-    ]);
-    assert.deepEqual(result.artifact.tiles[0]!.renderJson, { kind: "json", value: { previous: true } });
   } finally {
     fixture.cleanup();
   }
 });
 
-function createConnectorTile(title: string, toolName: string) {
+function createHtmlArtifactPayload(title: string, sourceJson?: LiveArtifactTileSource): LiveArtifactCreateInput {
   return {
     title,
-    kind: "json" as const,
-    renderJson: { kind: "json" as const, value: { previous: true } },
-    sourceJson: {
-      type: "connector_tool" as const,
-      toolName,
-      input: { query: "is:open" },
-      connector: {
-        connectorId: "github",
-        connectorName: "GitHub",
-        accountLabel: "octocat",
-        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
-      },
-      refreshPermission: "manual_refresh_granted_for_read_only" as const,
-      outputMapping: { preferredKind: "json" as const }
+    description: null,
+    contentType: "html_page_v1" as const,
+    document: {
+      format: "html_template_v1" as const,
+      sanitizedHtml: "<main><h1>{{data.title}}</h1></main>",
+      dataJson: { title },
+      ...(sourceJson ? { sourceJson } : {}),
+      sanitizerVersion: "basic-html-v1"
     }
+  };
+}
+
+function createConnectorSource(toolName: string, input: Record<string, LiveArtifactJsonValue>): LiveArtifactTileSource {
+  return {
+    type: "connector_tool" as const,
+    toolName,
+    input,
+    connector: {
+      connectorId: "github",
+      connectorName: "GitHub",
+      accountLabel: "octocat",
+      providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+    },
+    refreshPermission: "manual_refresh_granted_for_read_only" as const,
+    outputMapping: { preferredKind: "json" as const }
   };
 }
 

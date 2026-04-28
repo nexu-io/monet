@@ -10,15 +10,20 @@ import {
   LIVE_ARTIFACT_SCHEMA_VERSION,
   LiveArtifactCreateInputSchema,
   LiveArtifactCreateTileInputSchema,
+  LiveArtifactHtmlDocumentSchema,
   LiveArtifactProvenanceJsonSchema,
   LiveArtifactRenderJsonSchema,
   LiveArtifactSchema,
+  LiveArtifactTileSourceSchema,
   LiveArtifactTileSchema,
   LiveArtifactWithTilesSchema,
   type LiveArtifact,
   type LiveArtifactCreateInput,
   type LiveArtifactCreateTileInput,
+  type LiveArtifactHtmlDocument,
+  type LiveArtifactJsonValue,
   type LiveArtifactTile,
+  type LiveArtifactTileSource,
   type LiveArtifactRenderJson,
   type LiveArtifactProvenanceJson,
   type LiveArtifactWithTiles
@@ -220,6 +225,8 @@ interface LiveArtifactRow {
   readonly title: string;
   readonly slug: string;
   readonly description: string | null;
+  readonly content_type: "html_page_v1";
+  readonly current_revision_id: string | null;
   readonly status: "draft" | "active" | "archived";
   readonly pinned: number;
   readonly refresh_status: "idle" | "refreshing" | "failed";
@@ -228,6 +235,19 @@ interface LiveArtifactRow {
   readonly updated_at: string;
   readonly last_refreshed_at: string | null;
   readonly last_refresh_error: string | null;
+}
+
+interface LiveArtifactDocumentRow {
+  readonly id: string;
+  readonly artifact_id: string;
+  readonly revision_id: string;
+  readonly format: "html_template_v1";
+  readonly sanitized_html: string;
+  readonly data_json: string;
+  readonly data_schema_json: string | null;
+  readonly source_json: string | null;
+  readonly sanitizer_version: string;
+  readonly created_at: string;
 }
 
 interface LiveArtifactTileRow {
@@ -524,9 +544,16 @@ export interface CreateSessionInput {
   readonly modelId?: string;
 }
 
-export interface CreateLiveArtifactInput extends LiveArtifactCreateInput {
-  readonly createdByRunId?: string | null;
-  readonly createdByToolCallId?: string | null;
+export interface CreateLiveArtifactInput {
+  readonly title: string;
+  readonly description?: string | null | undefined;
+  readonly sessionId?: string | null | undefined;
+  readonly contentType?: "html_page_v1" | undefined;
+  readonly document?: LiveArtifactCreateInput["document"] | undefined;
+  /** @deprecated Legacy tile artifacts are not accepted by the current create schema. */
+  readonly tiles?: readonly LiveArtifactCreateTileInput[] | undefined;
+  readonly createdByRunId?: string | null | undefined;
+  readonly createdByToolCallId?: string | null | undefined;
 }
 
 export interface ListLiveArtifactsInput {
@@ -558,6 +585,11 @@ export interface ApplyLiveArtifactRefreshResultsInput {
     readonly tileId: string;
     readonly errorMessage: string;
   }[];
+}
+
+export interface ApplyLiveArtifactDocumentRefreshResultInput {
+  readonly artifactId: string;
+  readonly document: LiveArtifactHtmlDocument;
 }
 
 export interface StoredLiveArtifactRefresh {
@@ -661,6 +693,7 @@ export interface ChatStorage {
   pinLiveArtifact(artifactId: string, pinned: boolean): LiveArtifactWithTiles;
   replaceLiveArtifactTiles(input: ReplaceLiveArtifactTilesInput): LiveArtifactWithTiles;
   applyLiveArtifactRefreshResults(input: ApplyLiveArtifactRefreshResultsInput): LiveArtifactWithTiles;
+  applyLiveArtifactDocumentRefreshResult(input: ApplyLiveArtifactDocumentRefreshResultInput): LiveArtifactWithTiles;
   startLiveArtifactRefresh(input: StartLiveArtifactRefreshInput): StoredLiveArtifactRefresh;
   startLiveArtifactRefreshStep(input: StartLiveArtifactRefreshStepInput): StoredLiveArtifactRefreshStep;
   markLiveArtifactRefreshStepRunning(stepId: string): boolean;
@@ -1158,38 +1191,48 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     },
 
     createLiveArtifact(input) {
-      const parsed = LiveArtifactCreateInputSchema.parse(input);
+      const { createdByRunId, createdByToolCallId, ...artifactInput } = input;
+      const parsed = LiveArtifactCreateInputSchema.parse(artifactInput);
       const artifactId = createPrefixedId("art");
       const now = new Date().toISOString();
+      const sourceJson = parsed.document.sourceJson
+        ?? inferRefreshSourceFromRecentConnectorToolCall(connection, {
+          runId: createdByRunId ?? null,
+          beforeToolCallId: createdByToolCallId ?? null
+        });
+      const document = sourceJson ? { ...parsed.document, sourceJson } : parsed.document;
 
       connection.exec("BEGIN IMMEDIATE");
 
       try {
         const slug = createUniqueLiveArtifactSlug(connection, parsed.title, artifactId);
+        const currentRevisionId = createPrefixedId("rev");
 
         connection
           .prepare(
             `INSERT INTO live_artifacts (
                id, schema_version, session_id, created_by_run_id, created_by_tool_call_id,
-               title, slug, description, status, pinned, refresh_status, refresh_started_at,
+               title, slug, description, content_type, current_revision_id, status, pinned, refresh_status, refresh_started_at,
                created_at, updated_at, last_refreshed_at, last_refresh_error
-             )
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 'idle', NULL, ?, ?, NULL, NULL)`
+              )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 'idle', NULL, ?, ?, NULL, NULL)`
           )
           .run(
             artifactId,
             LIVE_ARTIFACT_SCHEMA_VERSION,
             parsed.sessionId ?? null,
-            input.createdByRunId?.trim() || null,
-            input.createdByToolCallId?.trim() || null,
+            createdByRunId?.trim() || null,
+            createdByToolCallId?.trim() || null,
             parsed.title,
             slug,
             parsed.description ?? null,
+            parsed.contentType,
+            currentRevisionId,
             now,
             now
           );
 
-        insertLiveArtifactTiles(connection, artifactId, parsed.tiles, now);
+        insertLiveArtifactDocument(connection, artifactId, currentRevisionId, document, now);
 
         connection.exec("COMMIT");
       } catch (error) {
@@ -1207,6 +1250,8 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       const offset = Math.max(0, Math.trunc(input.offset ?? 0));
       const whereClauses: string[] = [];
       const params: Array<string | number> = [];
+
+      whereClauses.push("content_type = 'html_page_v1'");
 
       if (!includeArchived) {
         whereClauses.push("status != 'archived'");
@@ -1226,7 +1271,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       const rows = connection
         .prepare(
           `SELECT id, schema_version, session_id, created_by_run_id, created_by_tool_call_id,
-                  title, slug, description, status, pinned, refresh_status, refresh_started_at,
+                  title, slug, description, content_type, current_revision_id, status, pinned, refresh_status, refresh_started_at,
                   created_at, updated_at, last_refreshed_at, last_refresh_error
            FROM live_artifacts
            ${whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : ""}
@@ -1352,7 +1397,12 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
 
     replaceLiveArtifactTiles(input) {
       const tiles = input.tiles.map((tile) => LiveArtifactCreateTileInputSchema.parse(tile));
-      LiveArtifactCreateInputSchema.shape.tiles.parse(tiles);
+      if (tiles.length === 0 || tiles.length > 50) {
+        throw new ChatStorageResolutionError({
+          message: "Live artifact tile replacement requires between 1 and 50 tiles.",
+          errorCode: "invalid_request"
+        });
+      }
       const now = new Date().toISOString();
 
       connection.exec("BEGIN IMMEDIATE");
@@ -1469,6 +1519,50 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
               WHERE id = ?`
           )
           .run(failedCount > 0 ? "failed" : "idle", now, lastRefreshError, now, input.artifactId);
+
+        const artifact = getLiveArtifactOrThrow(connection, input.artifactId);
+        connection.exec("COMMIT");
+        return artifact;
+      } catch (error) {
+        connection.exec("ROLLBACK");
+        throw error;
+      }
+    },
+
+    applyLiveArtifactDocumentRefreshResult(input) {
+      const parsedDocument = LiveArtifactHtmlDocumentSchema.parse(input.document);
+      const now = new Date().toISOString();
+      const revisionId = createPrefixedId("rev");
+
+      connection.exec("BEGIN IMMEDIATE");
+
+      try {
+        const existing = getLiveArtifactRow(connection, input.artifactId);
+
+        if (!existing) {
+          throw new ChatStorageResolutionError({
+            message: `Unknown artifactId: ${input.artifactId}`,
+            statusCode: 404,
+            errorCode: "not_found"
+          });
+        }
+
+        if (existing.content_type !== "html_page_v1") {
+          throw new ChatStorageResolutionError({
+            message: "Document refresh results can only be applied to HTML page artifacts.",
+            errorCode: "invalid_request"
+          });
+        }
+
+        insertLiveArtifactDocument(connection, input.artifactId, revisionId, parsedDocument, now);
+        connection
+          .prepare(
+            `UPDATE live_artifacts
+             SET current_revision_id = ?, refresh_status = 'idle', refresh_started_at = NULL,
+                 last_refreshed_at = ?, last_refresh_error = NULL, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(revisionId, now, now, input.artifactId);
 
         const artifact = getLiveArtifactOrThrow(connection, input.artifactId);
         connection.exec("COMMIT");
@@ -2861,7 +2955,7 @@ function getLiveArtifactRow(connection: DatabaseSync, artifactId: string) {
   return connection
     .prepare(
       `SELECT id, schema_version, session_id, created_by_run_id, created_by_tool_call_id,
-              title, slug, description, status, pinned, refresh_status, refresh_started_at,
+              title, slug, description, content_type, current_revision_id, status, pinned, refresh_status, refresh_started_at,
               created_at, updated_at, last_refreshed_at, last_refresh_error
        FROM live_artifacts
        WHERE id = ?
@@ -2883,8 +2977,134 @@ function getLiveArtifactOrThrow(connection: DatabaseSync, artifactId: string): L
 
   return LiveArtifactWithTilesSchema.parse({
     ...mapLiveArtifactRow(row),
-    tiles: listLiveArtifactTiles(connection, artifactId)
+    tiles: listLiveArtifactTiles(connection, artifactId),
+    document: row.current_revision_id
+      ? getLiveArtifactDocument(connection, row, row.current_revision_id)
+      : null
   });
+}
+
+function getLiveArtifactDocument(connection: DatabaseSync, artifact: LiveArtifactRow, revisionId: string): LiveArtifactHtmlDocument | null {
+  const row = connection
+    .prepare(
+      `SELECT id, artifact_id, revision_id, format, sanitized_html, data_json, data_schema_json, source_json, sanitizer_version, created_at
+       FROM live_artifact_documents
+       WHERE artifact_id = ? AND revision_id = ?
+       LIMIT 1`
+    )
+    .get(artifact.id, revisionId) as LiveArtifactDocumentRow | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  const sourceJson = row.source_json === null
+    ? inferRefreshSourceFromRecentConnectorToolCall(connection, {
+      runId: artifact.created_by_run_id,
+      beforeToolCallId: artifact.created_by_tool_call_id
+    })
+    : (JSON.parse(row.source_json) as unknown);
+
+  return LiveArtifactHtmlDocumentSchema.parse({
+    format: row.format,
+    sanitizedHtml: row.sanitized_html,
+    dataJson: JSON.parse(row.data_json) as unknown,
+    dataSchemaJson: row.data_schema_json === null ? null : (JSON.parse(row.data_schema_json) as unknown),
+    sourceJson,
+    sanitizerVersion: row.sanitizer_version
+  });
+}
+
+function inferRefreshSourceFromRecentConnectorToolCall(
+  connection: DatabaseSync,
+  options: { readonly runId: string | null; readonly beforeToolCallId: string | null }
+): LiveArtifactTileSource | null {
+  if (!options.runId) {
+    return null;
+  }
+
+  const beforeToolCall = options.beforeToolCallId ? getToolCallRow(connection, options.beforeToolCallId) : undefined;
+  const beforeStartedAt = beforeToolCall?.started_at ?? null;
+  const rows = connection
+    .prepare(
+      `SELECT id, run_id, tool_name, input_json, output_json, output_truncated, output_size_bytes, approval_decision, approval_decided_at, confirmation_token_hash,
+              connector_id, connector_name, connector_account_label, connector_tool_name, connector_provider_tool_id, connector_arguments_summary,
+              connector_approval_policy_json, connector_provider_execution_id, connector_provider_execution_metadata_json, status, error_message, started_at, ended_at
+       FROM tool_calls
+       WHERE run_id = ?
+         AND status = 'completed'
+         AND connector_id IS NOT NULL
+         AND connector_provider_tool_id IS NOT NULL
+         AND (? IS NULL OR started_at < ?)
+       ORDER BY started_at DESC
+       LIMIT 5`
+    )
+    .all(options.runId, beforeStartedAt, beforeStartedAt) as unknown as ToolCallRow[];
+
+  for (const row of rows) {
+    const policy = parseConnectorApprovalPolicy(row.connector_approval_policy_json);
+    if (!policy || policy.sideEffect !== "read" || policy.approval === "always") {
+      continue;
+    }
+
+    const input = parseToolCallJsonObject(row.input_json);
+    if (!input) {
+      continue;
+    }
+
+    const parsed = LiveArtifactTileSourceSchema.safeParse({
+      type: "connector_tool",
+      toolName: row.tool_name,
+      input,
+      connector: {
+        connectorId: row.connector_id,
+        connectorName: row.connector_name,
+        accountLabel: row.connector_account_label,
+        providerToolId: row.connector_provider_tool_id
+      },
+      refreshPermission: "manual_refresh_granted_for_read_only",
+      outputMapping: { preferredKind: "json" }
+    });
+
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+
+  return null;
+}
+
+function parseToolCallJsonObject(value: string): Record<string, LiveArtifactJsonValue> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    return parsed as Record<string, LiveArtifactJsonValue>;
+  } catch {
+    return null;
+  }
+}
+
+function parseConnectorApprovalPolicy(value: string | null): { readonly sideEffect: string; readonly approval: string } | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    const sideEffect = (parsed as { sideEffect?: unknown }).sideEffect;
+    const approval = (parsed as { approval?: unknown }).approval;
+
+    return typeof sideEffect === "string" && typeof approval === "string" ? { sideEffect, approval } : null;
+  } catch {
+    return null;
+  }
 }
 
 function listLiveArtifactTiles(connection: DatabaseSync, artifactId: string): LiveArtifactTile[] {
@@ -2973,6 +3193,36 @@ function insertLiveArtifactTiles(
   });
 }
 
+function insertLiveArtifactDocument(
+  connection: DatabaseSync,
+  artifactId: string,
+  revisionId: string,
+  document: LiveArtifactHtmlDocument,
+  now: string
+): void {
+  const parsed = LiveArtifactHtmlDocumentSchema.parse(document);
+
+  connection
+    .prepare(
+      `INSERT INTO live_artifact_documents (
+         id, artifact_id, revision_id, format, sanitized_html, data_json, data_schema_json, source_json, sanitizer_version, created_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      createPrefixedId("doc"),
+      artifactId,
+      revisionId,
+      parsed.format,
+      parsed.sanitizedHtml,
+      JSON.stringify(parsed.dataJson),
+      parsed.dataSchemaJson == null ? null : JSON.stringify(parsed.dataSchemaJson),
+      parsed.sourceJson == null ? null : JSON.stringify(parsed.sourceJson),
+      parsed.sanitizerVersion,
+      now
+    );
+}
+
 function hasCompleteLiveArtifactRefreshConnectorMetadata(
   metadata: LiveArtifactRefreshStepConnectorMetadataInput | null | undefined
 ): metadata is LiveArtifactRefreshStepConnectorMetadataInput {
@@ -3006,6 +3256,8 @@ function mapLiveArtifactRow(row: LiveArtifactRow): LiveArtifact {
     title: row.title,
     slug: row.slug,
     description: row.description,
+    contentType: row.content_type,
+    currentRevisionId: row.current_revision_id,
     status: row.status,
     pinned: Boolean(row.pinned),
     refreshStatus: row.refresh_status,
@@ -3136,7 +3388,7 @@ function truncateLiveArtifactError(message: string): string {
 }
 
 function parseLiveArtifactUpdateInput(input: UpdateLiveArtifactInput, existing: LiveArtifactRow): { title: string; description: string | null } {
-  const parsed = LiveArtifactCreateInputSchema.pick({ title: true, description: true }).parse({
+  const parsed = LiveArtifactSchema.pick({ title: true, description: true }).parse({
     title: input.title ?? existing.title,
     description: input.description === undefined ? existing.description : input.description
   });

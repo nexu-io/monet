@@ -6,6 +6,7 @@ import {
   LIVE_ARTIFACT_LIMITS,
   LiveArtifactJsonValueSchema,
   type LiveArtifactJsonValue,
+  type LiveArtifactHtmlDocument,
   type LiveArtifactProvenanceJson,
   type LiveArtifactRenderJson,
   type LiveArtifactTile,
@@ -37,6 +38,11 @@ export interface LiveArtifactRefreshFailure {
 
 export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): Promise<RefreshLiveArtifactResult> {
   const artifact = options.chatStorage.getLiveArtifact(options.artifactId);
+
+  if (artifact.contentType === "html_page_v1") {
+    return refreshLiveArtifactDocument(options, artifact);
+  }
+
   const refreshableTileIds = artifact.tiles.filter(isRefreshEligibleTile).map((tile) => tile.id);
   const refresh = options.chatStorage.startLiveArtifactRefresh({
     artifactId: artifact.id,
@@ -173,6 +179,98 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
     const message = error instanceof Error ? error.message : "live_artifact_refresh_failed";
     options.chatStorage.completeLiveArtifactRefresh({ refreshId: refresh.id, status: "failed", errorMessage: message });
     options.logger.warn("live_artifacts.refresh_failed", { artifactId: artifact.id, refreshId: refresh.id, error: message });
+    throw error;
+  }
+}
+
+async function refreshLiveArtifactDocument(options: RefreshLiveArtifactOptions, artifact: LiveArtifactWithTiles): Promise<RefreshLiveArtifactResult> {
+  const source = artifact.document?.sourceJson;
+
+  if (!artifact.document || source?.refreshPermission !== "manual_refresh_granted_for_read_only") {
+    throw new Error("This HTML artifact has no refreshable data source.");
+  }
+
+  const refresh = options.chatStorage.startLiveArtifactRefresh({
+    artifactId: artifact.id,
+    scope: "artifact",
+    tileIdsToRefresh: []
+  });
+  const abortSignal = options.abortSignal ?? new AbortController().signal;
+  let stepId: string | null = null;
+
+  try {
+    const definitions = await options.toolRegistry.resolveTools({
+      runId: refresh.id,
+      sessionId: artifact.sessionId ?? refresh.id,
+      sessionWorkspacePath: options.sessionWorkspacePath,
+      chatStorage: options.chatStorage,
+      logger: options.logger,
+      abortSignal
+    });
+    const definitionsByName = new Map(definitions.map((definition) => [definition.metadata.name, definition]));
+    const definition = definitionsByName.get(source.toolName);
+
+    if (!definition) {
+      throw new Error(`Refresh tool is unavailable: ${source.toolName}`);
+    }
+
+    validateRefreshSourceBeforeExecution(source, definition);
+
+    const connectorMetadata = source.type === "connector_tool"
+      ? createConnectorAuditMetadata(source, definition)
+      : null;
+    const step = options.chatStorage.startLiveArtifactRefreshStep({
+      refreshId: refresh.id,
+      tileId: null,
+      sourceType: source.type,
+      toolName: source.toolName,
+      input: source.input,
+      connectorMetadata
+    });
+    stepId = step.id;
+
+    if (!options.chatStorage.markLiveArtifactRefreshStepRunning(step.id)) {
+      throw new Error("Refresh step could not start for HTML artifact document.");
+    }
+
+    let connectorExecutionMetadata: Parameters<ChatStorage["completeLiveArtifactRefreshStep"]>[0]["connectorExecutionMetadata"];
+    const output = await definition.execute(source.input, {
+      toolCallId: step.id,
+      persistedToolCallId: step.id,
+      sessionId: artifact.sessionId ?? refresh.id,
+      sessionWorkspacePath: options.sessionWorkspacePath,
+      messages: [],
+      abortSignal,
+      setConnectorExecutionMetadata(metadata) {
+        connectorExecutionMetadata = metadata;
+      }
+    });
+    const dataJson = mapToolOutputToDocumentDataJson(output, artifact.document.dataJson);
+    const updatedDocument: LiveArtifactHtmlDocument = {
+      ...artifact.document,
+      dataJson,
+      sourceJson: source
+    };
+
+    options.chatStorage.completeLiveArtifactRefreshStep({
+      stepId: step.id,
+      ...(connectorExecutionMetadata ? { connectorExecutionMetadata } : {})
+    });
+
+    const updatedArtifact = options.chatStorage.applyLiveArtifactDocumentRefreshResult({
+      artifactId: artifact.id,
+      document: updatedDocument
+    });
+    options.chatStorage.completeLiveArtifactRefresh({ refreshId: refresh.id, status: "completed", errorMessage: null });
+
+    return { artifact: updatedArtifact, failures: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "live_artifact_document_refresh_failed";
+    if (stepId) {
+      options.chatStorage.failLiveArtifactRefreshStep({ stepId, errorMessage: message });
+    }
+    options.chatStorage.completeLiveArtifactRefresh({ refreshId: refresh.id, status: "failed", errorMessage: message });
+    options.logger.warn("live_artifacts.refresh_document_failed", { artifactId: artifact.id, refreshId: refresh.id, error: message });
     throw error;
   }
 }
@@ -411,6 +509,111 @@ function toJsonRenderJson(output: unknown): LiveArtifactRenderJson {
   const value = normalizeJsonValue(output);
   const parsed = LiveArtifactJsonValueSchema.safeParse(value);
   return { kind: "json", value: parsed.success ? parsed.data : stringifyDisplayValue(output) };
+}
+
+function mapToolOutputToDocumentDataJson(output: unknown, previousDataJson?: LiveArtifactJsonValue): LiveArtifactJsonValue {
+  const candidate = output && typeof output === "object" && !Array.isArray(output) && "dataJson" in output
+    ? (output as { dataJson?: unknown }).dataJson
+    : output;
+  const remapped = mapToolOutputToPreviousDocumentShape(candidate, previousDataJson);
+  if (remapped !== null) {
+    return remapped;
+  }
+  const normalized = normalizeJsonValue(candidate);
+  return LiveArtifactJsonValueSchema.parse(normalized);
+}
+
+function mapToolOutputToPreviousDocumentShape(output: unknown, previousDataJson: LiveArtifactJsonValue | undefined): LiveArtifactJsonValue | null {
+  if (!isPlainRecord(previousDataJson) || !Array.isArray(previousDataJson.repos)) {
+    return null;
+  }
+
+  const items = extractArrayByKey(output, "items");
+  if (!items) {
+    return null;
+  }
+
+  const previousRepos = previousDataJson.repos.reduce<Record<string, unknown>[]>((repos, repo) => {
+    if (isPlainRecord(repo)) {
+      repos.push(repo);
+    }
+    return repos;
+  }, []);
+  const repos = items.slice(0, previousRepos.length || 5).filter(isPlainRecord).map((item, index) => {
+    const owner = isPlainRecord(item.owner) ? item.owner : {};
+    const previous = previousRepos[index] ?? {};
+    const fullName = typeof item.full_name === "string" ? item.full_name : "";
+    const [fallbackOwner, fallbackName] = fullName.split("/");
+    const stars = typeof item.stargazers_count === "number"
+      ? item.stargazers_count
+      : typeof item.watchers_count === "number"
+        ? item.watchers_count
+        : undefined;
+    const forks = typeof item.forks_count === "number"
+      ? item.forks_count
+      : typeof item.forks === "number"
+        ? item.forks
+        : undefined;
+
+    return {
+      ...previous,
+      rank: typeof previous.rank === "string" && /^0?\d+$/.test(previous.rank)
+        ? String(index + 1).padStart(previous.rank.length, "0")
+        : index + 1,
+      name: stringFrom(item.name, fallbackName, previous.name, "Repository"),
+      owner: stringFrom(owner.login, fallbackOwner, previous.owner, "unknown"),
+      url: stringFrom(item.html_url, previous.url, "#"),
+      avatar: stringFrom(owner.avatar_url, previous.avatar, ""),
+      description: stringFrom(item.description, previous.description, "No description provided."),
+      topics: Array.isArray(item.topics) ? item.topics.filter((topic): topic is string => typeof topic === "string").slice(0, 6) : previous.topics,
+      stars: stars === undefined ? previous.stars : formatCompactNumber(stars),
+      forks: forks === undefined ? previous.forks : formatCompactNumber(forks),
+      language: stringFrom(item.language, previous.language, "Unknown")
+    };
+  });
+
+  return LiveArtifactJsonValueSchema.parse({
+    ...previousDataJson,
+    repos
+  });
+}
+
+function extractArrayByKey(value: unknown, key: string): unknown[] | null {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (isPlainRecord(value) && Array.isArray(value[key])) {
+    return value[key];
+  }
+
+  return null;
+}
+
+function stringFrom(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000) {
+    return `${trimTrailingZero((value / 1_000_000).toFixed(1))}m`;
+  }
+
+  if (value >= 1_000) {
+    return `${trimTrailingZero((value / 1_000).toFixed(1))}k`;
+  }
+
+  return String(value);
+}
+
+function trimTrailingZero(value: string): string {
+  return value.endsWith(".0") ? value.slice(0, -2) : value;
 }
 
 function extractMetricValue(output: unknown): string {

@@ -3,7 +3,6 @@ import { z } from "@hono/zod-openapi";
 import {
   LIVE_ARTIFACT_LIMITS,
   LiveArtifactCreateInputSchema,
-  LiveArtifactCreateTileInputSchema,
   LiveArtifactSafeTextSchema
 } from "../live-artifacts/schema";
 import { type RegisteredToolDefinition, type ToolSource } from "./registry";
@@ -23,10 +22,9 @@ const ListLiveArtifactsInputSchema = z.object({
 const UpdateLiveArtifactInputSchema = z.object({
   artifactId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.id),
   title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1).optional(),
-  description: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.description).nullable().optional(),
-  tiles: z.array(LiveArtifactCreateTileInputSchema).min(1).max(50).optional()
+  description: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.description).nullable().optional()
 }).strict().refine(
-  (value) => value.title !== undefined || value.description !== undefined || value.tiles !== undefined,
+  (value) => value.title !== undefined || value.description !== undefined,
   "At least one update field is required"
 );
 
@@ -48,12 +46,12 @@ const liveArtifactToolMetadata = [
   },
   {
     name: "create_live_artifact",
-    description: "Creates a persisted static Live Artifact from sanitized tile render JSON and optional source metadata.",
-    requiresConfirmation: true
+    description: "Creates a persisted Live Artifact as a sandboxed HTML page document with embedded JSON data. Always pass contentType='html_page_v1' and a document object; do not pass tile arrays or tile render JSON.",
+    requiresConfirmation: false
   },
   {
     name: "update_live_artifact",
-    description: "Updates a Live Artifact title, description, or tile definitions. Title and description edits do not require confirmation; tile/source or refresh permission changes require confirmation.",
+    description: "Updates a Live Artifact title or description.",
     requiresConfirmation: false
   }
 ] satisfies readonly [ToolMetadata, ToolMetadata, ToolMetadata];
@@ -71,18 +69,17 @@ function summarizeArtifact(artifact: LiveArtifact) {
     status: artifact.status,
     pinned: artifact.pinned,
     refreshStatus: artifact.refreshStatus,
+    contentType: artifact.contentType,
     updatedAt: artifact.updatedAt,
     lastRefreshedAt: artifact.lastRefreshedAt
   };
 }
 
 function summarizeProvenanceMetadata(artifact: LiveArtifactWithTiles) {
-  const sources = artifact.tiles.flatMap((tile) => (tile.provenanceJson?.sources ?? []).map((source) => ({
-    tileId: tile.id,
-    tileTitle: tile.title,
+  const source = artifact.document?.sourceJson;
+  const sources = source ? [{
     type: source.type,
-    ...(source.label !== undefined ? { label: source.label } : {}),
-    ...(source.toolName !== undefined ? { toolName: source.toolName } : {}),
+    toolName: source.toolName,
     ...(source.connector !== undefined
       ? {
         connector: {
@@ -93,15 +90,12 @@ function summarizeProvenanceMetadata(artifact: LiveArtifactWithTiles) {
         }
       }
       : {}),
-    ...(source.querySummary !== undefined ? { querySummary: source.querySummary } : {}),
-    ...(source.recordCount !== undefined ? { recordCount: source.recordCount } : {}),
-    ...(source.refreshedAt !== undefined ? { refreshedAt: source.refreshedAt } : {})
-  })));
+  }] : [];
 
   return {
     createdByRunId: artifact.createdByRunId,
     createdByToolCallId: artifact.createdByToolCallId,
-    tileCount: artifact.tiles.length,
+    hasDocument: artifact.document !== null,
     sourceCount: sources.length,
     sources: sources.slice(0, 10)
   };
@@ -110,21 +104,8 @@ function summarizeProvenanceMetadata(artifact: LiveArtifactWithTiles) {
 function summarizeArtifactWithTiles(artifact: LiveArtifactWithTiles) {
   return {
     ...summarizeArtifact(artifact),
-    tileCount: artifact.tiles.length,
-    tiles: artifact.tiles.map((tile) => ({
-      id: tile.id,
-      title: tile.title,
-      kind: tile.kind,
-      hasSource: tile.sourceJson !== null,
-      refreshStatus: tile.refreshStatus,
-      lastRefreshedAt: tile.lastRefreshedAt,
-      lastError: tile.lastError
-    }))
+    hasDocument: artifact.document !== null
   };
-}
-
-function updateLiveArtifactNeedsApproval(input: UpdateLiveArtifactInput): boolean {
-  return input.tiles !== undefined;
 }
 
 export function createLiveArtifactToolDefinitions(
@@ -178,10 +159,6 @@ export function createLiveArtifactToolDefinitions(
         ...updateLiveArtifactMetadata
       },
       inputSchema: UpdateLiveArtifactInputSchema,
-      needsApproval(input) {
-        const parsed = UpdateLiveArtifactInputSchema.parse(input) as UpdateLiveArtifactInput;
-        return updateLiveArtifactNeedsApproval(parsed);
-      },
       execute(input) {
         const parsed = UpdateLiveArtifactInputSchema.parse(input) as UpdateLiveArtifactInput;
         const artifact = options.chatStorage.updateLiveArtifact(parsed.artifactId, {
@@ -189,18 +166,11 @@ export function createLiveArtifactToolDefinitions(
           ...(parsed.description !== undefined ? { description: parsed.description } : {})
         });
 
-        const updatedArtifact = parsed.tiles
-          ? options.chatStorage.replaceLiveArtifactTiles({
-            artifactId: parsed.artifactId,
-            tiles: parsed.tiles
-          })
-          : artifact;
-
         return {
-          artifactId: updatedArtifact.id,
-          artifactUrl: artifactUrlFor(updatedArtifact.id),
-          provenance: summarizeProvenanceMetadata(updatedArtifact),
-          artifact: summarizeArtifactWithTiles(updatedArtifact)
+          artifactId: artifact.id,
+          artifactUrl: artifactUrlFor(artifact.id),
+          provenance: summarizeProvenanceMetadata(artifact),
+          artifact: summarizeArtifactWithTiles(artifact)
         };
       }
     }

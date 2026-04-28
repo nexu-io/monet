@@ -110,6 +110,10 @@ function isTextPart(part: ChatMessagePart): part is TextPart {
   return part.type === "text" && typeof part.text === "string";
 }
 
+function hasVisibleText(value: string) {
+  return value.trim().length > 0;
+}
+
 function getLastTextPartIndex(parts: readonly ChatMessagePart[]) {
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     const part = parts[index];
@@ -170,7 +174,7 @@ function isToolPart(part: ChatMessagePart): part is ToolPart {
 }
 
 function hasTextContent(message: ChatMessage) {
-  return message.parts.some((part) => isTextPart(part) && part.text.trim().length > 0);
+  return message.parts.some((part) => isTextPart(part) && hasVisibleText(part.text));
 }
 
 function getToolName(part: ToolPart) {
@@ -468,11 +472,14 @@ function renderPart(
   }
 ) {
   if (isTextPart(part)) {
+    if (!hasVisibleText(part.text)) {
+      return null;
+    }
+
     return (
       <Streamdown
         key={`${part.type}-${index}`}
         animated={{ animation: "blurIn", duration: 180, easing: "ease-out", sep: "word", stagger: 0 }}
-        caret={options.isStreamingPart ? "block" : undefined}
         isAnimating={options.isStreamingPart}
         mode={options.isStreamingPart ? "streaming" : "static"}
         plugins={{ code, mermaid, math, cjk }}
@@ -485,6 +492,10 @@ function renderPart(
   }
 
   if (isReasoningPart(part)) {
+    if (!hasVisibleText(part.text)) {
+      return null;
+    }
+
     return (
       <Accordion key={`${part.type}-${index}`} type="single" collapsible className="rounded-lg border border-border-subtle bg-surface-2">
         <AccordionItem value="reasoning" className="border-b-0">
@@ -552,6 +563,7 @@ function renderPart(
     const toolStateMeta = getToolStateMeta(part.state);
     const canApprove =
       part.state === "approval-requested" &&
+      toolName !== "create_live_artifact" &&
       typeof part.toolCallId === "string" &&
       typeof part.approval?.id === "string" &&
       typeof runId === "string" &&
@@ -637,7 +649,7 @@ function renderPart(
     return (
       <Accordion key={`${part.type}-${index}`} type="single" collapsible className="flex flex-col" data-tool-phase={toolStateMeta.phase}>
         <AccordionItem value="tool" className="border-b-0">
-          <AccordionTrigger className="flex min-h-8 cursor-pointer items-center justify-between gap-3 py-1 text-sm hover:no-underline [&>span]:min-w-0">
+          <AccordionTrigger className="flex min-h-8 cursor-pointer items-center justify-between gap-3 px-1 py-1 text-sm hover:no-underline [&>span]:min-w-0">
             <div className="flex w-full min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 {connectorIconUrl ? (
@@ -965,11 +977,16 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
             onOpenPath: canOpenPaths ? handleOpenPath : undefined
           })
         );
+        const visibleParts = renderedParts.filter((part) => part !== null);
+
+        if (visibleParts.length === 0) {
+          return null;
+        }
 
         if (message.role === "assistant") {
           return (
             <article key={message.id} className="flex w-full flex-col gap-3" data-message-id={message.id} data-role={message.role}>
-              {renderedParts}
+              {visibleParts}
             </article>
           );
         }
@@ -978,7 +995,7 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
           <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-message-id={message.id} data-role={message.role}>
             <Card className={`rounded-xl border border-border-subtle px-4.5 shadow-xs ${message.role === "user" ? "w-fit max-w-[60%] border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)] py-2 [overflow-wrap:anywhere] max-[960px]:max-w-full" : "w-[min(100%,calc(var(--spacing)*180))] bg-surface-1 py-4 max-[960px]:w-full"}`}>
               <div className="flex flex-col gap-3">
-                {renderedParts}
+                {visibleParts}
               </div>
             </Card>
           </article>

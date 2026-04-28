@@ -20,26 +20,7 @@ const titleClassName = "m-0 font-heading text-xl font-semibold tracking-[-0.01em
 const descriptionClassName = "m-0 max-w-[68ch] leading-[1.6] text-text-muted";
 const primaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
 const secondaryButtonClassName = "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-border-subtle bg-surface-0 px-3.5 text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
-const artifactGridClassName = "grid gap-4 md:grid-cols-2 xl:grid-cols-3";
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "Not refreshed yet";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Unknown";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(date);
-}
+const artifactGridClassName = "grid gap-3 md:grid-cols-2 xl:grid-cols-3";
 
 function getArtifactRecency(artifact: LiveArtifactSummary) {
   return artifact.lastRefreshedAt ?? artifact.updatedAt ?? artifact.createdAt;
@@ -68,7 +49,7 @@ function ArtifactStatusBadge({ artifact }: { readonly artifact: LiveArtifactSumm
     return <span className="inline-flex items-center rounded-full border border-border-strong bg-surface-2 px-2.5 py-1 text-xs font-semibold text-text-tertiary">Draft</span>;
   }
 
-  return <span className="inline-flex items-center rounded-full border border-success/25 bg-success-subtle px-2.5 py-1 text-xs font-semibold text-success">Active</span>;
+  return null;
 }
 
 function getActionableSourceStates(sourceStates: readonly LiveArtifactSourceState[] | undefined) {
@@ -116,49 +97,33 @@ function SourceStateSummary({ sourceStates }: { readonly sourceStates: readonly 
 
 function ArtifactCard({ artifact }: { readonly artifact: LiveArtifactSummary }) {
   const description = artifact.description?.trim() || "No description yet.";
-  const refreshedLabel = formatDateTime(artifact.lastRefreshedAt);
-  const updatedLabel = formatDateTime(artifact.updatedAt);
 
   return (
-    <article className="flex min-h-[14rem] flex-col justify-between gap-5 rounded-2xl border border-border-subtle bg-surface-1 p-5 shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2">
-      <div className="flex flex-col gap-4">
+    <Link
+      className="block rounded-2xl text-inherit no-underline focus-visible:outline-none focus-visible:shadow-focus"
+      to={`/artifacts/${artifact.id}`}
+      aria-label={`Open ${artifact.title}`}
+    >
+      <article className="flex min-h-[10rem] cursor-pointer flex-col gap-3 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2">
+      <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               {artifact.pinned ? <span className="inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">Pinned</span> : null}
               <ArtifactStatusBadge artifact={artifact} />
             </div>
-            <h2 className="m-0 line-clamp-2 font-heading text-lg font-semibold tracking-[-0.01em] text-text-heading">{artifact.title}</h2>
+            <h2 className="m-0 line-clamp-2 font-heading text-base font-semibold tracking-[-0.01em] text-text-heading">{artifact.title}</h2>
           </div>
         </div>
 
-        <p className="m-0 line-clamp-3 leading-[1.6] text-text-secondary">{description}</p>
-
-        <dl className="m-0 grid gap-2 rounded-lg border border-border-subtle bg-surface-0 px-3 py-2 text-sm text-text-muted">
-          <div className="flex items-center justify-between gap-3">
-            <dt className="font-medium text-text-tertiary">Last refreshed</dt>
-            <dd className="m-0 text-right text-text-primary">{refreshedLabel}</dd>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <dt className="font-medium text-text-tertiary">Updated</dt>
-            <dd className="m-0 text-right text-text-primary">{updatedLabel}</dd>
-          </div>
-        </dl>
+        <p className="m-0 line-clamp-2 text-sm leading-[1.5] text-text-secondary">{description}</p>
 
         <SourceStateSummary sourceStates={artifact.sourceStates} />
 
         {artifact.lastRefreshError ? <p className="m-0 rounded-lg border border-warning/20 bg-warning-subtle px-3 py-2 text-sm text-warning">{artifact.lastRefreshError}</p> : null}
       </div>
-
-      <div className="flex flex-col gap-2 border-t border-border-subtle pt-4 sm:flex-row sm:items-center">
-        <Link className={primaryButtonClassName} to={`/artifacts/${artifact.id}`}>
-          Open artifact
-        </Link>
-        <Link className={secondaryButtonClassName} to="/connectors">
-          Browse connectors
-        </Link>
-      </div>
-    </article>
+      </article>
+    </Link>
   );
 }
 

@@ -133,13 +133,13 @@ export function registerRunRoutes(
     let resumed = false;
 
     try {
-      options.getChatStorage().confirmToolCall(body);
-
       const run = options.getChatStorage().getRunContext(runId);
 
       if (run.status !== "pending") {
         return context.json(createErrorResponse("invalid_state", "Run is not awaiting continuation."), 409);
       }
+
+      options.getChatStorage().confirmToolCall(body);
 
       const remainingSteps = run.maxSteps - Math.max(0, run.currentStep);
 
