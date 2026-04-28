@@ -346,6 +346,87 @@ test("Composio connector provider normalizes HTTP and execution errors", async (
   );
 });
 
+test("Composio tools 404s surface tool_not_found instead of connection_missing", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url.includes("/api/v3.1/tools/execute/")) {
+      return jsonResponse({}, 404);
+    }
+
+    return jsonResponse({}, 404);
+  });
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  await assert.rejects(
+    async () => provider.listTools({ userId: "monet-install-id", connectorId: "github" }),
+    (error) => error instanceof ConnectorProviderError && error.code === "tool_not_found" && error.statusCode === 404
+  );
+
+  await assert.rejects(
+    async () =>
+      provider.executeTool({
+        userId: "monet-install-id",
+        toolId: "GITHUB_SEARCH_REPOSITORIES",
+        args: { query: "monet" },
+        abortSignal: new AbortController().signal
+      }),
+    (error) => error instanceof ConnectorProviderError && error.code === "tool_not_found" && error.statusCode === 404
+  );
+});
+
+test("Composio connected account delete 404 remains tolerated as missing connection", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({}, 404));
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: {}
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  await assert.doesNotReject(async () => provider.disconnect({ userId: "monet-install-id", connectorId: "github" }));
+  assert.equal(fetchMock.mock.callCount(), 1);
+});
+
+test("Composio disconnect returns without fetch when api key is missing", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({}, 204));
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: null,
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: {}
+    },
+    storage: createStorage(
+      {
+        github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+      },
+      { apiKey: null, authConfigIds: {} }
+    )
+  });
+
+  await assert.doesNotReject(async () => provider.disconnect({ userId: "monet-install-id", connectorId: "github" }));
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
 test("Composio connector provider surfaces provider error details", async (t) => {
   t.mock.method(globalThis, "fetch", async () =>
     jsonResponse(

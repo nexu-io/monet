@@ -285,16 +285,10 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async disconnect(input: ConnectorConnectionInput): Promise<void> {
-    const providerConfig = await this.getEffectiveProviderConfig();
-
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
     if (!catalogItem) {
       throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
-    }
-
-    if (!providerConfig.apiKey || !providerConfig.authConfigIds[input.connectorId]) {
-      throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
     }
 
     const connection = this.storage.getConnectorConnection({
@@ -304,6 +298,12 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     });
 
     if (!connection || connection.status === "disconnected" || !connection.providerConnectionId) {
+      return;
+    }
+
+    const providerConfig = this.getProviderConfig();
+
+    if (!providerConfig.apiKey) {
       return;
     }
 
@@ -549,7 +549,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
 
     if (!response.ok) {
       const message = await getComposioErrorMessage(response);
-      throw createConnectorProviderError(mapComposioHttpStatus(response.status), {
+      throw createConnectorProviderError(mapComposioHttpStatus(path, response.status), {
         ...(message ? { message } : {}),
         statusCode: response.status
       });
@@ -1029,7 +1029,7 @@ function getString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function mapComposioHttpStatus(status: number): ConnectorProviderErrorCode {
+function mapComposioHttpStatus(path: string, status: number): ConnectorProviderErrorCode {
   if (status === 400 || status === 422) {
     return "invalid_arguments";
   }
@@ -1043,7 +1043,15 @@ function mapComposioHttpStatus(status: number): ConnectorProviderErrorCode {
   }
 
   if (status === 404) {
-    return "connection_missing";
+    if (isComposioToolsPath(path)) {
+      return "tool_not_found";
+    }
+
+    if (isComposioConnectedAccountPath(path)) {
+      return "connection_missing";
+    }
+
+    return "provider_error";
   }
 
   if (status === 429) {
@@ -1055,6 +1063,14 @@ function mapComposioHttpStatus(status: number): ConnectorProviderErrorCode {
   }
 
   return "provider_error";
+}
+
+function isComposioToolsPath(path: string): boolean {
+  return path.startsWith("/api/v3.1/tools");
+}
+
+function isComposioConnectedAccountPath(path: string): boolean {
+  return path.startsWith("/api/v3/connected_accounts/");
 }
 
 async function getComposioErrorMessage(response: Response): Promise<string | undefined> {
@@ -1111,7 +1127,7 @@ function mapComposioExecutionError(error: unknown): ConnectorProviderErrorCode {
   }
 
   if (statusCode) {
-    return mapComposioHttpStatus(statusCode);
+    return mapComposioHttpStatus("/api/v3.1/tools/execute", statusCode);
   }
 
   return "provider_error";
