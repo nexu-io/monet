@@ -160,6 +160,40 @@ test("connector tool source fails closed when prefixed connector names collide",
   );
 });
 
+test("connector tool source skips connector tools when provider listing fails", async () => {
+  let getConnectionStatusCalled = false;
+  const provider: ConnectorProvider = {
+    async listConnectors() {
+      return [];
+    },
+    async getConnectionStatus() {
+      getConnectionStatusCalled = true;
+      throw new Error("not used");
+    },
+    connect() {
+      throw new Error("not used");
+    },
+    completeConnection() {
+      throw new Error("not used");
+    },
+    disconnect() {
+      throw new Error("not used");
+    },
+    async listTools() {
+      throw new Error("Composio unavailable");
+    },
+    executeTool() {
+      throw new Error("not used");
+    }
+  };
+  const source = createConnectorToolSource({ provider });
+
+  const tools = await source.resolveTools(createToolSourceContext());
+
+  assert.deepEqual(tools, []);
+  assert.equal(getConnectionStatusCalled, false);
+});
+
 test("connector tool execution dispatches prefixed tools through the provider", async () => {
   const executeToolInputs: ConnectorExecuteToolInput[] = [];
   const provider: ConnectorProvider = {

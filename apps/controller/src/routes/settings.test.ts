@@ -184,3 +184,60 @@ test("settings routes expose and replace composio provider settings", async () =
     fixture.cleanup();
   }
 });
+
+test("settings routes clear stale composio auth config ids when api key changes", async () => {
+  const fixture = createFixture();
+  const originalFetch = globalThis.fetch;
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+
+    storage.replaceConnectorProviderComposioSettings({
+      apiKey: "old-key",
+      authConfigIds: {
+        github: "old-github-auth-id",
+        notion: "old-notion-auth-id"
+      }
+    });
+
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: "new-github-auth-id",
+              status: "ENABLED",
+              toolkit: { slug: "github" }
+            }
+          ]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+    registerSettingsRoutes(app, {
+      getChatStorage: () => storage
+    });
+
+    const replaceResponse = await app.request("http://127.0.0.1:42831/api/settings/connectors/composio", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        apiKey: "new-key"
+      })
+    });
+    const replaceBody = (await replaceResponse.json()) as {
+      authConfigIds: Record<string, string>;
+    };
+
+    assert.equal(replaceResponse.status, 200);
+    assert.deepEqual(replaceBody.authConfigIds, {
+      github: "new-github-auth-id"
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    fixture.cleanup();
+  }
+});

@@ -160,6 +160,7 @@ export function registerSettingsRoutes(app: ControllerApp, options: { getChatSto
       const body = context.req.valid("json");
       const existingSettings = storage.getConnectorProviderComposioSettings();
       const apiKey = body.apiKey === undefined ? existingSettings.apiKey : body.apiKey;
+      const apiKeyChanged = body.apiKey !== undefined && body.apiKey !== existingSettings.apiKey;
       const baseUrl = body.baseUrl ?? existingSettings.baseUrl;
       const timeoutMs = body.timeoutMs === undefined ? existingSettings.timeoutMs : body.timeoutMs;
       const discoveredAuthConfigIds =
@@ -171,7 +172,7 @@ export function registerSettingsRoutes(app: ControllerApp, options: { getChatSto
               timeoutMs
             });
       const authConfigIds = {
-        ...existingSettings.authConfigIds,
+        ...(apiKeyChanged ? {} : existingSettings.authConfigIds),
         ...discoveredAuthConfigIds,
         ...(body.authConfigIds ?? {})
       };

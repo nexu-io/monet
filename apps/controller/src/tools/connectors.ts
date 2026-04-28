@@ -25,10 +25,7 @@ class ConnectorToolSource implements ToolSource {
 
   async resolveTools(context: ToolSourceContext): Promise<ReadonlyArray<RegisteredToolDefinition<unknown, unknown>>> {
     const userId = context.chatStorage.getMonetInstallId();
-    const connectorTools = await this.provider.listTools({
-      userId,
-      ...(context.abortSignal ? { abortSignal: context.abortSignal } : {})
-    });
+    const connectorTools = await this.listConnectorTools(userId, context);
     const connectorConnections = await this.resolveConnectorConnections(userId, connectorTools, context.abortSignal);
     const prefixedNames = new Set<string>();
 
@@ -49,6 +46,20 @@ class ConnectorToolSource implements ToolSource {
         userId
       });
     });
+  }
+
+  private async listConnectorTools(userId: string, context: ToolSourceContext) {
+    try {
+      return await this.provider.listTools({
+        userId,
+        ...(context.abortSignal ? { abortSignal: context.abortSignal } : {})
+      });
+    } catch (error) {
+      context.logger.warn("connector.tools.list_failed", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
   }
 
   private async resolveConnectorConnections(
