@@ -86,6 +86,22 @@ describe("AppShell connector navigation", () => {
     expect(connectorsLink).toHaveAttribute("href", "/connectors");
   });
 
+  it("shows live artifacts sidebar navigation", () => {
+    renderShell({ pathname: "/" });
+
+    const artifactsLink = screen.getByRole("link", { name: /live artifacts/i });
+    expect(artifactsLink).toBeInTheDocument();
+    expect(artifactsLink).toHaveAttribute("href", "/artifacts");
+  });
+
+  it.each(["/artifacts", "/artifacts/artifact-123"])("highlights live artifacts for %s", (pathname) => {
+    renderShell({ pathname });
+
+    const artifactsLink = screen.getByRole("link", { name: /live artifacts/i });
+    expect(artifactsLink).toHaveAttribute("data-active", "true");
+    expect(artifactsLink).toHaveAttribute("aria-current", "page");
+  });
+
   it("keeps settings navigation available", () => {
     renderShell({ pathname: "/connectors" });
 

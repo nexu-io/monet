@@ -33,6 +33,10 @@ function isConnectorsNavigationActive(pathname: string, search: string) {
   return new URLSearchParams(search).has(CONNECTOR_DETAIL_QUERY_PARAM);
 }
 
+function isArtifactsNavigationActive(pathname: string) {
+  return pathname === "/artifacts" || pathname.startsWith("/artifacts/");
+}
+
 function formatSessionPreview(updatedAt: string) {
   const value = new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -71,6 +75,7 @@ export function AppShell({
   const recentSessions = sessions.filter((session) => session.archivedAt === null).slice(0, 20);
   const { isDesktop } = useControllerState();
   const [desktopPlatform, setDesktopPlatform] = useState<string | undefined>();
+  const isArtifactsOpen = isArtifactsNavigationActive(pathname);
   const isConnectorsOpen = isConnectorsNavigationActive(pathname, location.search);
   const isSettingsOpen = pathname.startsWith("/settings");
   const openSettingsHref = "/settings/general";
@@ -216,6 +221,25 @@ export function AppShell({
         <SidebarFooter className="flex flex-col gap-4">
           <NavigationMenu aria-label="Main navigation">
             <NavigationMenuList>
+              <NavigationMenuItem>
+                <NavigationMenuButton
+                  asChild
+                  active={isArtifactsOpen}
+                  className="group inline-flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-lg font-medium text-text-secondary transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-app-hover hover:text-text-primary focus-visible:shadow-focus focus-visible:outline-none data-[active=true]:bg-app-hover data-[active=true]:font-semibold data-[active=true]:text-text-heading data-[state=selected]:bg-app-hover data-[state=selected]:font-semibold data-[state=selected]:text-text-heading"
+                >
+                  <Link to="/artifacts" aria-current={isArtifactsOpen ? "page" : undefined}>
+                    <span className="inline-flex size-[18px] items-center justify-center text-current opacity-75 group-hover:opacity-100 group-data-[active=true]:opacity-100" aria-hidden="true">
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="3" width="12" height="10" rx="2" />
+                        <path d="M5 6h6" />
+                        <path d="M5 9h3" />
+                        <path d="M10.5 9h.5" />
+                      </svg>
+                    </span>
+                    <span>Live Artifacts</span>
+                  </Link>
+                </NavigationMenuButton>
+              </NavigationMenuItem>
               <NavigationMenuItem>
                 <NavigationMenuButton
                   asChild
