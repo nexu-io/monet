@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { ArtifactTileRenderContent } from "../../components/artifact-tile-renderer";
 import { PageFrame } from "../../components/page-frame";
 import { useSessions } from "../../components/session-provider";
 import {
@@ -93,82 +94,6 @@ function TileSourceBadge({ tile }: { readonly tile: LiveArtifactTile }) {
 }
 
 function TileRenderer({ tile }: { readonly tile: LiveArtifactTile }) {
-  const renderJson = tile.renderJson;
-
-  const renderContent = () => {
-    switch (renderJson.kind) {
-      case "markdown":
-        return <div className="whitespace-pre-line text-sm text-text-primary">{renderJson.markdown}</div>;
-      case "metric":
-        return (
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-text-secondary">{renderJson.label}</span>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-text-heading">{renderJson.value}</span>
-              {renderJson.trend && (
-                <span className={`text-sm font-medium ${renderJson.trend === 'up' ? 'text-success' : renderJson.trend === 'down' ? 'text-warning' : 'text-text-tertiary'}`}>
-                  {renderJson.trend === 'up' ? '↑' : renderJson.trend === 'down' ? '↓' : '→'}
-                </span>
-              )}
-            </div>
-            {renderJson.caption && <span className="text-xs text-text-tertiary">{renderJson.caption}</span>}
-          </div>
-        );
-      case "list":
-        return (
-          <ul className="m-0 flex flex-col gap-3 pl-0">
-            {renderJson.items.map((item, i) => (
-              <li key={i} className="flex flex-col gap-0.5">
-                {item.url ? (
-                  <a href={item.url} target="_blank" rel="noreferrer" className="text-sm font-medium text-accent hover:underline">
-                    {item.title}
-                  </a>
-                ) : (
-                  <span className="text-sm font-medium text-text-primary">{item.title}</span>
-                )}
-                {item.subtitle && <span className="text-xs text-text-secondary">{item.subtitle}</span>}
-              </li>
-            ))}
-          </ul>
-        );
-      case "table":
-        return (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-border-subtle">
-                  {renderJson.columns.map((col, i) => (
-                    <th key={i} className="px-3 py-2 font-medium text-text-secondary">{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {renderJson.rows.map((row, i) => (
-                  <tr key={i} className="border-b border-border-subtle/50 last:border-0">
-                    {row.map((cell, j) => (
-                      <td key={j} className="px-3 py-2 text-text-primary">{cell}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      case "link_card":
-        return (
-          <a href={renderJson.url} target="_blank" rel="noreferrer" className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface-0 p-4 transition-colors hover:border-border-strong">
-            <span className="font-medium text-accent">{renderJson.title}</span>
-            {renderJson.description && <span className="text-sm text-text-secondary">{renderJson.description}</span>}
-            {renderJson.sourceLabel && <span className="text-xs text-text-tertiary">{renderJson.sourceLabel}</span>}
-          </a>
-        );
-      case "json":
-        return <pre className="overflow-x-auto rounded-lg bg-surface-2 p-4 text-xs text-text-primary">{JSON.stringify(renderJson.value, null, 2)}</pre>;
-      default:
-        return <div className="text-sm text-text-tertiary">Unsupported tile kind</div>;
-    }
-  };
-
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-border-subtle bg-surface-1 p-5 shadow-xs">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -177,7 +102,7 @@ function TileRenderer({ tile }: { readonly tile: LiveArtifactTile }) {
       </div>
       
       <div className="rounded-lg bg-surface-0 p-4 border border-border-subtle/50">
-        {renderContent()}
+        <ArtifactTileRenderContent renderJson={tile.renderJson} />
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-border-subtle pt-3 text-xs text-text-tertiary">
