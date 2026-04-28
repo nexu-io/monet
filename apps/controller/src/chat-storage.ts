@@ -79,6 +79,7 @@ interface SessionRow {
   readonly archived_at: string | null;
   readonly default_provider_id: string | null;
   readonly default_model_id: string | null;
+  readonly message_count?: number;
 }
 
 interface ProviderRow {
@@ -311,6 +312,7 @@ export interface StoredSession {
   readonly archivedAt: string | null;
   readonly defaultProviderId: string | null;
   readonly defaultModelId: string | null;
+  readonly messageCount: number;
 }
 
 export interface StoredSessionMessage {
@@ -1067,9 +1069,12 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
     listSessions() {
       const rows = connection
         .prepare(
-          `SELECT id, title, created_at, updated_at, archived_at, default_provider_id, default_model_id
+          `SELECT sessions.id, sessions.title, sessions.created_at, sessions.updated_at, sessions.archived_at,
+                  sessions.default_provider_id, sessions.default_model_id, COUNT(messages.id) AS message_count
            FROM sessions
-           ORDER BY archived_at IS NOT NULL ASC, updated_at DESC, created_at DESC`
+           LEFT JOIN messages ON messages.session_id = sessions.id
+           GROUP BY sessions.id
+           ORDER BY sessions.archived_at IS NOT NULL ASC, sessions.updated_at DESC, sessions.created_at DESC`
         )
         .all() as unknown as SessionRow[];
 
@@ -3876,7 +3881,17 @@ function resolveProviderAndModel(
 }
 
 function getSession(connection: DatabaseSync, id: string) {
-  return connection.prepare("SELECT * FROM sessions WHERE id = ? LIMIT 1").get(id) as SessionRow | undefined;
+  return connection
+    .prepare(
+      `SELECT sessions.id, sessions.title, sessions.created_at, sessions.updated_at, sessions.archived_at,
+              sessions.default_provider_id, sessions.default_model_id, COUNT(messages.id) AS message_count
+       FROM sessions
+       LEFT JOIN messages ON messages.session_id = sessions.id
+       WHERE sessions.id = ?
+       GROUP BY sessions.id
+       LIMIT 1`
+    )
+    .get(id) as SessionRow | undefined;
 }
 
 function getSessionOrThrow(connection: DatabaseSync, id: string) {
@@ -4141,7 +4156,8 @@ function mapSessionRow(row: SessionRow): StoredSession {
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
     defaultProviderId: row.default_provider_id,
-    defaultModelId: row.default_model_id
+    defaultModelId: row.default_model_id,
+    messageCount: row.message_count ?? 0
   };
 }
 

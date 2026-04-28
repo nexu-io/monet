@@ -129,7 +129,7 @@ export function Composer({
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-2 max-app:flex-col max-app:items-start">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-text-tertiary">
+        <div className="-ml-2 flex flex-wrap items-center gap-2 text-sm text-text-tertiary">
           {readyProviders.length > 0 && onChangeTarget ? (
             <>
               <label className="sr-only" htmlFor="chat-composer-model">
@@ -139,7 +139,7 @@ export function Composer({
                 <Select value={getTargetValue(activeTarget)} onValueChange={handleModelChange} disabled={isDisabled}>
                   <SelectTrigger
                     id="chat-composer-model"
-                    className="h-8 max-w-64 rounded-md border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary shadow-xs hover:border-border-hover focus:border-border-hover focus:shadow-focus"
+                    className="inline-flex h-8 w-fit max-w-64 rounded-md border-0 bg-transparent px-2 py-1 text-sm font-medium whitespace-nowrap text-text-secondary shadow-none hover:bg-app-hover focus:border-0 focus:ring-0 focus:shadow-none [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
                     title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
                   >
                     <SelectValue placeholder="Chat model" />
@@ -150,8 +150,10 @@ export function Composer({
                         const value = getTargetValue(target);
 
                         return (
-                          <SelectItem key={value} value={value} className="text-sm">
-                            {target.modelName} ({target.providerDisplayName})
+                          <SelectItem key={value} value={value} textValue={target.modelName ?? undefined} className="text-sm">
+                            <span className="flex items-baseline gap-2">
+                              <span>{target.modelName}</span>
+                            </span>
                           </SelectItem>
                         );
                       })}

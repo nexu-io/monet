@@ -12,7 +12,7 @@ import {
   Card,
   TextLink
 } from "@nexu-design/ui-web";
-import { FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
+import { ChevronRight, Component, FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
@@ -231,6 +231,50 @@ function getSuccessfulWriteFileOutputPath(part: ToolPart) {
   }
 
   return getStringField(part.output, "resolvedPath") ?? getStringField(part.output, "path");
+}
+
+function getArtifactDetailPath(part: ToolPart) {
+  const artifact = getRecordField(part.output, "artifact");
+  const artifactUrl = getStringField(part.output, "artifactUrl") ?? getStringField(part.output, "url");
+
+  if (artifactUrl?.startsWith("/artifacts/")) {
+    return artifactUrl;
+  }
+
+  const artifactId = getStringField(part.output, "artifactId") ?? getStringField(artifact, "id");
+
+  return artifactId ? `/artifacts/${encodeURIComponent(artifactId)}` : null;
+}
+
+function getLiveArtifactId(part: ToolPart) {
+  const artifact = getRecordField(part.output, "artifact");
+  const artifactId = getStringField(part.output, "artifactId") ?? getStringField(artifact, "id");
+
+  if (artifactId) {
+    return artifactId;
+  }
+
+  const artifactPath = getArtifactDetailPath(part);
+  const match = artifactPath?.match(/^\/artifacts\/(.+)$/);
+
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function isLiveArtifactCardOpen(part: ToolPart, openArtifactId: string | null | undefined) {
+  const artifactId = getLiveArtifactId(part);
+
+  return Boolean(artifactId && artifactId === openArtifactId);
+}
+
+function getLiveArtifactTitle(part: ToolPart) {
+  const artifact = getRecordField(part.output, "artifact");
+
+  return (
+    getStringField(artifact, "title") ??
+    getStringField(part.output, "title") ??
+    getStringField(part.input, "title") ??
+    "Untitled artifact"
+  );
 }
 
 function getPathDisplayName(path: string) {
@@ -469,6 +513,8 @@ function renderPart(
     readonly openPathLabel: string;
     readonly openingPath: string | null;
     readonly onOpenPath?: (path: string) => void;
+    readonly openArtifactId?: string | null;
+    readonly onOpenArtifact?: (artifactId: string) => void;
   }
 ) {
   if (isTextPart(part)) {
@@ -575,6 +621,50 @@ function renderPart(
     const successfulWriteFileName = successfulWriteFilePath ? getPathDisplayName(successfulWriteFilePath) : null;
     const toolErrorDetails = getToolErrorDetails(part);
     const connectorIconUrl = getConnectorIconUrl(toolName);
+
+    if (toolName === "create_live_artifact") {
+      const artifactTitle = getLiveArtifactTitle(part);
+      const artifactId = part.state === "output-available" ? getLiveArtifactId(part) : null;
+      const canOpenArtifact = Boolean(artifactId && options.onOpenArtifact);
+      const isOpenArtifact = isLiveArtifactCardOpen(part, options.openArtifactId);
+      const isExecuting = isExecutingToolState(part.state);
+      const cardClassName = `group flex min-h-11 w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2.5 text-left text-inherit no-underline shadow-xs transition-colors focus-visible:outline-none focus-visible:shadow-focus ${
+        isOpenArtifact
+          ? "border-accent/40 bg-accent/5"
+          : "border-border-subtle bg-surface-1 hover:border-border-strong hover:bg-surface-2"
+      } ${canOpenArtifact ? "cursor-pointer" : "cursor-default"}`;
+      const content = (
+        <>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <Component aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
+            <span className="min-w-0 truncate text-sm font-medium text-text-heading">
+              {part.state === "output-available" ? `Created artifact: ${artifactTitle}` : `${formatToolState(part.state)} artifact: ${artifactTitle}`}
+            </span>
+          </span>
+          {canOpenArtifact ? (
+            <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-text-heading" strokeWidth={1.8} />
+          ) : (
+            <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full" className="shrink-0">{toolStateMeta.label}</Badge>
+          )}
+        </>
+      );
+
+      if (canOpenArtifact) {
+        return (
+          <button key={`${part.type}-${index}`} type="button" className={cardClassName} aria-label={`Open artifact ${artifactTitle}`} aria-pressed={isOpenArtifact} onClick={() => options.onOpenArtifact?.(artifactId!)}>
+            {content}
+          </button>
+        );
+      }
+
+      return (
+        <div key={`${part.type}-${index}`} className={cardClassName} data-tool-phase={toolStateMeta.phase}>
+          {content}
+          {toolErrorDetails ? <span className="min-w-0 truncate text-error" title={toolErrorDetails}>{toolErrorDetails}</span> : null}
+          {isExecuting ? <span className="sr-only">{toolStateMeta.label}</span> : null}
+        </div>
+      );
+    }
 
     if (isInternalToolName(toolName)) {
       const Icon = getInternalToolIcon(toolName);
@@ -780,9 +870,11 @@ export interface ChatThreadProps {
     confirmationToken: string;
     decision: "approved" | "rejected";
   }) => void | Promise<void>;
+  readonly openArtifactId?: string | null;
+  readonly onOpenArtifact?: (artifactId: string) => void;
 }
 
-export function ChatThread({ messages, status, errorText, isArchived, onToolApproval }: ChatThreadProps) {
+export function ChatThread({ messages, status, errorText, isArchived, onToolApproval, openArtifactId, onOpenArtifact }: ChatThreadProps) {
   const rootRef = useRef<HTMLElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const lastLocatedUserMessageIdRef = useRef<string | null>(null);
@@ -974,7 +1066,9 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
             onToolApproval: handleToolApproval,
             openPathLabel,
             openingPath,
-            onOpenPath: canOpenPaths ? handleOpenPath : undefined
+            onOpenPath: canOpenPaths ? handleOpenPath : undefined,
+            openArtifactId,
+            onOpenArtifact
           })
         );
         const visibleParts = renderedParts.filter((part) => part !== null);
@@ -993,7 +1087,7 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
 
         return (
           <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-message-id={message.id} data-role={message.role}>
-            <Card className={`rounded-xl border border-border-subtle px-4.5 shadow-xs ${message.role === "user" ? "w-fit max-w-[60%] border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)] py-2 [overflow-wrap:anywhere] max-[960px]:max-w-full" : "w-[min(100%,calc(var(--spacing)*180))] bg-surface-1 py-4 max-[960px]:w-full"}`}>
+            <Card className={`rounded-xl border border-border-subtle px-4.5 shadow-xs ${message.role === "user" ? "w-fit max-w-[75%] border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)] py-2 [overflow-wrap:anywhere] max-[960px]:max-w-full" : "w-full bg-surface-1 py-4"}`}>
               <div className="flex flex-col gap-3">
                 {visibleParts}
               </div>

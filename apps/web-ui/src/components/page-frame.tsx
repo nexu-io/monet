@@ -10,6 +10,7 @@ export function PageFrame({
   title,
   description,
   header,
+  headerActions,
   composer,
   contentClassName,
   contentWrapper,
@@ -20,6 +21,7 @@ export function PageFrame({
   title: string;
   description: string;
   header?: ReactNode;
+  headerActions?: ReactNode;
   composer?: ReactNode;
   contentClassName?: string;
   contentWrapper?: "default" | "none";
@@ -29,7 +31,7 @@ export function PageFrame({
   return (
     <AppShell
       pathname={pathname}
-      header={header ?? <PageHeader title={title} description={description} density="shell" className="flex flex-col gap-1.5 [&_h1]:m-0 [&_h1]:font-heading [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-[-0.01em] [&_h1]:text-text-heading [&_p]:m-0 [&_p]:max-w-[68ch] [&_p]:text-text-secondary" />}
+      header={header ?? <PageHeader title={title} description={description} actions={headerActions} density="shell" className="[&_h1]:m-0 [&_h1]:font-heading [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:tracking-[-0.01em] [&_h1]:text-text-heading [&_p]:m-0 [&_p]:mt-1.5 [&_p]:max-w-[68ch] [&_p]:text-text-secondary" />}
       composer={composer}
       contentClassName={contentClassName}
       contentWrapper={contentWrapper}

@@ -12,6 +12,7 @@ export interface SessionRecord {
   readonly archivedAt: string | null;
   readonly defaultProviderId: string | null;
   readonly defaultModelId: string | null;
+  readonly messageCount: number;
 }
 
 export interface SessionMessageRecord {

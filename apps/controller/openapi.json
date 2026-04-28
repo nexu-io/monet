@@ -131,6 +131,11 @@
               "null"
             ],
             "example": null
+          },
+          "messageCount": {
+            "type": "integer",
+            "minimum": 0,
+            "example": 0
           }
         },
         "required": [
@@ -140,7 +145,8 @@
           "updatedAt",
           "archivedAt",
           "defaultProviderId",
-          "defaultModelId"
+          "defaultModelId",
+          "messageCount"
         ]
       },
       "ListSessionsResponse": {

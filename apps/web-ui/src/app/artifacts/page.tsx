@@ -206,25 +206,6 @@ function NewArtifactButton({ children }: { readonly children: ReactNode }) {
   );
 }
 
-function ArtifactsHeader() {
-  return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-      <div className="flex flex-col gap-1.5">
-        <h1 className="m-0 font-heading text-3xl font-bold tracking-[-0.01em] text-text-heading">Live Artifacts</h1>
-        <p className="m-0 max-w-[68ch] text-text-secondary">Reusable dashboards and briefs created from chats, connector tools, and safe refreshable sources.</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Link className={secondaryButtonClassName} to="/connectors">
-          Browse connectors
-        </Link>
-        <NewArtifactButton>
-          New artifact
-        </NewArtifactButton>
-      </div>
-    </div>
-  );
-}
-
 export default function ArtifactsPage() {
   const [loadState, setLoadState] = useState<ArtifactsLoadState>({ status: "idle" });
 
@@ -291,9 +272,18 @@ export default function ArtifactsPage() {
     <PageFrame
       pathname="/artifacts"
       title="Live Artifacts"
-      description="Reusable dashboards and briefs created from chats, connector tools, and safe refreshable sources."
-      header={<ArtifactsHeader />}
-      contentClassName="w-full !max-w-[calc(var(--spacing)*340)]"
+      description="Create refreshable dashboards and briefs from chats and connector tools."
+      headerActions={
+        <>
+          <Link className={secondaryButtonClassName} to="/connectors">
+            Browse connectors
+          </Link>
+          <NewArtifactButton>
+            New artifact
+          </NewArtifactButton>
+        </>
+      }
+      contentClassName="w-full"
     >
       {content}
     </PageFrame>

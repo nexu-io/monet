@@ -128,7 +128,8 @@ export const SessionSchema = z
     updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" }),
     archivedAt: z.string().datetime().nullable().openapi({ example: null }),
     defaultProviderId: z.string().nullable().openapi({ example: null }),
-    defaultModelId: z.string().nullable().openapi({ example: null })
+    defaultModelId: z.string().nullable().openapi({ example: null }),
+    messageCount: z.number().int().nonnegative().openapi({ example: 0 })
   })
   .openapi("Session");
 

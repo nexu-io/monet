@@ -54,7 +54,9 @@ const primaryButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
 const dangerButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-error/30 bg-error-subtle px-3.5 text-sm font-semibold text-error transition-colors hover:border-error/50 hover:bg-error-subtle/80 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
-const connectorGridClassName = "grid gap-4 md:grid-cols-2 lg:grid-cols-3";
+const connectorGridClassName = "grid gap-4 sm:grid-cols-2";
+const connectorCardClassName =
+  "flex min-h-[15rem] flex-col justify-between gap-5 rounded-2xl border border-border-subtle bg-surface-1 p-5 shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2";
 const connectorDetailQueryParam = "connector";
 const connectorOAuthStatusQueryParam = "connector_oauth";
 const connectorOAuthIdQueryParam = "connector_id";
@@ -225,11 +227,10 @@ function ConnectorCard({
   readonly onViewTools: (connectorId: ConnectorId) => void;
 }) {
   const statusMeta = connectorStatusMeta[connector.status];
-  const accountLabel = connector.connectedAccountLabel?.trim();
   const primaryActionLabel = actionBusy ? "Starting…" : statusMeta.primaryActionLabel;
 
   return (
-    <article className="flex min-h-[15rem] flex-col justify-between gap-5 rounded-2xl border border-border-subtle bg-surface-1 p-5 shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2">
+    <article className={connectorCardClassName}>
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -243,12 +244,6 @@ function ConnectorCard({
         </div>
 
         <p className="m-0 leading-[1.6] text-text-secondary">{connector.description}</p>
-
-        {accountLabel ? (
-          <p className="m-0 rounded-lg border border-border-subtle bg-surface-0 px-3 py-2 text-sm text-text-muted">
-            Connected as <span className="font-medium text-text-primary">{accountLabel}</span>
-          </p>
-        ) : null}
 
       </div>
 
@@ -270,35 +265,70 @@ function ConnectorCard({
   );
 }
 
+function ConnectorCardSkeleton() {
+  return (
+    <article className={`${connectorCardClassName} pointer-events-none`} aria-hidden="true">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 animate-pulse rounded-xl bg-surface-2" />
+            <div className="flex min-w-0 flex-col gap-2">
+              <div className="h-5 w-28 animate-pulse rounded bg-surface-2" />
+              <div className="h-3 w-20 animate-pulse rounded bg-surface-2" />
+            </div>
+          </div>
+          <div className="h-8 w-8 animate-pulse rounded-full bg-surface-2" />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="h-4 w-full animate-pulse rounded bg-surface-2" />
+          <div className="h-4 w-11/12 animate-pulse rounded bg-surface-2" />
+          <div className="h-4 w-3/5 animate-pulse rounded bg-surface-2" />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-border-subtle pt-4 sm:flex-row sm:items-center">
+        <div className="h-9 w-24 animate-pulse rounded-md bg-surface-2" />
+        <div className="h-9 w-24 animate-pulse rounded-md bg-surface-2" />
+      </div>
+    </article>
+  );
+}
+
 function ConnectorCardGrid({
   connectors,
+  loading = false,
   actionState,
   onPrimaryAction,
   onViewTools
 }: {
   readonly connectors: readonly ConnectorCatalogCard[];
+  readonly loading?: boolean;
   readonly actionState: ConnectorActionState;
   readonly onPrimaryAction: (connector: ConnectorCatalogCard) => void;
   readonly onViewTools: (connectorId: ConnectorId) => void;
 }) {
   return (
-    <section className="flex flex-col gap-4" aria-label="Available connectors">
+    <section className="flex flex-col gap-4" aria-label={loading ? "Loading connectors" : "Available connectors"} aria-busy={loading} aria-live="polite">
       {actionState.status === "success" ? (
         <ConnectorInlineNotice tone="success" message={actionState.message} />
       ) : actionState.status === "error" ? (
         <ConnectorInlineNotice tone="error" message={actionState.message} />
       ) : null}
       <div className={connectorGridClassName}>
-        {connectors.map((connector) => (
-          <ConnectorCard
-            key={connector.id}
-            connector={connector}
-            actionBusy={actionState.status === "starting" && actionState.connectorId === connector.id}
-            onPrimaryAction={onPrimaryAction}
-            onViewTools={onViewTools}
-          />
-        ))}
+        {loading
+          ? Array.from({ length: 4 }).map((_, index) => <ConnectorCardSkeleton key={index} />)
+          : connectors.map((connector) => (
+              <ConnectorCard
+                key={connector.id}
+                connector={connector}
+                actionBusy={actionState.status === "starting" && actionState.connectorId === connector.id}
+                onPrimaryAction={onPrimaryAction}
+                onViewTools={onViewTools}
+              />
+            ))}
       </div>
+      {loading ? <span className="sr-only">Loading connector catalog and connection status</span> : null}
     </section>
   );
 }
@@ -556,30 +586,6 @@ function ConnectorStatePanel({
   );
 }
 
-function LoadingConnectorsState() {
-  return (
-    <section className={statePanelClassName} aria-label="Loading connectors" aria-live="polite">
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <p className={eyebrowClassName}>Loading</p>
-          <h2 className={titleClassName}>Checking connector availability…</h2>
-          <p className={descriptionClassName}>Monet is loading the connector catalog and current connection status.</p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3" aria-hidden="true">
-          {["GitHub", "Notion", "Google Drive"].map((label) => (
-            <div key={label} className="flex min-h-28 flex-col gap-3 rounded-xl border border-border-subtle bg-surface-0 p-4">
-              <div className="h-8 w-8 animate-pulse rounded-lg bg-surface-2" />
-              <div className="h-4 w-24 animate-pulse rounded bg-surface-2" />
-              <div className="h-3 w-full animate-pulse rounded bg-surface-2" />
-              <span className="sr-only">Loading {label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export default function ConnectorsPage() {
   const { config, controllerState, isDesktop, restartController, restartPending } = useControllerState();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -806,7 +812,7 @@ export default function ConnectorsPage() {
   let content: ReactNode;
 
   if (!config) {
-    content = <LoadingConnectorsState />;
+    content = <ConnectorCardGrid connectors={[]} loading actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onViewTools={openConnectorDetail} />;
   } else if (controllerStarting) {
     content = (
       <ConnectorStatePanel
@@ -831,7 +837,7 @@ export default function ConnectorsPage() {
       />
     );
   } else if (loadState.status === "idle" || loadState.status === "loading") {
-    content = <LoadingConnectorsState />;
+    content = <ConnectorCardGrid connectors={[]} loading actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onViewTools={openConnectorDetail} />;
   } else if (loadState.status === "error") {
     content = (
       <ConnectorStatePanel
@@ -882,8 +888,8 @@ export default function ConnectorsPage() {
     <PageFrame
       pathname="/connectors"
       title="Connectors"
-      description="Connect approved external services so Monet can use curated tools with safe approval policies."
-      contentClassName="w-full !max-w-[calc(var(--spacing)*340)]"
+      description="Connect tools and manage live artifacts with safe approvals."
+      contentClassName="w-full"
     >
       {content}
       {selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} onDisconnected={async () => void (await refreshConnectors())} /> : null}

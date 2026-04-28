@@ -1,24 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
+import { ExternalLink, RefreshCw, X } from "lucide-react";
 
 import { ChatThread } from "../components/chat-thread";
 import { Composer } from "../components/composer";
-import { ConversationHeader } from "../components/conversation-header";
+import { ArtifactHtmlFrame } from "../components/live-artifacts/artifact-html-frame";
 import { PageFrame } from "../components/page-frame";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { sanitizeInternalRuntimeMessage } from "../components/workspace-copy";
 import { useControllerState } from "../lib/controller-state";
 import { PENDING_CHAT_PROMPT_STORAGE_KEY, stashPendingChatPrompt } from "../lib/chat-prompt-seed";
 import { getMonetClientConfig } from "../lib/monet-client";
+import { getLiveArtifact, type LiveArtifact } from "../lib/live-artifacts-api";
 import { fetchProviderTargets, type ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
 import { Button } from "@nexu-design/ui-web";
 
 const primarySessionActionButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 font-medium text-accent-foreground no-underline transition-[background-color,border-color] duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:border-[hsl(var(--accent)/0.92)] hover:bg-[hsl(var(--accent)/0.92)] focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
+
+type ArtifactPanelLoadState =
+  | { readonly status: "idle" }
+  | { readonly status: "loading" }
+  | { readonly status: "error"; readonly message: string }
+  | { readonly status: "loaded"; readonly artifact: LiveArtifact };
 
 function mergeHeaders(baseHeaders: Record<string, string>, headers: HeadersInit | undefined): Record<string, string> {
   const merged: Record<string, string> = { ...baseHeaders };
@@ -34,11 +42,127 @@ function mergeHeaders(baseHeaders: Record<string, string>, headers: HeadersInit 
   return merged;
 }
 
+function LiveArtifactSidePanel({ artifactId, onClose }: { readonly artifactId: string; readonly onClose: () => void }) {
+  const [loadState, setLoadState] = useState<ArtifactPanelLoadState>({ status: "idle" });
+
+  const loadArtifact = useCallback(async () => {
+    setLoadState({ status: "loading" });
+
+    try {
+      const response = await getLiveArtifact(artifactId);
+      setLoadState({ status: "loaded", artifact: response.artifact });
+    } catch (error) {
+      setLoadState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to load live artifact."
+      });
+    }
+  }, [artifactId]);
+
+  useEffect(() => {
+    void loadArtifact();
+  }, [loadArtifact]);
+
+  const artifactTitle = loadState.status === "loaded" ? loadState.artifact.title : "Live artifact";
+
+  return (
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface-1 shadow-dropdown" aria-label="Live artifact preview">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border-subtle bg-surface-1 px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="m-0 truncate font-heading text-lg font-semibold tracking-[-0.01em] text-text-heading">{artifactTitle}</h2>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button type="button" variant="ghost" size="icon" title="Open full page" aria-label="Open full page" onClick={() => window.open(`/artifacts/${encodeURIComponent(artifactId)}`, "_blank", "noopener,noreferrer")}>
+            <ExternalLink aria-hidden="true" className="size-4" strokeWidth={1.8} />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" title="Reload" aria-label="Reload" disabled={loadState.status === "loading"} onClick={() => void loadArtifact()}>
+            <RefreshCw aria-hidden="true" className={loadState.status === "loading" ? "size-4 animate-spin" : "size-4"} strokeWidth={1.8} />
+          </Button>
+          <Button type="button" variant="ghost" size="icon" title="Close" aria-label="Close" onClick={onClose}>
+            <X aria-hidden="true" className="size-4" strokeWidth={1.8} />
+          </Button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto bg-app-canvas">
+        {loadState.status === "idle" || loadState.status === "loading" ? (
+          <div className="flex h-full flex-col gap-4 p-5" aria-live="polite" aria-label="Loading artifact">
+            <div className="h-8 w-2/3 animate-pulse rounded bg-surface-2" />
+            <div className="h-20 w-full animate-pulse rounded-xl bg-surface-2" />
+            <div className="h-72 w-full animate-pulse rounded-xl bg-surface-2" />
+          </div>
+        ) : loadState.status === "error" ? (
+          <div className="m-5 rounded-xl border border-warning/20 bg-warning-subtle p-4 text-sm text-warning">
+            <p className="m-0 font-semibold">Unable to load artifact.</p>
+            <p className="m-0 mt-1">{loadState.message}</p>
+          </div>
+        ) : loadState.artifact.document ? (
+          <ArtifactHtmlFrame document={loadState.artifact.document} title={loadState.artifact.title} />
+        ) : (
+          <div className="m-5 rounded-xl border border-border-subtle bg-surface-1 p-4 text-sm text-text-muted">
+            This artifact has no renderable content yet.
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 interface PendingContinuationRequest {
   readonly runId: string;
   readonly toolCallId: string;
   readonly decision: "approved" | "rejected";
   readonly confirmationToken: string;
+}
+
+const SELECTED_PROVIDER_TARGET_STORAGE_KEY = "monet.chat.selectedProviderTarget";
+
+type StoredProviderTarget = Pick<ProviderReadinessTarget, "providerId" | "modelId">;
+
+function getTargetStorageKey(target: StoredProviderTarget) {
+  return `${target.providerId}::${target.modelId}`;
+}
+
+function getStoredProviderTarget(): StoredProviderTarget | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const value = window.localStorage.getItem(SELECTED_PROVIDER_TARGET_STORAGE_KEY);
+
+    if (!value) {
+      return null;
+    }
+
+    const parsed = JSON.parse(value) as Partial<StoredProviderTarget>;
+
+    return typeof parsed.providerId === "string" && typeof parsed.modelId === "string"
+      ? { providerId: parsed.providerId, modelId: parsed.modelId }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeProviderTarget(target: ProviderReadinessTarget | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (!target) {
+      window.localStorage.removeItem(SELECTED_PROVIDER_TARGET_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(
+      SELECTED_PROVIDER_TARGET_STORAGE_KEY,
+      JSON.stringify({ providerId: target.providerId, modelId: target.modelId } satisfies StoredProviderTarget)
+    );
+  } catch {
+    // Non-fatal: model routing still works without web storage.
+  }
 }
 
 function deriveSessionTitle(input: string) {
@@ -54,6 +178,7 @@ function deriveSessionTitle(input: string) {
 function SessionChatSurface({
   session,
   fallbackProviderTarget,
+  onRememberProviderTarget,
   readyProviders,
   onRenameSession,
   onRefreshCurrentSession,
@@ -61,6 +186,7 @@ function SessionChatSurface({
 }: {
   session: SessionDetailRecord;
   fallbackProviderTarget: ProviderReadinessTarget | null;
+  onRememberProviderTarget: (target: ProviderReadinessTarget | null) => void;
   readyProviders: ProviderReadinessTarget[];
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onRefreshCurrentSession: () => Promise<void>;
@@ -69,6 +195,7 @@ function SessionChatSurface({
   const [input, setInput] = useState("");
   const [approvalErrorText, setApprovalErrorText] = useState<string | undefined>(undefined);
   const [overrideProviderTarget, setOverrideProviderTarget] = useState<ProviderReadinessTarget | null>(null);
+  const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
   const pendingContinuationRef = useRef<PendingContinuationRequest | null>(null);
   const { config } = useControllerState();
   const controllerConfig = config;
@@ -155,6 +282,7 @@ function SessionChatSurface({
     setInput("");
     setApprovalErrorText(undefined);
     setOverrideProviderTarget(null);
+    setOpenArtifactId(null);
     pendingContinuationRef.current = null;
     clearError();
   }, [clearError, session.id]);
@@ -195,6 +323,8 @@ function SessionChatSurface({
   }, [session.id, isComposerDisabled]);
 
   function handleChangeProviderTarget(target: ProviderReadinessTarget | null) {
+    onRememberProviderTarget(target);
+
     if (
       target &&
       fallbackProviderTarget &&
@@ -293,45 +423,63 @@ function SessionChatSurface({
     }
   }
 
+  const chatThread = (
+    <ChatThread
+      messages={messages}
+      status={status}
+      errorText={approvalErrorText ?? error?.message}
+      isArchived={isArchived}
+      onToolApproval={handleToolApproval}
+      openArtifactId={openArtifactId}
+      onOpenArtifact={setOpenArtifactId}
+    />
+  );
+  const composer = (
+    <Composer
+      value={input}
+      status={status}
+      disabled={isComposerDisabled}
+      {...(isComposerDisabled ? { disabledReason: composerDisabledReason } : {})}
+      readyProviders={readyProviders}
+      activeTarget={activeProviderTarget}
+      isTargetOverridden={overrideProviderTarget !== null}
+      onValueChange={handleInputChange}
+      onSubmit={() => void handleSubmit()}
+      onStop={handleStop}
+      onChangeTarget={handleChangeProviderTarget}
+    />
+  );
+
   return (
     <PageFrame
       pathname="/"
       title="Chat"
       description="Desktop-first chat shell wired to your local workspace with streaming AI SDK UI message rendering."
       onDesktopStopShortcut={handleStop}
-      header={(
-        <ConversationHeader
-          sessionTitle={session.title}
-          sessionId={session.id}
-          messageCount={messages.length}
-          activeTarget={activeProviderTarget}
-        />
-      )}
-      composer={(
-        <Composer
-          value={input}
-          status={status}
-          disabled={isComposerDisabled}
-          {...(isComposerDisabled ? { disabledReason: composerDisabledReason } : {})}
-          readyProviders={readyProviders}
-          activeTarget={activeProviderTarget}
-          isTargetOverridden={overrideProviderTarget !== null}
-          onValueChange={handleInputChange}
-          onSubmit={() => void handleSubmit()}
-          onStop={handleStop}
-          onChangeTarget={handleChangeProviderTarget}
-        />
-      )}
+      header={false}
+      contentClassName={openArtifactId ? "overflow-hidden" : "pt-12"}
+      contentWrapper={openArtifactId ? "none" : undefined}
+      composer={openArtifactId ? undefined : composer}
     >
-      <div className="flex flex-col gap-6">
-        <ChatThread
-          messages={messages}
-          status={status}
-          errorText={approvalErrorText ?? error?.message}
-          isArchived={isArchived}
-          onToolApproval={handleToolApproval}
-        />
-      </div>
+      {openArtifactId ? (
+        <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_minmax(22rem,34rem)] gap-4 pl-[var(--app-page-padding-x)] pr-4 pt-4 pb-4 max-[1180px]:grid-cols-1 max-[1180px]:px-[var(--app-page-padding-x)]">
+          <div className="mx-auto grid h-full min-h-0 w-full max-w-[var(--app-content-max-width)] grid-rows-[minmax(0,1fr)_auto] pt-8">
+            <div className="min-h-0 overflow-auto" data-chat-scroll-container="true">
+              <div className="flex flex-col gap-6 pb-4">
+                {chatThread}
+              </div>
+            </div>
+            <div className="z-10 bg-app-canvas">
+              {composer}
+            </div>
+          </div>
+          <LiveArtifactSidePanel artifactId={openArtifactId} onClose={() => setOpenArtifactId(null)} />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-6">
+          {chatThread}
+        </div>
+      )}
     </PageFrame>
   );
 }
@@ -340,12 +488,14 @@ function EmptyChatConversation({
   activeProviderTarget,
   composerDisabledReason,
   isComposerDisabled,
+  onRememberProviderTarget,
   onCreateSession,
   readyProviders
 }: {
   activeProviderTarget: ProviderReadinessTarget | null;
   composerDisabledReason?: string;
   isComposerDisabled: boolean;
+  onRememberProviderTarget: (target: ProviderReadinessTarget | null) => void;
   onCreateSession: (prompt: string, providerTarget: ProviderReadinessTarget | null) => Promise<void>;
   readyProviders: ProviderReadinessTarget[];
 }) {
@@ -354,6 +504,8 @@ function EmptyChatConversation({
   const selectedProviderTarget = overrideProviderTarget ?? activeProviderTarget;
 
   function handleChangeProviderTarget(target: ProviderReadinessTarget | null) {
+    onRememberProviderTarget(target);
+
     if (
       target &&
       activeProviderTarget &&
@@ -383,13 +535,8 @@ function EmptyChatConversation({
       pathname="/"
       title="Chat"
       description="Desktop-first chat shell wired to your local workspace with streaming AI SDK UI message rendering."
-      header={(
-        <ConversationHeader
-          sessionTitle={DEFAULT_SESSION_TITLE}
-          messageCount={0}
-          activeTarget={selectedProviderTarget}
-        />
-      )}
+      header={false}
+      contentClassName="pt-12"
       composer={(
         <Composer
           value={input}
@@ -441,6 +588,7 @@ export default function HomePage() {
     sessionsError
   } = useSessions();
   const [providerTargets, setProviderTargets] = useState<ProviderReadinessTarget[]>([]);
+  const [storedProviderTarget, setStoredProviderTarget] = useState<StoredProviderTarget | null>(() => getStoredProviderTarget());
 
   const controllerStateLabel = controllerState?.state;
 
@@ -466,7 +614,29 @@ export default function HomePage() {
     };
   }, []);
 
-  const defaultProviderTarget = providerTargets[0] ?? null;
+  const rememberedProviderTarget = storedProviderTarget
+    ? providerTargets.find((target) => getTargetStorageKey(target) === getTargetStorageKey(storedProviderTarget)) ?? null
+    : null;
+  const defaultProviderTarget = rememberedProviderTarget ?? providerTargets[0] ?? null;
+
+  useEffect(() => {
+    if (!storedProviderTarget || providerTargets.length === 0) {
+      return;
+    }
+
+    const isStoredTargetReady = providerTargets.some((target) => getTargetStorageKey(target) === getTargetStorageKey(storedProviderTarget));
+
+    if (!isStoredTargetReady) {
+      setStoredProviderTarget(null);
+      storeProviderTarget(null);
+    }
+  }, [providerTargets, storedProviderTarget]);
+
+  const rememberProviderTarget = useCallback((target: ProviderReadinessTarget | null) => {
+    const nextTarget = target ? { providerId: target.providerId, modelId: target.modelId } : null;
+    setStoredProviderTarget(nextTarget);
+    storeProviderTarget(target);
+  }, []);
 
   async function handleRenameSession(sessionId: string, title: string) {
     try {
@@ -510,6 +680,7 @@ export default function HomePage() {
           activeProviderTarget={defaultProviderTarget}
           isComposerDisabled={composerDisabled}
           {...(composerDisabledReason ? { composerDisabledReason } : {})}
+          onRememberProviderTarget={rememberProviderTarget}
           onCreateSession={handleEmptyChatSend}
         />
 
@@ -531,7 +702,7 @@ export default function HomePage() {
     );
   }
 
-  const fallbackProviderTarget = currentSessionDetail.defaultProviderId && currentSessionDetail.defaultModelId
+  const fallbackProviderTarget = rememberedProviderTarget ?? (currentSessionDetail.defaultProviderId && currentSessionDetail.defaultModelId
     ? providerTargets.find(
         (target) => target.providerId === currentSessionDetail.defaultProviderId && target.modelId === currentSessionDetail.defaultModelId
       ) ?? {
@@ -540,13 +711,14 @@ export default function HomePage() {
         providerDisplayName: "Default provider",
         modelName: null
       }
-    : null;
+    : defaultProviderTarget);
 
   return (
     <SessionChatSurface
       session={currentSessionDetail}
       readyProviders={providerTargets}
       fallbackProviderTarget={fallbackProviderTarget}
+      onRememberProviderTarget={rememberProviderTarget}
       onRenameSession={handleRenameSession}
       onRefreshCurrentSession={refreshCurrentSession}
       onRefreshSessions={refreshSessions}

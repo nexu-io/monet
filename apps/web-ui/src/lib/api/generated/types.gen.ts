@@ -23,6 +23,7 @@ export type Session = {
     archivedAt: string | null;
     defaultProviderId: string | null;
     defaultModelId: string | null;
+    messageCount: number;
 };
 
 export type ListSessionsResponse = {
