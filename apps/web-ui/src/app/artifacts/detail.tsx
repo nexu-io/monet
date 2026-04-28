@@ -9,6 +9,7 @@ import {
   pinLiveArtifact,
   refreshLiveArtifact,
   type LiveArtifact,
+  type LiveArtifactSourceState,
   type LiveArtifactTile
 } from "../../lib/live-artifacts-api";
 
@@ -60,6 +61,61 @@ function ArtifactStatusBadge({ artifact }: { readonly artifact: LiveArtifact }) 
   return <span className="inline-flex items-center rounded-full border border-success/25 bg-success-subtle px-2.5 py-1 text-xs font-semibold text-success">Active</span>;
 }
 
+function getSourceStateLabel(state: LiveArtifactSourceState["state"]) {
+  switch (state) {
+    case "disconnected":
+      return "Disconnected";
+    case "expired":
+      return "Expired";
+    case "missing_connector":
+      return "Missing connector";
+    case "stale_provider_tool":
+      return "Stale provider tool";
+    case "ok":
+      return "Connected";
+  }
+}
+
+function getActionableSourceStates(sourceStates: readonly LiveArtifactSourceState[] | undefined) {
+  return (sourceStates ?? []).filter((sourceState) => sourceState.state !== "ok");
+}
+
+function SourceStateBadge({ sourceState }: { readonly sourceState: LiveArtifactSourceState }) {
+  const isOk = sourceState.state === "ok";
+
+  return (
+    <span
+      className={isOk
+        ? "inline-flex items-center gap-1.5 rounded-md border border-success/20 bg-success-subtle px-2 py-1 text-xs font-medium text-success"
+        : "inline-flex items-center gap-1.5 rounded-md border border-warning/20 bg-warning-subtle px-2 py-1 text-xs font-medium text-warning"}
+      title={sourceState.message}
+    >
+      {getSourceStateLabel(sourceState.state)}
+    </span>
+  );
+}
+
+function SourceStateNotice({ sourceStates }: { readonly sourceStates: readonly LiveArtifactSourceState[] | undefined }) {
+  const actionableStates = getActionableSourceStates(sourceStates);
+
+  if (actionableStates.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border border-warning/20 bg-warning-subtle px-4 py-3 text-sm text-warning">
+      <p className="m-0 font-semibold">{actionableStates.length} connector source{actionableStates.length === 1 ? "" : "s"} need attention.</p>
+      <ul className="m-0 mt-2 list-disc space-y-1 pl-5">
+        {actionableStates.map((sourceState) => (
+          <li key={`${sourceState.tileId}-${sourceState.state}`}>
+            <span className="font-medium">{sourceState.tileTitle}:</span> {getSourceStateLabel(sourceState.state)} — {sourceState.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function TileSourceBadge({ tile }: { readonly tile: LiveArtifactTile }) {
   const source = tile.sourceJson;
 
@@ -89,6 +145,7 @@ function TileSourceBadge({ tile }: { readonly tile: LiveArtifactTile }) {
           Requires confirmation
         </span>
       ) : null}
+      {tile.sourceState ? <SourceStateBadge sourceState={tile.sourceState} /> : null}
     </div>
   );
 }
@@ -313,6 +370,7 @@ export default function ArtifactDetailPage() {
           {refreshError}
         </div>
       )}
+      <SourceStateNotice sourceStates={artifact.sourceStates} />
       {artifact.lastRefreshError && !refreshError && (
         <div className="rounded-lg border border-warning/20 bg-warning-subtle px-4 py-3 text-sm text-warning">
           Last refresh error: {artifact.lastRefreshError}

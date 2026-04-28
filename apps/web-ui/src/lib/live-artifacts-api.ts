@@ -2,14 +2,24 @@ import { getMonetClientConfig } from "./monet-client";
 
 import type {
   LiveArtifactResponse,
+  LiveArtifactRefreshResponse as GeneratedLiveArtifactRefreshResponse,
+  LiveArtifactSourceState,
   ListLiveArtifactsResponse,
   PostApiLiveArtifactsData,
   UpdateLiveArtifactRequest
 } from "./api";
 
-export type LiveArtifactSummary = ListLiveArtifactsResponse["artifacts"][number];
-export type LiveArtifact = LiveArtifactResponse["artifact"];
-export type LiveArtifactTile = LiveArtifact["tiles"][number];
+export type LiveArtifactSummary = ListLiveArtifactsResponse["artifacts"][number] & {
+  readonly sourceStates?: readonly LiveArtifactSourceState[];
+};
+export type LiveArtifact = Omit<LiveArtifactResponse["artifact"], "tiles"> & {
+  readonly sourceStates?: readonly LiveArtifactSourceState[];
+  readonly tiles: readonly LiveArtifactTile[];
+};
+export type LiveArtifactTile = LiveArtifactResponse["artifact"]["tiles"][number] & {
+  readonly sourceState?: LiveArtifactSourceState;
+};
+export type { LiveArtifactSourceState };
 export type LiveArtifactCreateInput = PostApiLiveArtifactsData["body"];
 export type LiveArtifactUpdateInput = UpdateLiveArtifactRequest;
 
@@ -27,10 +37,7 @@ export interface LiveArtifactRefreshFailure {
   readonly error: string;
 }
 
-export interface LiveArtifactRefreshResponse {
-  readonly artifact: LiveArtifact;
-  readonly failures: LiveArtifactRefreshFailure[];
-}
+export type LiveArtifactRefreshResponse = GeneratedLiveArtifactRefreshResponse & { readonly artifact: LiveArtifact };
 
 interface ErrorResponse {
   readonly error?: string;
