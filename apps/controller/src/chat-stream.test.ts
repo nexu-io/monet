@@ -157,6 +157,7 @@ test("resolveStepUsageTokenIncrement handles cumulative and per-step usage repor
   assert.equal(resolveStepUsageTokenIncrement(0, 10), 10);
   assert.equal(resolveStepUsageTokenIncrement(10, 25), 15);
   assert.equal(resolveStepUsageTokenIncrement(25, 8), 8);
+  assert.equal(resolveStepUsageTokenIncrement(8, 30), 22);
   assert.equal(resolveStepUsageTokenIncrement(25, 0), 0);
 });
 

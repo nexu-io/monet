@@ -315,7 +315,7 @@ export async function createChatStreamResponse(options: {
       observedStepCount = Math.max(observedStepCount, currentStep);
       const stepUsageTokenCount = countUsageTokens(usage);
       observedTokenCount += resolveStepUsageTokenIncrement(observedStepUsageTokenCount, stepUsageTokenCount);
-      observedStepUsageTokenCount = Math.max(observedStepUsageTokenCount, stepUsageTokenCount);
+      observedStepUsageTokenCount = stepUsageTokenCount;
       observedToolCallCount += toolCalls.length;
 
       options.chatStorage.updateRunProgress({

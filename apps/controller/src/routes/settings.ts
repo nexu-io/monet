@@ -171,6 +171,7 @@ export function registerSettingsRoutes(app: ControllerApp, options: { getChatSto
               timeoutMs
             });
       const authConfigIds = {
+        ...existingSettings.authConfigIds,
         ...discoveredAuthConfigIds,
         ...(body.authConfigIds ?? {})
       };

@@ -159,6 +159,27 @@ test("settings routes expose and replace composio provider settings", async () =
       },
       updatedAt: replaceBody.updatedAt
     });
+
+    const partialReplaceResponse = await app.request("http://127.0.0.1:42831/api/settings/connectors/composio", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        timeoutMs: 7500
+      })
+    });
+    const partialReplaceBody = (await partialReplaceResponse.json()) as {
+      authConfigIds: Record<string, string>;
+      timeoutMs: number | null;
+    };
+
+    assert.equal(partialReplaceResponse.status, 200);
+    assert.equal(partialReplaceBody.timeoutMs, 7500);
+    assert.deepEqual(partialReplaceBody.authConfigIds, {
+      github: "gh-auth-id",
+      notion: "ntion-id"
+    });
   } finally {
     fixture.cleanup();
   }
