@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { createRoute, z } from "@hono/zod-openapi";
 
 import type { ControllerApp } from "../app";
@@ -23,6 +25,15 @@ const liveArtifactsLogger = createLogger("controller", {
 const artifactIdParamSchema = z.object({
   artifactId: z.string().trim().min(1).max(LIVE_ARTIFACT_LIMITS.id).openapi({ example: "art_123" })
 });
+
+function getLiveArtifactRefreshWorkspaceSessionId(artifact: LiveArtifactWithTiles): string {
+  if (artifact.sessionId) {
+    return artifact.sessionId;
+  }
+
+  const artifactHash = createHash("sha256").update(artifact.id).digest("hex").slice(0, 24);
+  return `ses_liveartifactrefresh${artifactHash}`;
+}
 
 const ListLiveArtifactsQuerySchema = z.object({
   includeArchived: z.enum(["true", "false"]).optional().openapi({ example: "false" }),
@@ -435,7 +446,7 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
 
     try {
       const artifact = options.getChatStorage().getLiveArtifact(artifactId);
-      const sessionId = artifact.sessionId ?? "ses_liveartifactrefresh";
+      const sessionId = getLiveArtifactRefreshWorkspaceSessionId(artifact);
       const sessionWorkspacePath = await options.sessionWorkspaceService.ensureWorkspace(sessionId);
       const result = await refreshLiveArtifact({
         artifactId,

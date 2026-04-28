@@ -58,9 +58,15 @@ test("html page live artifact refresh updates data JSON and advances document re
         sanitizedHtml: "<main><h1>{{data.title}}</h1><p>{{data.count}}</p></main>",
         dataJson: { title: "Previous", count: 1 },
         sourceJson: {
-          type: "tool",
+          type: "connector_tool",
           toolName: "get_report_data",
           input: { reportId: "rep_123" },
+          connector: {
+            connectorId: "reports",
+            connectorName: "Reports",
+            accountLabel: "reporting",
+            providerToolId: "GET_REPORT_DATA"
+          },
           refreshPermission: "manual_refresh_granted_for_read_only",
           outputMapping: { preferredKind: "json", dataPaths: { title: "dataJson.title", count: "dataJson.count", items: "dataJson.items" } }
         },
@@ -73,7 +79,17 @@ test("html page live artifact refresh updates data JSON and advances document re
         metadata: {
           name: "get_report_data",
           description: "Return report data",
-          requiresConfirmation: false
+          requiresConfirmation: false,
+          connector: {
+            connectorId: "reports",
+            connectorName: "Reports",
+            accountLabel: "reporting",
+            connectionState: "connected",
+            connected: true,
+            toolName: "Get report data",
+            providerToolId: "GET_REPORT_DATA",
+            approvalPolicy: { sideEffect: "read", approval: "never" }
+          }
         },
         inputSchema: {},
         execute() {
@@ -114,6 +130,47 @@ test("html page live artifact refresh updates data JSON and advances document re
     } finally {
       connection.close();
     }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh blocks generic no-confirmation tools from read-only refresh", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact(createHtmlArtifactPayload("Generic mutating report", {
+      type: "tool",
+      toolName: "create_live_artifact",
+      input: { title: "side effect" },
+      refreshPermission: "manual_refresh_granted_for_read_only",
+      outputMapping: { dataPaths: { summary: "summary" } }
+    }));
+
+    let executions = 0;
+    const registry = createToolRegistry([{
+      metadata: {
+        name: "create_live_artifact",
+        description: "Creates a live artifact",
+        requiresConfirmation: false
+      },
+      inputSchema: {},
+      execute() {
+        executions += 1;
+        return { summary: "created" };
+      }
+    }]);
+
+    await assert.rejects(() => refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    }), /Refresh source must be a read-only connector tool: create_live_artifact/);
+
+    assert.equal(executions, 0);
   } finally {
     fixture.cleanup();
   }
@@ -796,7 +853,7 @@ test("live artifact refresh blocks connector tools stored as generic tool source
       toolRegistry: registry,
       sessionWorkspacePath: fixture.workspaceDir,
       logger: createLogger("test", { component: "live-artifact-refresh-test" })
-    }), /Connector refresh source is missing audit metadata: github_search_issues/);
+    }), /Refresh source must be a read-only connector tool: github_search_issues/);
 
     assert.equal(executions, 0);
   } finally {

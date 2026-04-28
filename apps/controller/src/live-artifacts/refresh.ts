@@ -285,6 +285,10 @@ function validateRefreshSourceBeforeExecution(source: LiveArtifactTileSource, de
     throw new Error(`Refresh permission is not granted for tool: ${source.toolName}`);
   }
 
+  if (source.type !== "connector_tool") {
+    throw new Error(`Refresh source must be a read-only connector tool: ${source.toolName}`);
+  }
+
   if (definition.metadata.requiresConfirmation) {
     throw new Error(`Refresh tool requires confirmation: ${source.toolName}`);
   }
@@ -296,13 +300,9 @@ function validateRefreshSourceBeforeExecution(source: LiveArtifactTileSource, de
 
   const currentConnector = definition.metadata.connector;
 
-  if (!currentConnector && source.type !== "connector_tool") {
-    return;
-  }
-
   const storedConnector = source.connector;
 
-  if (source.type !== "connector_tool" || !storedConnector || !currentConnector) {
+  if (!storedConnector || !currentConnector) {
     throw new Error(`Connector refresh source is missing audit metadata: ${source.toolName}`);
   }
 

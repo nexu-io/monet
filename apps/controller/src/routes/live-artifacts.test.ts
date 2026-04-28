@@ -9,6 +9,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 
 import { createControllerApp, type ControllerApp, type ControllerAppVariables } from "../app";
 import { createChatStorage, type ChatStorage } from "../chat-storage";
+import { createToolRegistry } from "../tools/registry";
 import { LIVE_ARTIFACT_REFRESH_PHASE_GATE, registerLiveArtifactRoutes } from "./live-artifacts";
 
 function createStorageFixture() {
@@ -222,6 +223,63 @@ test("live artifact refresh routes fail closed when refresh dependencies are una
     message: LIVE_ARTIFACT_REFRESH_PHASE_GATE.message,
     disabled: true
   });
+});
+
+test("sessionless live artifact refreshes use artifact-specific workspaces", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const first = storage.createLiveArtifact(createHtmlArtifactPayload("First refreshable"));
+    const second = storage.createLiveArtifact(createHtmlArtifactPayload("Second refreshable"));
+    const ensuredSessionIds: string[] = [];
+    const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+
+    registerLiveArtifactRoutes(app, {
+      getChatStorage() {
+        return storage;
+      },
+      toolRegistry: createToolRegistry([]),
+      sessionWorkspaceService: {
+        baseDirectory: fixture.sessionWorkspaceBaseDirectory,
+        getWorkspacePath(sessionId: string) {
+          return join(fixture.sessionWorkspaceBaseDirectory, sessionId, "workspace");
+        },
+        async ensureWorkspace(sessionId: string) {
+          ensuredSessionIds.push(sessionId);
+          return join(fixture.sessionWorkspaceBaseDirectory, sessionId, "workspace");
+        },
+        async deleteWorkspace() {},
+        async cleanupOrphanWorkspaces() {
+          return { scannedCount: 0, deletedCount: 0, skippedCount: 0 };
+        },
+        async listWorkspaceMetadata(sessionId: string) {
+          return {
+            sessionId,
+            workspacePath: join(fixture.sessionWorkspaceBaseDirectory, sessionId, "workspace"),
+            exists: false,
+            fileCount: 0,
+            directoryCount: 0,
+            sizeBytes: 0,
+            updatedAt: null
+          };
+        }
+      }
+    });
+
+    const firstResponse = await requestJson(app, `/api/live-artifacts/${first.id}/refresh`, { method: "POST" });
+    const secondResponse = await requestJson(app, `/api/live-artifacts/${second.id}/refresh`, { method: "POST" });
+
+    assert.equal(firstResponse.status, 400);
+    assert.equal(secondResponse.status, 400);
+    assert.equal(ensuredSessionIds.length, 2);
+    assert.notEqual(ensuredSessionIds[0], ensuredSessionIds[1]);
+    assert.match(ensuredSessionIds[0] ?? "", /^ses_liveartifactrefresh[a-f0-9]{24}$/);
+    assert.match(ensuredSessionIds[1] ?? "", /^ses_liveartifactrefresh[a-f0-9]{24}$/);
+    assert.ok(!ensuredSessionIds.includes("ses_liveartifactrefresh"));
+  } finally {
+    fixture.cleanup();
+  }
 });
 
 test("live artifact migrations create schema, constraints, indexes, and migration journal entries", () => {
