@@ -1504,7 +1504,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
 
         for (const failedTile of input.failedTiles ?? []) {
           const result = failTile.run(
-            null,
+            truncateLiveArtifactError(failedTile.errorMessage),
             now,
             failedTile.tileId,
             input.artifactId
@@ -1840,7 +1840,7 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
                last_refresh_error = ?, updated_at = ?
            WHERE id = ?`
         )
-        .run(status === "completed" ? "idle" : "failed", status, endedAt, null, endedAt, refresh.artifact_id);
+        .run(status === "completed" ? "idle" : "failed", status, endedAt, truncatedError, endedAt, refresh.artifact_id);
 
       connection
         .prepare(

@@ -384,10 +384,46 @@ test("completing a live artifact refresh updates exposed refresh state", () => {
     const failedArtifact = storage.getLiveArtifact(artifact.id);
     assert.equal(failedArtifact.refreshStatus, "failed");
     assert.equal(failedArtifact.refreshStartedAt, null);
-    assert.equal(failedArtifact.lastRefreshError, null);
+    assert.equal(failedArtifact.lastRefreshError, "provider temporarily unavailable");
     assert.equal(failedArtifact.tiles[0]?.refreshStatus, "failed");
     assert.equal(failedArtifact.tiles[0]?.refreshStartedAt, null);
     assert.equal(failedArtifact.tiles[0]?.lastError, null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("applying live artifact refresh failures stores per-tile errors", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Partially refreshed artifact",
+      description: null,
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        }
+      }]
+    });
+
+    const tileId = artifact.tiles[0]!.id;
+
+    storage.applyLiveArtifactRefreshResults({
+      artifactId: artifact.id,
+      tiles: [],
+      failedTiles: [{ tileId, errorMessage: "metric provider timed out" }]
+    });
+
+    const refreshedArtifact = storage.getLiveArtifact(artifact.id);
+    assert.equal(refreshedArtifact.refreshStatus, "failed");
+    assert.equal(refreshedArtifact.tiles[0]?.refreshStatus, "failed");
+    assert.equal(refreshedArtifact.tiles[0]?.lastError, "metric provider timed out");
   } finally {
     fixture.cleanup();
   }
