@@ -76,9 +76,7 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
         if (!definition) {
           throw new Error(`Refresh tool is unavailable: ${source.toolName}`);
         }
-        if (definition.metadata.requiresConfirmation) {
-          throw new Error(`Refresh tool requires confirmation: ${source.toolName}`);
-        }
+        validateRefreshSourceBeforeExecution(source, definition);
 
         const connectorMetadata = source.type === "connector_tool"
           ? createConnectorAuditMetadata(source, definition)
@@ -181,6 +179,150 @@ export async function refreshLiveArtifact(options: RefreshLiveArtifactOptions): 
 
 function isRefreshEligibleTile(tile: LiveArtifactTile): tile is LiveArtifactTile & { sourceJson: LiveArtifactTileSource } {
   return tile.sourceJson?.refreshPermission === "manual_refresh_granted_for_read_only";
+}
+
+function validateRefreshSourceBeforeExecution(source: LiveArtifactTileSource, definition: RegisteredToolDefinition<unknown, unknown>): void {
+  if (source.refreshPermission !== "manual_refresh_granted_for_read_only") {
+    throw new Error(`Refresh permission is not granted for tool: ${source.toolName}`);
+  }
+
+  if (definition.metadata.requiresConfirmation) {
+    throw new Error(`Refresh tool requires confirmation: ${source.toolName}`);
+  }
+
+  const schemaError = validateInputAgainstCurrentSchema(source.input, definition.inputSchema);
+  if (schemaError) {
+    throw new Error(`Refresh source input no longer matches current tool schema for ${source.toolName}: ${schemaError}`);
+  }
+
+  if (source.type !== "connector_tool") {
+    return;
+  }
+
+  const currentConnector = definition.metadata.connector;
+  const storedConnector = source.connector;
+
+  if (!storedConnector || !currentConnector) {
+    throw new Error(`Connector refresh source is missing audit metadata: ${source.toolName}`);
+  }
+
+  if (!storedConnector.providerToolId) {
+    throw new Error(`Connector refresh source is missing provider tool ID: ${source.toolName}`);
+  }
+
+  if (storedConnector.connectorId !== currentConnector.connectorId) {
+    throw new Error(`Connector refresh source connector has changed: ${source.toolName}`);
+  }
+
+  if (storedConnector.providerToolId !== currentConnector.providerToolId) {
+    throw new Error(`Connector refresh source provider tool ID is stale: ${source.toolName}`);
+  }
+
+  if (currentConnector.connected !== true || currentConnector.connectionState !== "connected") {
+    throw new Error(`Connector account is not available for refresh: ${source.toolName}`);
+  }
+
+  if (currentConnector.approvalPolicy.sideEffect !== "read") {
+    throw new Error(`Connector refresh source is not currently classified as read-only: ${source.toolName}`);
+  }
+}
+
+function validateInputAgainstCurrentSchema(input: LiveArtifactJsonValue, schema: unknown): string | null {
+  const jsonSchema = unwrapJsonSchema(schema);
+
+  if (!jsonSchema || Object.keys(jsonSchema).length === 0) {
+    return null;
+  }
+
+  return validateJsonSchemaValue(input, jsonSchema, "input");
+}
+
+function unwrapJsonSchema(schema: unknown): Record<string, unknown> | null {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return null;
+  }
+
+  const record = schema as Record<string, unknown>;
+  for (const key of ["schema", "jsonSchema", "parameters"]) {
+    const nested = record[key];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      return nested as Record<string, unknown>;
+    }
+  }
+
+  return record;
+}
+
+function validateJsonSchemaValue(value: unknown, schema: Record<string, unknown>, path: string): string | null {
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : null;
+  if (enumValues && !enumValues.some((candidate) => candidate === value)) {
+    return `${path} must be one of the current enum values`;
+  }
+
+  const type = schema.type;
+  if (typeof type === "string") {
+    const typeError = validateJsonSchemaType(value, type, path);
+    if (typeError) {
+      return typeError;
+    }
+  }
+
+  if ((type === "object" || schema.properties || schema.required || schema.additionalProperties === false) && isPlainRecord(value)) {
+    const properties = isPlainRecord(schema.properties) ? schema.properties : {};
+    const required = Array.isArray(schema.required) ? schema.required.filter((key): key is string => typeof key === "string") : [];
+
+    for (const key of required) {
+      if (!(key in value)) {
+        return `${path}.${key} is required by the current tool schema`;
+      }
+    }
+
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) {
+        if (!(key in properties)) {
+          return `${path}.${key} is not accepted by the current tool schema`;
+        }
+      }
+    }
+
+    for (const [key, childSchema] of Object.entries(properties)) {
+      if (!(key in value) || !isPlainRecord(childSchema)) {
+        continue;
+      }
+
+      const childError = validateJsonSchemaValue(value[key], childSchema, `${path}.${key}`);
+      if (childError) {
+        return childError;
+      }
+    }
+  }
+
+  return null;
+}
+
+function validateJsonSchemaType(value: unknown, type: string, path: string): string | null {
+  switch (type) {
+    case "object":
+      return isPlainRecord(value) ? null : `${path} must be an object`;
+    case "array":
+      return Array.isArray(value) ? null : `${path} must be an array`;
+    case "string":
+      return typeof value === "string" ? null : `${path} must be a string`;
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) ? null : `${path} must be a number`;
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value) ? null : `${path} must be an integer`;
+    case "boolean":
+      return typeof value === "boolean" ? null : `${path} must be a boolean`;
+    case "null":
+      return value === null ? null : `${path} must be null`;
+    default:
+      return null;
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function createConnectorAuditMetadata(source: LiveArtifactTileSource, definition: RegisteredToolDefinition<unknown, unknown>) {

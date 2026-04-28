@@ -170,3 +170,254 @@ test("live artifact refresh preserves previous tile render JSON on partial failu
     fixture.cleanup();
   }
 });
+
+test("live artifact refresh validates connector source metadata before execution", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Connector report",
+      description: null,
+      tiles: [
+        {
+          title: "Open issues",
+          kind: "markdown",
+          renderJson: { kind: "markdown", markdown: "previous" },
+          sourceJson: {
+            type: "connector_tool",
+            toolName: "github_search_issues",
+            input: { query: "repo:acme/widgets is:open" },
+            connector: {
+              connectorId: "github",
+              connectorName: "GitHub",
+              accountLabel: "octocat",
+              providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+            },
+            refreshPermission: "manual_refresh_granted_for_read_only",
+            outputMapping: { preferredKind: "markdown" }
+          }
+        }
+      ]
+    });
+
+    let executions = 0;
+    const registry = createToolRegistry([
+      {
+        metadata: {
+          name: "github_search_issues",
+          description: "Search issues",
+          requiresConfirmation: false,
+          connector: {
+            connectorId: "github",
+            connectorName: "GitHub",
+            accountLabel: "octocat",
+            connectionState: "connected",
+            connected: true,
+            toolName: "Search issues and pull requests",
+            providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+            approvalPolicy: { sideEffect: "read", approval: "never" }
+          }
+        },
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"],
+          additionalProperties: false
+        },
+        execute() {
+          executions += 1;
+          return { kind: "markdown", markdown: "fresh issues" };
+        }
+      }
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 1);
+    assert.deepEqual(result.failures, []);
+    assert.equal(result.artifact.tiles[0]!.lastError, null);
+    assert.deepEqual(result.artifact.tiles[0]!.renderJson, { kind: "markdown", markdown: "fresh issues" });
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const step = connection
+        .prepare("SELECT connector_id, connector_account_label, connector_provider_tool_id, approval_basis FROM live_artifact_refresh_steps LIMIT 1")
+        .get() as {
+          connector_id: string;
+          connector_account_label: string;
+          connector_provider_tool_id: string;
+          approval_basis: string;
+        };
+
+      assert.equal(step.connector_id, "github");
+      assert.equal(step.connector_account_label, "octocat");
+      assert.equal(step.connector_provider_tool_id, "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS");
+      assert.equal(step.approval_basis, "manual_refresh_granted_for_read_only");
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh fails closed for stale connector metadata and current schema mismatch", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Connector report",
+      description: null,
+      tiles: [
+        {
+          title: "Stale tool",
+          kind: "json",
+          renderJson: { kind: "json", value: { previous: true } },
+          sourceJson: {
+            type: "connector_tool",
+            toolName: "github_stale",
+            input: { query: "is:open" },
+            connector: {
+              connectorId: "github",
+              connectorName: "GitHub",
+              accountLabel: "octocat",
+              providerToolId: "GITHUB_OLD_TOOL"
+            },
+            refreshPermission: "manual_refresh_granted_for_read_only",
+            outputMapping: { preferredKind: "json" }
+          }
+        },
+        {
+          title: "Schema mismatch",
+          kind: "json",
+          renderJson: { kind: "json", value: { previous: true } },
+          sourceJson: {
+            type: "connector_tool",
+            toolName: "github_schema",
+            input: { oldQuery: "is:open" },
+            connector: {
+              connectorId: "github",
+              connectorName: "GitHub",
+              accountLabel: "octocat",
+              providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+            },
+            refreshPermission: "manual_refresh_granted_for_read_only",
+            outputMapping: { preferredKind: "json" }
+          }
+        },
+        {
+          title: "Expired account",
+          kind: "json",
+          renderJson: { kind: "json", value: { previous: true } },
+          sourceJson: {
+            type: "connector_tool",
+            toolName: "github_expired",
+            input: { query: "is:open" },
+            connector: {
+              connectorId: "github",
+              connectorName: "GitHub",
+              accountLabel: "octocat",
+              providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+            },
+            refreshPermission: "manual_refresh_granted_for_read_only",
+            outputMapping: { preferredKind: "json" }
+          }
+        }
+      ]
+    });
+
+    let executions = 0;
+    const registry = createToolRegistry([
+      createConnectorDefinition("github_stale", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      }),
+      createConnectorDefinition("github_schema", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"],
+          additionalProperties: false
+        },
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      }),
+      createConnectorDefinition("github_expired", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: false,
+        connectionState: "expired",
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      })
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 0);
+    assert.deepEqual(result.failures.map((failure) => failure.error), [
+      "Connector refresh source provider tool ID is stale: github_stale",
+      "Refresh source input no longer matches current tool schema for github_schema: input.query is required by the current tool schema",
+      "Connector account is not available for refresh: github_expired"
+    ]);
+    assert.equal(result.artifact.refreshStatus, "failed");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function createConnectorDefinition(
+  name: string,
+  options: {
+    providerToolId: string;
+    connected: boolean;
+    connectionState: string;
+    inputSchema?: Record<string, unknown>;
+    execute: () => unknown;
+  }
+) {
+  return {
+    metadata: {
+      name,
+      description: "Connector test tool",
+      requiresConfirmation: false,
+      connector: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        accountLabel: "octocat",
+        connectionState: options.connectionState,
+        connected: options.connected,
+        toolName: "Search issues and pull requests",
+        providerToolId: options.providerToolId,
+        approvalPolicy: { sideEffect: "read", approval: "never" }
+      }
+    },
+    inputSchema: options.inputSchema ?? {},
+    execute: options.execute
+  };
+}

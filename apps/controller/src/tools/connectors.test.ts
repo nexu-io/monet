@@ -88,6 +88,8 @@ test("connector tool source resolves connected curated tools for active monet in
       connectorId: "github",
       connectorName: "GitHub",
       accountLabel: "octocat",
+      connectionState: "connected",
+      connected: true,
       toolName: "List pull requests",
       providerToolId: "GITHUB_LIST_PULL_REQUESTS",
       approvalPolicy: {

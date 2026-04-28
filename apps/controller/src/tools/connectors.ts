@@ -57,7 +57,12 @@ class ConnectorToolSource implements ToolSource {
     abortSignal: AbortSignal | undefined
   ) {
     const connectorIds = Array.from(new Set(connectorTools.map((tool) => tool.connectorId)));
-    const connections = new Map<string, { accountLabel: string | null; providerConnectionId: string | null }>();
+    const connections = new Map<string, {
+      accountLabel: string | null;
+      providerConnectionId: string | null;
+      state: string;
+      connected: boolean;
+    }>();
 
     await Promise.all(
       connectorIds.map(async (connectorId) => {
@@ -69,7 +74,9 @@ class ConnectorToolSource implements ToolSource {
 
         connections.set(connectorId, {
           accountLabel: status.account?.accountLabel ?? null,
-          providerConnectionId: status.account?.providerConnectionId ?? null
+          providerConnectionId: status.account?.providerConnectionId ?? null,
+          state: status.state,
+          connected: status.connected
         });
       })
     );
@@ -81,7 +88,7 @@ class ConnectorToolSource implements ToolSource {
 interface ConnectorRegisteredToolOptions {
   readonly connectorTool: ConnectorToolDefinition;
   readonly prefixedName: string;
-  readonly connection: { accountLabel: string | null; providerConnectionId: string | null } | null;
+  readonly connection: { accountLabel: string | null; providerConnectionId: string | null; state: string; connected: boolean } | null;
   readonly provider: ConnectorProvider;
   readonly userId: string;
 }
@@ -99,9 +106,11 @@ function toRegisteredToolDefinition(options: ConnectorRegisteredToolOptions): Re
         connectorId: connectorTool.connectorId,
         connectorName: connectorCatalogItem?.displayName ?? connectorTool.connectorId,
         accountLabel: connection?.accountLabel ?? null,
+        connected: connection?.connected ?? false,
         toolName: connectorTool.displayName,
         providerToolId: connectorTool.providerToolId,
-        approvalPolicy: connectorTool.policy
+        approvalPolicy: connectorTool.policy,
+        ...(connection?.state ? { connectionState: connection.state } : {})
       }
     },
     inputSchema: jsonSchema(connectorTool.inputSchema as unknown as AiSdkJsonSchemaInput),

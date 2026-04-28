@@ -33,6 +33,8 @@ export interface ConnectorToolMetadata {
   readonly connectorId: string;
   readonly connectorName: string;
   readonly accountLabel: string | null;
+  readonly connectionState?: string;
+  readonly connected?: boolean;
   readonly toolName: string;
   readonly providerToolId: string;
   readonly approvalPolicy: {
