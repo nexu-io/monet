@@ -11,6 +11,7 @@ import { PageFrame } from "../components/page-frame";
 import { DEFAULT_SESSION_TITLE, useSessions } from "../components/session-provider";
 import { sanitizeInternalRuntimeMessage } from "../components/workspace-copy";
 import { useControllerState } from "../lib/controller-state";
+import { PENDING_CHAT_PROMPT_STORAGE_KEY, stashPendingChatPrompt } from "../lib/chat-prompt-seed";
 import { getMonetClientConfig } from "../lib/monet-client";
 import { fetchProviderTargets, type ProviderReadinessTarget } from "../lib/provider-readiness";
 import type { SessionDetailRecord } from "../lib/session-api";
@@ -178,10 +179,10 @@ function SessionChatSurface({
     if (typeof window === "undefined") return;
     if (isComposerDisabled || hasUserMessages) return;
 
-    const pending = window.sessionStorage.getItem("monet.pendingPrompt");
+    const pending = window.sessionStorage.getItem(PENDING_CHAT_PROMPT_STORAGE_KEY);
     if (!pending) return;
 
-    window.sessionStorage.removeItem("monet.pendingPrompt");
+    window.sessionStorage.removeItem(PENDING_CHAT_PROMPT_STORAGE_KEY);
 
     void (async () => {
       if (session.title === DEFAULT_SESSION_TITLE) {
@@ -479,7 +480,7 @@ export default function HomePage() {
     // Stash the pending prompt so the new chat surface picks it up on mount.
     // We use sessionStorage (not localStorage) so it never leaks across tabs.
     try {
-      window.sessionStorage.setItem("monet.pendingPrompt", prompt);
+      stashPendingChatPrompt(prompt);
     } catch {
       // Non-fatal — user can retype in the chat composer.
     }

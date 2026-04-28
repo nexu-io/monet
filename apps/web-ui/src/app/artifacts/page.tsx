@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { Link } from "react-router-dom";
 
 import { PageFrame } from "../../components/page-frame";
+import { useSessions } from "../../components/session-provider";
+import { LIVE_ARTIFACT_DISCOVERY_PROMPT, stashPendingChatPrompt } from "../../lib/chat-prompt-seed";
 import { listLiveArtifacts, type LiveArtifactSummary } from "../../lib/live-artifacts-api";
 
 type ArtifactsLoadState =
@@ -162,6 +164,38 @@ function LoadingArtifactsState() {
   );
 }
 
+function NewArtifactButton({ children }: { readonly children: ReactNode }) {
+  const { createSession } = useSessions();
+  const [isStarting, setIsStarting] = useState(false);
+
+  async function handleStartNewArtifactChat() {
+    if (isStarting) {
+      return;
+    }
+
+    setIsStarting(true);
+
+    try {
+      stashPendingChatPrompt(LIVE_ARTIFACT_DISCOVERY_PROMPT);
+      await createSession({ pathname: "/" });
+    } finally {
+      setIsStarting(false);
+    }
+  }
+
+  return (
+    <button
+      className={primaryButtonClassName}
+      type="button"
+      aria-label="Start a chat to create a new live artifact"
+      disabled={isStarting}
+      onClick={() => void handleStartNewArtifactChat()}
+    >
+      {isStarting ? "Starting…" : children}
+    </button>
+  );
+}
+
 function ArtifactsHeader() {
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -173,9 +207,9 @@ function ArtifactsHeader() {
         <Link className={secondaryButtonClassName} to="/connectors">
           Browse connectors
         </Link>
-        <Link className={primaryButtonClassName} to="/" aria-label="Start a chat to create a new live artifact">
+        <NewArtifactButton>
           New artifact
-        </Link>
+        </NewArtifactButton>
       </div>
     </div>
   );
@@ -229,9 +263,9 @@ export default function ArtifactsPage() {
         description="Start a chat to create a saved artifact, or connect read-only-capable tools first so Monet can gather repeatable source data. Connector setup lives on the Connectors page."
         action={
           <>
-            <Link className={primaryButtonClassName} to="/">
+            <NewArtifactButton>
               New artifact
-            </Link>
+            </NewArtifactButton>
             <Link className={secondaryButtonClassName} to="/connectors">
               Browse connectors
             </Link>
