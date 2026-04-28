@@ -218,12 +218,47 @@ function validateRefreshSourceBeforeExecution(source: LiveArtifactTileSource, de
     throw new Error(`Connector refresh source provider tool ID is stale: ${source.toolName}`);
   }
 
+  if (!storedConnector.accountLabel || !currentConnector.accountLabel || storedConnector.accountLabel !== currentConnector.accountLabel) {
+    throw new Error(`Connector refresh source account is stale: ${source.toolName}`);
+  }
+
   if (currentConnector.connected !== true || currentConnector.connectionState !== "connected") {
     throw new Error(`Connector account is not available for refresh: ${source.toolName}`);
   }
 
-  if (currentConnector.approvalPolicy.sideEffect !== "read") {
+  const currentPolicy = getConnectorToolApprovalPolicy(currentConnector.approvalPolicy);
+  if (!currentPolicy) {
     throw new Error(`Connector refresh source is not currently classified as read-only: ${source.toolName}`);
+  }
+
+  if (currentPolicy.sideEffect !== "read" || currentPolicy.approval === "always") {
+    throw new Error(`Connector refresh source is not currently classified as read-only: ${source.toolName}`);
+  }
+}
+
+function getConnectorToolApprovalPolicy(policy: unknown): {
+  readonly sideEffect: "read" | "write" | "destructive" | "external_send";
+  readonly approval: "never" | "first_use" | "always";
+} | null {
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
+    return null;
+  }
+
+  const sideEffect = (policy as { sideEffect?: unknown }).sideEffect;
+  const approval = (policy as { approval?: unknown }).approval;
+
+  if (approval !== "never" && approval !== "first_use" && approval !== "always") {
+    return null;
+  }
+
+  switch (sideEffect) {
+    case "read":
+    case "write":
+    case "destructive":
+    case "external_send":
+      return { sideEffect, approval };
+    default:
+      return null;
   }
 }
 

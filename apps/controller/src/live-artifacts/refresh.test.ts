@@ -391,12 +391,140 @@ test("live artifact refresh fails closed for stale connector metadata and curren
   }
 });
 
+test("live artifact refresh rejects unsafe, stale, and unclassified connector sources before execution", async () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Unsafe connector report",
+      description: null,
+      tiles: [
+        createConnectorTile("Write-capable", "github_write"),
+        createConnectorTile("Destructive", "github_delete"),
+        createConnectorTile("External send", "github_send"),
+        createConnectorTile("Unknown", "github_unknown"),
+        createConnectorTile("Unclassified", "github_unclassified"),
+        createConnectorTile("Stale account", "github_stale_account")
+      ]
+    });
+
+    let executions = 0;
+    const registry = createToolRegistry([
+      createConnectorDefinition("github_write", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        approvalPolicy: { sideEffect: "write", approval: "always" },
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      }),
+      createConnectorDefinition("github_delete", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        approvalPolicy: { sideEffect: "destructive", approval: "always" },
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      }),
+      createConnectorDefinition("github_send", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        approvalPolicy: { sideEffect: "external_send", approval: "always" },
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      }),
+      createConnectorDefinition("github_unknown", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        approvalPolicy: { sideEffect: "unknown", approval: "always" },
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      }),
+      createConnectorDefinition("github_unclassified", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        approvalPolicy: null,
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      }),
+      createConnectorDefinition("github_stale_account", {
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS",
+        connected: true,
+        connectionState: "connected",
+        accountLabel: "renamed-account",
+        execute() {
+          executions += 1;
+          return { ok: true };
+        }
+      })
+    ]);
+
+    const result = await refreshLiveArtifact({
+      artifactId: artifact.id,
+      chatStorage: storage,
+      toolRegistry: registry,
+      sessionWorkspacePath: fixture.workspaceDir,
+      logger: createLogger("test", { component: "live-artifact-refresh-test" })
+    });
+
+    assert.equal(executions, 0);
+    assert.deepEqual(result.failures.map((failure) => failure.error), [
+      "Connector refresh source is not currently classified as read-only: github_write",
+      "Connector refresh source is not currently classified as read-only: github_delete",
+      "Connector refresh source is not currently classified as read-only: github_send",
+      "Connector refresh source is not currently classified as read-only: github_unknown",
+      "Connector refresh source is not currently classified as read-only: github_unclassified",
+      "Connector refresh source account is stale: github_stale_account"
+    ]);
+    assert.equal(result.artifact.refreshStatus, "failed");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function createConnectorTile(title: string, toolName: string) {
+  return {
+    title,
+    kind: "json" as const,
+    renderJson: { kind: "json" as const, value: { previous: true } },
+    sourceJson: {
+      type: "connector_tool" as const,
+      toolName,
+      input: { query: "is:open" },
+      connector: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        accountLabel: "octocat",
+        providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+      },
+      refreshPermission: "manual_refresh_granted_for_read_only" as const,
+      outputMapping: { preferredKind: "json" as const }
+    }
+  };
+}
+
 function createConnectorDefinition(
   name: string,
   options: {
     providerToolId: string;
     connected: boolean;
     connectionState: string;
+    accountLabel?: string | null;
+    approvalPolicy?: { sideEffect: string; approval: string } | null;
     inputSchema?: Record<string, unknown>;
     execute: () => unknown;
   }
@@ -409,12 +537,14 @@ function createConnectorDefinition(
       connector: {
         connectorId: "github",
         connectorName: "GitHub",
-        accountLabel: "octocat",
+        accountLabel: options.accountLabel ?? "octocat",
         connectionState: options.connectionState,
         connected: options.connected,
         toolName: "Search issues and pull requests",
         providerToolId: options.providerToolId,
-        approvalPolicy: { sideEffect: "read", approval: "never" }
+        approvalPolicy: options.approvalPolicy === null
+          ? (undefined as never)
+          : (options.approvalPolicy ?? { sideEffect: "read", approval: "never" })
       }
     },
     inputSchema: options.inputSchema ?? {},
