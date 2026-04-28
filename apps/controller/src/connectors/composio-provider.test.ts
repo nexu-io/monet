@@ -173,6 +173,28 @@ test("Composio connector provider skips disconnected connectors when listing all
   assert.equal(fetchMock.mock.callCount(), 1);
 });
 
+test("Composio connector provider returns no tools when Composio is unconfigured", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({ items: [] }));
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: null,
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: {}
+    },
+    storage: createStorage(
+      {
+        github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+      },
+      { apiKey: null, authConfigIds: {} }
+    )
+  });
+
+  assert.deepEqual(await provider.listTools({ userId: "monet-install-id" }), []);
+  assert.deepEqual(await provider.listTools({ userId: "monet-install-id", connectorId: "github" }), []);
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
 test("Composio connector provider reads connection status from local storage without provider calls", async (t) => {
   const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({}));
 

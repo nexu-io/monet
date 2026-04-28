@@ -329,7 +329,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
     const catalogItems = getCatalogItemsForToolListing(input.connectorId);
 
     if (!providerConfig.apiKey) {
-      throw createConnectorProviderError("provider_error", { message: "Connector provider is not configured." });
+      return [];
     }
 
     const tools: ConnectorToolDefinition[] = [];

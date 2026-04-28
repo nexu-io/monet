@@ -319,6 +319,64 @@ test("connector connect endpoint starts connection flow for Monet install", asyn
   });
 });
 
+test("connector connect endpoint defaults OAuth callback URL from request origin", async () => {
+  const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
+  const monetInstallId = "monet-install-id-connect-default-callback";
+  let requested: { userId: string; connectorId: string; redirectUrl?: string } | null = null;
+
+  const connectorService: ConnectorService = {
+    listConnectors() {
+      throw new Error("not used in connector connect route test");
+    },
+    getConnector() {
+      throw new Error("not used in connector connect route test");
+    },
+    getConnection() {
+      throw new Error("not used in connector connect route test");
+    },
+    async startConnection(input) {
+      requested = {
+        userId: input.userId,
+        connectorId: input.connectorId,
+        ...(input.redirectUrl ? { redirectUrl: input.redirectUrl } : {})
+      };
+
+      return {
+        connectorId: "github",
+        kind: "redirect_required",
+        redirectUrl: "https://provider.example/oauth/start"
+      };
+    },
+    completeConnection() {
+      throw new Error("not used in connector connect route test");
+    },
+    disconnect() {
+      throw new Error("not used in connector connect route test");
+    }
+  };
+
+  registerConnectorRoutes(app, {
+    connectorService,
+    getChatStorage: () =>
+      ({
+        getMonetInstallId() {
+          return monetInstallId;
+        }
+      }) as never
+  });
+
+  const response = await app.request("https://controller.example.com/api/connectors/github/connect", {
+    method: "POST"
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(requested, {
+    userId: monetInstallId,
+    connectorId: "github",
+    redirectUrl: "https://controller.example.com/connectors/oauth/callback/github"
+  });
+});
+
 test("connector OAuth callback validates state before redirecting back to connectors", async () => {
   const app: ControllerApp = new OpenAPIHono<{ Variables: ControllerAppVariables }>();
   const monetInstallId = "monet-install-id-callback";

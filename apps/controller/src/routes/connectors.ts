@@ -515,9 +515,8 @@ function isConnectorRouteErrorStatus(statusCode: number): statusCode is Connecto
 
 function createDefaultOAuthCallbackUrl(requestUrl: string, connectorId: string): string {
   const url = new URL(requestUrl);
-  const port = url.port || (url.protocol === "https:" ? "443" : "80");
 
-  return `http://127.0.0.1:${port}/connectors/oauth/callback/${encodeURIComponent(connectorId)}`;
+  return `${url.origin}/connectors/oauth/callback/${encodeURIComponent(connectorId)}`;
 }
 
 function getProviderConnectionIdFromCallback(context: Context): string | null {

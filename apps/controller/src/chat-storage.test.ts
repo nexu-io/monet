@@ -387,7 +387,7 @@ test("completing a live artifact refresh updates exposed refresh state", () => {
     assert.equal(failedArtifact.lastRefreshError, "provider temporarily unavailable");
     assert.equal(failedArtifact.tiles[0]?.refreshStatus, "failed");
     assert.equal(failedArtifact.tiles[0]?.refreshStartedAt, null);
-    assert.equal(failedArtifact.tiles[0]?.lastError, null);
+    assert.equal(failedArtifact.tiles[0]?.lastError, "provider temporarily unavailable");
   } finally {
     fixture.cleanup();
   }

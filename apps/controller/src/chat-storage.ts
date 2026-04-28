@@ -1845,12 +1845,13 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
       connection
         .prepare(
           `UPDATE live_artifact_tiles
-           SET refresh_status = ?, refresh_started_at = NULL,
-               last_refreshed_at = CASE WHEN ? = 'completed' THEN ? ELSE last_refreshed_at END,
-               last_error = ?, updated_at = ?
-           WHERE artifact_id = ? AND refresh_status = 'refreshing'`
+            SET refresh_status = ?, refresh_started_at = NULL,
+                last_refreshed_at = CASE WHEN ? = 'completed' THEN ? ELSE last_refreshed_at END,
+                last_error = CASE WHEN ? = 'completed' THEN NULL ELSE COALESCE(last_error, ?) END,
+                updated_at = ?
+            WHERE artifact_id = ? AND refresh_status = 'refreshing'`
         )
-        .run(status === "completed" ? "idle" : "failed", status, endedAt, null, endedAt, refresh.artifact_id);
+        .run(status === "completed" ? "idle" : "failed", status, endedAt, status, truncatedError, endedAt, refresh.artifact_id);
     },
 
     listProviders() {
