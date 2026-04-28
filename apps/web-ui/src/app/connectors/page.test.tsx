@@ -175,11 +175,12 @@ describe("ConnectorsPage", () => {
     expect(screen.queryByText("Browse repositories")).not.toBeInTheDocument();
     expect(screen.queryByText("List Repositories")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Manage Notion" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Disconnect Notion" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Reconnect Google Drive" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "View GitHub tools" })).toBeEnabled();
-    expect(screen.getAllByText("Connected as")).toHaveLength(2);
-    expect(screen.getByText("docs@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View GitHub details" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View GitHub tools" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Connected as")).not.toBeInTheDocument();
+    expect(screen.queryByText("docs@example.com")).not.toBeInTheDocument();
     expect(listConnectorsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -221,6 +222,28 @@ describe("ConnectorsPage", () => {
     expect(openExternalUrl).toHaveBeenCalledWith({ url: "https://auth.example.test/github" });
     expect(await screen.findByText(/GitHub authorization opened in your browser/i)).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: "GitHub" })).toBeInTheDocument();
+  });
+
+  it("opens connector details when a connector card is clicked", async () => {
+    const user = userEvent.setup();
+
+    renderConnectorsPage();
+    await user.click(await screen.findByRole("button", { name: "View GitHub details" }));
+
+    expect(await screen.findByRole("dialog", { name: "GitHub" })).toBeInTheDocument();
+    expect(getConnectorMock).toHaveBeenCalledWith("github");
+  });
+
+  it("disconnects a connected connector from the card action", async () => {
+    const user = userEvent.setup();
+
+    renderConnectorsPage();
+    await user.click(await screen.findByRole("button", { name: "Disconnect Notion" }));
+
+    await waitFor(() => {
+      expect(disconnectConnectorMock).toHaveBeenCalledWith("notion");
+    });
+    expect(await screen.findByText("Notion has been disconnected.")).toBeInTheDocument();
   });
 
   it("shows drawer details and confirms disconnect before revoking the connection", async () => {

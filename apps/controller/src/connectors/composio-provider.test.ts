@@ -173,16 +173,8 @@ test("Composio connector provider skips disconnected connectors when listing all
   assert.equal(fetchMock.mock.callCount(), 1);
 });
 
-test("Composio connector provider discovers auth configs from saved product settings", async (t) => {
-  const requests: string[] = [];
-  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
-    requests.push(String(input));
-    assert.equal((init?.headers as Record<string, string> | undefined)?.["x-api-key"], "saved-composio-api-key");
-
-    return jsonResponse({
-      items: [{ id: "ac_github", status: "ENABLED", toolkit: { slug: "github" } }]
-    });
-  });
+test("Composio connector provider reads connection status from local storage without provider calls", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({}));
 
   const provider = new ComposioConnectorProvider({
     config: {
@@ -191,15 +183,27 @@ test("Composio connector provider discovers auth configs from saved product sett
       timeoutMs: null,
       authConfigIds: {}
     },
-    storage: createStorage({}, { apiKey: "saved-composio-api-key", authConfigIds: {} })
+    storage: createStorage(
+      {
+        github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+      },
+      { apiKey: "saved-composio-api-key", authConfigIds: {} }
+    )
   });
 
   assert.deepEqual(await provider.getConnectionStatus({ userId: "monet-install-id", connectorId: "github" }), {
     connectorId: "github",
-    state: "not_connected",
-    connected: false
+    state: "connected",
+    connected: true,
+    account: {
+      accountLabel: "github-account",
+      providerConnectionId: "conn_github",
+      providerConnectorId: "GITHUB",
+      connectedAt: "2026-04-27T10:00:00.000Z",
+      updatedAt: "2026-04-27T10:00:00.000Z"
+    }
   });
-  assert.deepEqual(requests, ["https://composio.test/api/v3/auth_configs"]);
+  assert.equal(fetchMock.mock.callCount(), 0);
 });
 
 test("Composio connector provider starts OAuth with Composio link flow", async (t) => {
@@ -300,10 +304,13 @@ test("Composio connector provider normalizes HTTP and execution errors", async (
       providerConnectorId: "GITHUB",
       connectedAt: "2026-04-27T10:00:00.000Z",
       updatedAt: "2026-04-27T10:00:00.000Z"
-    },
-    lastErrorCode: "rate_limited",
-    lastErrorMessage: "Connector provider rate limit exceeded. Try again later."
+    }
   });
+
+  await assert.rejects(
+    async () => provider.listTools({ userId: "monet-install-id", connectorId: "github" }),
+    (error) => error instanceof ConnectorProviderError && error.code === "rate_limited" && error.statusCode === 429
+  );
 
   await assert.rejects(
     async () =>

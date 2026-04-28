@@ -76,6 +76,10 @@ export interface ListConnectorsResponse {
   readonly connectors: ConnectorCatalogCard[];
 }
 
+export interface ListConnectorsOptions {
+  readonly force?: boolean;
+}
+
 export interface GetConnectorResponse {
   readonly connector: ConnectorDetail;
 }
@@ -138,8 +142,36 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function listConnectors() {
-  return requestJson<ListConnectorsResponse>("/api/connectors");
+let listConnectorsInFlight: Promise<ListConnectorsResponse> | null = null;
+let listConnectorsCachedResponse: { readonly response: ListConnectorsResponse; readonly expiresAt: number } | null = null;
+const listConnectorsDedupeCacheMs = 1_000;
+
+export async function listConnectors(options: ListConnectorsOptions = {}) {
+  if (!options.force) {
+    if (listConnectorsInFlight) {
+      return listConnectorsInFlight;
+    }
+
+    if (listConnectorsCachedResponse && Date.now() < listConnectorsCachedResponse.expiresAt) {
+      return listConnectorsCachedResponse.response;
+    }
+  }
+
+  const request = requestJson<ListConnectorsResponse>("/api/connectors");
+  listConnectorsInFlight = request;
+
+  try {
+    const response = await request;
+    listConnectorsCachedResponse = {
+      response,
+      expiresAt: Date.now() + listConnectorsDedupeCacheMs
+    };
+    return response;
+  } finally {
+    if (listConnectorsInFlight === request) {
+      listConnectorsInFlight = null;
+    }
+  }
 }
 
 export async function getConnector(connectorId: ConnectorId) {

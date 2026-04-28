@@ -166,7 +166,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
   }
 
   async getConnectionStatus(input: ConnectorConnectionInput): Promise<ConnectorConnectionStatus> {
-    const providerConfig = await this.getEffectiveProviderConfig();
+    const providerConfig = this.getProviderConfig();
 
     const catalogItem = getConnectorCatalogItem(input.connectorId);
 
@@ -174,7 +174,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
       throw createConnectorProviderError("tool_not_found", { message: `Unknown connector: ${input.connectorId}` });
     }
 
-    if (!providerConfig.apiKey || !providerConfig.authConfigIds[input.connectorId]) {
+    if (!providerConfig.apiKey) {
       return {
         connectorId: input.connectorId,
         state: "unavailable",
@@ -198,37 +198,7 @@ export class ComposioConnectorProvider implements ConnectorProvider {
       };
     }
 
-    const localStatus = mapPersistedConnectionStatus(input.connectorId, connection);
-
-    if (!connection.providerConnectionId || connection.status !== "connected") {
-      return localStatus;
-    }
-
-    try {
-      const providerConnection = await this.requestConnectedAccount(connection.providerConnectionId, input.abortSignal);
-      return mapComposioConnectionStatus(input.connectorId, connection, providerConnection);
-    } catch (error) {
-      const normalized = normalizeConnectorProviderError(error, {
-        fallbackCode: "provider_error",
-        message: "Unable to refresh connector connection status."
-      });
-
-      if (normalized.code === "connection_expired" || normalized.code === "connection_missing" || normalized.statusCode === 404) {
-        return {
-          ...localStatus,
-          state: "expired",
-          connected: false,
-          lastErrorCode: "connection_expired",
-          lastErrorMessage: "Connector account credentials have expired. Reconnect to continue."
-        };
-      }
-
-      return {
-        ...localStatus,
-        lastErrorCode: normalized.code,
-        lastErrorMessage: normalized.message
-      };
-    }
+    return mapPersistedConnectionStatus(input.connectorId, connection);
   }
 
   async connect(input: ConnectorCreateConnectionInput): Promise<ConnectorConnectionStart> {

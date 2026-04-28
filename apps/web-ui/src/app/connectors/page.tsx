@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import githubIconUrl from "../../assets/connectors/github.svg";
@@ -25,6 +25,7 @@ type ConnectorDetailLoadState =
 type ConnectorActionState =
   | { readonly status: "idle" }
   | { readonly status: "starting"; readonly connectorId: ConnectorId }
+  | { readonly status: "disconnecting"; readonly connectorId: ConnectorId }
   | { readonly status: "success"; readonly connectorId?: ConnectorId; readonly message: string }
   | { readonly status: "error"; readonly connectorId?: ConnectorId; readonly message: string };
 
@@ -54,9 +55,13 @@ const primaryButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
 const dangerButtonClassName =
   "inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md border border-error/30 bg-error-subtle px-3.5 text-sm font-semibold text-error transition-colors hover:border-error/50 hover:bg-error-subtle/80 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
+const connectorPrimaryButtonClassName =
+  "inline-flex min-h-8 cursor-pointer items-center justify-center rounded-md border border-accent bg-accent px-3 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:border-border-subtle disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none";
+const connectorDangerButtonClassName =
+  "inline-flex min-h-8 cursor-pointer items-center justify-center rounded-md border border-error/30 bg-error-subtle px-3 text-sm font-semibold text-error transition-colors hover:border-error/50 hover:bg-error-subtle/80 focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60";
 const connectorGridClassName = "grid gap-4 sm:grid-cols-2";
 const connectorCardClassName =
-  "flex min-h-[15rem] flex-col justify-between gap-5 rounded-2xl border border-border-subtle bg-surface-1 p-5 shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2";
+  "flex min-h-[13rem] cursor-pointer flex-col gap-5 rounded-2xl border border-border-subtle bg-surface-1 p-5 text-left shadow-xs transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus";
 const connectorDetailQueryParam = "connector";
 const connectorOAuthStatusQueryParam = "connector_oauth";
 const connectorOAuthIdQueryParam = "connector_id";
@@ -93,7 +98,7 @@ const connectorStatusMeta: Record<
   connected: {
     label: "Connected",
     iconClassName: "border-success/25 bg-success-subtle text-success shadow-[0_0_0_4px_color-mix(in_srgb,var(--color-success)_12%,transparent)]",
-    primaryActionLabel: "Manage"
+    primaryActionLabel: "Disconnect"
   },
   expired: {
     label: "Needs reconnect",
@@ -219,18 +224,25 @@ function ConnectorCard({
   connector,
   actionBusy,
   onPrimaryAction,
-  onViewTools
+  onOpenDetail
 }: {
   readonly connector: ConnectorCatalogCard;
   readonly actionBusy: boolean;
   readonly onPrimaryAction: (connector: ConnectorCatalogCard) => void;
-  readonly onViewTools: (connectorId: ConnectorId) => void;
+  readonly onOpenDetail: (connectorId: ConnectorId) => void;
 }) {
   const statusMeta = connectorStatusMeta[connector.status];
-  const primaryActionLabel = actionBusy ? "Starting…" : statusMeta.primaryActionLabel;
+  const primaryActionLabel = actionBusy ? (connector.status === "connected" ? "Disconnecting…" : "Starting…") : statusMeta.primaryActionLabel;
+  const handleOpenDetail = () => onOpenDetail(connector.id);
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleOpenDetail();
+    }
+  };
 
   return (
-    <article className={connectorCardClassName}>
+    <article className={connectorCardClassName} role="button" tabIndex={0} aria-label={`View ${connector.displayName} details`} onClick={handleOpenDetail} onKeyDown={handleKeyDown}>
       <div className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -240,26 +252,25 @@ function ConnectorCard({
               <p className="m-0 text-xs font-medium uppercase tracking-[0.08em] text-text-tertiary">{connector.category}</p>
             </div>
           </div>
-          <ConnectorStatusBadge status={connector.status} />
+          <div className="flex shrink-0 items-center">
+            <button
+              className={connector.status === "connected" ? connectorDangerButtonClassName : connectorPrimaryButtonClassName}
+              type="button"
+              disabled={statusMeta.primaryActionDisabled || actionBusy}
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onPrimaryAction(connector);
+              }}
+              aria-label={`${statusMeta.primaryActionLabel} ${connector.displayName}`}
+            >
+              {primaryActionLabel}
+            </button>
+          </div>
         </div>
 
         <p className="m-0 leading-[1.6] text-text-secondary">{connector.description}</p>
 
-      </div>
-
-      <div className="flex flex-col gap-2 border-t border-border-subtle pt-4 sm:flex-row sm:items-center">
-        <button
-          className={primaryButtonClassName}
-          type="button"
-          disabled={statusMeta.primaryActionDisabled || actionBusy}
-          onClick={() => onPrimaryAction(connector)}
-          aria-label={`${statusMeta.primaryActionLabel} ${connector.displayName}`}
-        >
-          {primaryActionLabel}
-        </button>
-        <button className={secondaryButtonClassName} type="button" disabled={connector.status === "unavailable" || actionBusy} onClick={() => onViewTools(connector.id)} aria-label={`View ${connector.displayName} tools`}>
-          View tools
-        </button>
       </div>
     </article>
   );
@@ -277,7 +288,7 @@ function ConnectorCardSkeleton() {
               <div className="h-3 w-20 animate-pulse rounded bg-surface-2" />
             </div>
           </div>
-          <div className="h-8 w-8 animate-pulse rounded-full bg-surface-2" />
+          <div className="h-8 w-20 animate-pulse rounded-md bg-surface-2" />
         </div>
 
         <div className="flex flex-col gap-2">
@@ -285,11 +296,6 @@ function ConnectorCardSkeleton() {
           <div className="h-4 w-11/12 animate-pulse rounded bg-surface-2" />
           <div className="h-4 w-3/5 animate-pulse rounded bg-surface-2" />
         </div>
-      </div>
-
-      <div className="flex flex-col gap-2 border-t border-border-subtle pt-4 sm:flex-row sm:items-center">
-        <div className="h-9 w-24 animate-pulse rounded-md bg-surface-2" />
-        <div className="h-9 w-24 animate-pulse rounded-md bg-surface-2" />
       </div>
     </article>
   );
@@ -300,13 +306,13 @@ function ConnectorCardGrid({
   loading = false,
   actionState,
   onPrimaryAction,
-  onViewTools
+  onOpenDetail
 }: {
   readonly connectors: readonly ConnectorCatalogCard[];
   readonly loading?: boolean;
   readonly actionState: ConnectorActionState;
   readonly onPrimaryAction: (connector: ConnectorCatalogCard) => void;
-  readonly onViewTools: (connectorId: ConnectorId) => void;
+  readonly onOpenDetail: (connectorId: ConnectorId) => void;
 }) {
   return (
     <section className="flex flex-col gap-4" aria-label={loading ? "Loading connectors" : "Available connectors"} aria-busy={loading} aria-live="polite">
@@ -322,9 +328,9 @@ function ConnectorCardGrid({
               <ConnectorCard
                 key={connector.id}
                 connector={connector}
-                actionBusy={actionState.status === "starting" && actionState.connectorId === connector.id}
+                actionBusy={(actionState.status === "starting" || actionState.status === "disconnecting") && actionState.connectorId === connector.id}
                 onPrimaryAction={onPrimaryAction}
-                onViewTools={onViewTools}
+                onOpenDetail={onOpenDetail}
               />
             ))}
       </div>
@@ -601,7 +607,7 @@ export default function ConnectorsPage() {
   const controllerStarting = controllerStatus === "starting" || controllerStatus === "restarting";
   const controllerOffline = controllerStatus === "failed" || controllerStatus === "stopped";
 
-  const refreshConnectors = useCallback(async () => {
+  const refreshConnectors = useCallback(async (options: { readonly force?: boolean } = {}) => {
     if (controllerStarting || controllerOffline) {
       return undefined;
     }
@@ -609,7 +615,7 @@ export default function ConnectorsPage() {
     setLoadState({ status: "loading" });
 
     try {
-      const response = await listConnectors();
+      const response = await listConnectors({ force: options.force });
       setLoadState({ status: "loaded", connectors: response.connectors });
       return response.connectors;
     } catch (error) {
@@ -626,7 +632,7 @@ export default function ConnectorsPage() {
       const deadline = Date.now() + 30_000;
 
       while (Date.now() <= deadline) {
-        const connectors = await refreshConnectors();
+        const connectors = await refreshConnectors({ force: true });
         const connector = connectors?.find((candidate) => candidate.id === connectorId);
 
         if (connector?.status === "connected") {
@@ -681,7 +687,7 @@ export default function ConnectorsPage() {
       });
     }
 
-    void refreshConnectors().finally(() => {
+    void refreshConnectors({ force: true }).finally(() => {
       setSearchParams((current) => {
         const next = new URLSearchParams(current);
         next.delete(connectorOAuthStatusQueryParam);
@@ -750,7 +756,20 @@ export default function ConnectorsPage() {
       }
 
       if (connector.status === "connected") {
-        openConnectorDetail(connector.id);
+        setActionState({ status: "disconnecting", connectorId: connector.id });
+
+        try {
+          await disconnectConnector(connector.id);
+          setActionState({ status: "success", connectorId: connector.id, message: `${connector.displayName} has been disconnected.` });
+          await refreshConnectors({ force: true });
+        } catch (error) {
+          setActionState({
+            status: "error",
+            connectorId: connector.id,
+            message: error instanceof Error ? error.message : `Unable to disconnect ${connector.displayName}.`
+          });
+        }
+
         return;
       }
 
@@ -761,7 +780,7 @@ export default function ConnectorsPage() {
 
         if (response.status === "connected") {
           setActionState({ status: "success", connectorId: connector.id, message: `${connector.displayName} is connected.` });
-          await refreshConnectors();
+          await refreshConnectors({ force: true });
           openConnectorDetail(connector.id);
           return;
         }
@@ -779,7 +798,7 @@ export default function ConnectorsPage() {
               ? `${connector.displayName} authorization opened in your browser. Return to Monet after completing provider authorization to refresh its status.`
               : `${connector.displayName} connection is pending. Return to Monet after completing provider authorization to refresh its status.`
           });
-          await refreshConnectors();
+          await refreshConnectors({ force: true });
           openConnectorDetail(connector.id);
           return;
         }
@@ -796,7 +815,7 @@ export default function ConnectorsPage() {
             ? `${connector.displayName} authorization opened in your browser. Return to Monet after completing the provider flow to refresh connector status.`
             : `${connector.displayName} authorization is ready. Complete the provider flow, then return to Monet to refresh connector status.`
         });
-        await refreshConnectors();
+        await refreshConnectors({ force: true });
         openConnectorDetail(connector.id);
       } catch (error) {
         setActionState({
@@ -812,7 +831,7 @@ export default function ConnectorsPage() {
   let content: ReactNode;
 
   if (!config) {
-    content = <ConnectorCardGrid connectors={[]} loading actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onViewTools={openConnectorDetail} />;
+    content = <ConnectorCardGrid connectors={[]} loading actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onOpenDetail={openConnectorDetail} />;
   } else if (controllerStarting) {
     content = (
       <ConnectorStatePanel
@@ -837,7 +856,7 @@ export default function ConnectorsPage() {
       />
     );
   } else if (loadState.status === "idle" || loadState.status === "loading") {
-    content = <ConnectorCardGrid connectors={[]} loading actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onViewTools={openConnectorDetail} />;
+    content = <ConnectorCardGrid connectors={[]} loading actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onOpenDetail={openConnectorDetail} />;
   } else if (loadState.status === "error") {
     content = (
       <ConnectorStatePanel
@@ -845,7 +864,7 @@ export default function ConnectorsPage() {
         title="Unable to load connectors."
         description={loadState.message}
         action={
-          <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors()}>
+          <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors({ force: true })}>
             Try again
           </button>
         }
@@ -858,7 +877,7 @@ export default function ConnectorsPage() {
         title="No connectors are configured yet."
         description="When connector providers are available, they will appear here with their connection status and available tools."
         action={
-          <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors()}>
+          <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors({ force: true })}>
             Refresh catalog
           </button>
         }
@@ -873,7 +892,7 @@ export default function ConnectorsPage() {
         action={
           <div className="flex flex-wrap gap-2">
             <Link className={secondaryButtonClassName} to="/settings/connectors">Configure connectors</Link>
-            <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors()}>
+            <button className={secondaryButtonClassName} type="button" onClick={() => void refreshConnectors({ force: true })}>
               Refresh status
             </button>
           </div>
@@ -881,7 +900,7 @@ export default function ConnectorsPage() {
       />
     );
   } else {
-    content = <ConnectorCardGrid connectors={loadState.connectors} actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onViewTools={openConnectorDetail} />;
+    content = <ConnectorCardGrid connectors={loadState.connectors} actionState={actionState} onPrimaryAction={handleConnectorPrimaryAction} onOpenDetail={openConnectorDetail} />;
   }
 
   return (
@@ -892,7 +911,7 @@ export default function ConnectorsPage() {
       contentClassName="w-full"
     >
       {content}
-      {selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} onDisconnected={async () => void (await refreshConnectors())} /> : null}
+      {selectedConnectorId ? <ConnectorDetailDrawer connectorId={selectedConnectorId} onClose={closeConnectorDetail} onDisconnected={async () => void (await refreshConnectors({ force: true }))} /> : null}
     </PageFrame>
   );
 }
