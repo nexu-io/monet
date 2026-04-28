@@ -108,7 +108,7 @@ export function Composer({
 
   return (
     <form
-      className="flex flex-col gap-2.5 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs transition-[box-shadow,border-color] duration-[var(--duration-normal)] ease-[var(--ease-standard)] focus-within:border-border-strong focus-within:shadow-sm"
+      className="flex flex-col gap-2 rounded-2xl border border-border-subtle bg-surface-0 p-2 shadow-lg transition-[box-shadow,border-color] duration-[var(--duration-normal)] ease-[var(--ease-standard)] focus-within:border-border-strong focus-within:shadow-xl"
       aria-label="Chat composer"
       onSubmit={handleSubmit}
     >
@@ -117,8 +117,8 @@ export function Composer({
       </label>
       <Textarea
         id="chat-composer-input"
-        className="block max-h-[min(40vh,calc(var(--spacing)*60))] min-h-18 w-full resize-none border-0 bg-transparent px-0 pb-0 pt-1.5 font-sans text-base leading-[1.5] text-text-primary shadow-none outline-none ring-0 placeholder:text-text-placeholder focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-        rows={3}
+        className="max-h-[min(40vh,calc(var(--spacing)*60))] min-h-[3.5rem] border-0 bg-transparent focus-visible:border-0 focus-visible:ring-0"
+        rows={2}
         placeholder={
           disabledReason ?? "Reply, continue the task, or ask for a new direction…"
         }
@@ -128,7 +128,7 @@ export function Composer({
         disabled={isDisabled}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 max-app:flex-col max-app:items-start">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-2 max-app:flex-col max-app:items-start">
         <div className="flex flex-wrap items-center gap-2 text-sm text-text-tertiary">
           {readyProviders.length > 0 && onChangeTarget ? (
             <>
@@ -144,7 +144,7 @@ export function Composer({
                   >
                     <SelectValue placeholder="Chat model" />
                   </SelectTrigger>
-                  <SelectContent className="max-h-80 w-max max-w-[min(32rem,calc(100vw-2rem))] text-text-primary" align="start" side="top">
+                  <SelectContent className="max-h-80 w-max max-w-[min(32rem,calc(100vw-2rem))] border-border-subtle text-text-primary" align="start" side="top">
                     <SelectGroup>
                       {readyProviders.map((target) => {
                         const value = getTargetValue(target);
