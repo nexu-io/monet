@@ -474,7 +474,7 @@ export function registerLiveArtifactRoutes(app: ControllerApp, options: {
 
       return context.json(
         createErrorResponse("refresh_failed", error instanceof Error ? error.message : "Failed to refresh live artifact."),
-        400
+        500
       );
     }
   });

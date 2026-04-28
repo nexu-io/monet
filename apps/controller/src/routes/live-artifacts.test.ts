@@ -270,8 +270,8 @@ test("sessionless live artifact refreshes use artifact-specific workspaces", asy
     const firstResponse = await requestJson(app, `/api/live-artifacts/${first.id}/refresh`, { method: "POST" });
     const secondResponse = await requestJson(app, `/api/live-artifacts/${second.id}/refresh`, { method: "POST" });
 
-    assert.equal(firstResponse.status, 400);
-    assert.equal(secondResponse.status, 400);
+    assert.equal(firstResponse.status, 500);
+    assert.equal(secondResponse.status, 500);
     assert.equal(ensuredSessionIds.length, 2);
     assert.notEqual(ensuredSessionIds[0], ensuredSessionIds[1]);
     assert.match(ensuredSessionIds[0] ?? "", /^ses_liveartifactrefresh[a-f0-9]{24}$/);
