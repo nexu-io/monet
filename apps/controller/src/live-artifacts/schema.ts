@@ -494,13 +494,23 @@ export const LiveArtifactWithTilesSchema = LiveArtifactSchema.extend({
   tiles: z.array(LiveArtifactTileSchema)
 });
 
-export const LiveArtifactCreateTileInputSchema = z.object({
-  title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1),
-  kind: LiveArtifactTileKindSchema,
-  renderJson: LiveArtifactRenderJsonSchema,
-  provenanceJson: LiveArtifactProvenanceJsonSchema.nullable().optional(),
-  sourceJson: LiveArtifactTileSourceSchema.nullable().optional()
-});
+export const LiveArtifactCreateTileInputSchema = z
+  .object({
+    title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1),
+    kind: LiveArtifactTileKindSchema,
+    renderJson: LiveArtifactRenderJsonSchema,
+    provenanceJson: LiveArtifactProvenanceJsonSchema.nullable().optional(),
+    sourceJson: LiveArtifactTileSourceSchema.nullable().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.kind !== value.renderJson.kind) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["renderJson", "kind"],
+        message: "Tile kind must match renderJson kind"
+      });
+    }
+  });
 
 export const LiveArtifactCreateInputSchema = z.object({
   title: LiveArtifactSafeTextSchema(LIVE_ARTIFACT_LIMITS.title, 1),

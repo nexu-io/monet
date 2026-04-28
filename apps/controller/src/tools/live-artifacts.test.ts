@@ -4,6 +4,8 @@ import test from "node:test";
 import { createLiveArtifactToolDefinitions } from "./live-artifacts";
 import type { LiveArtifactWithTiles } from "../live-artifacts/schema";
 
+type ParsableSchema = { parse(input: unknown): unknown };
+
 function getLiveArtifactTools() {
   return Object.fromEntries(
     createLiveArtifactToolDefinitions({
@@ -69,6 +71,29 @@ const sampleArtifact: LiveArtifactWithTiles = {
     updatedAt: "2026-04-28T00:00:00.000Z"
   }]
 };
+
+const toolExecutionContext = {
+  persistedToolCallId: "tcl_test",
+  sessionId: "ses_test",
+  sessionWorkspacePath: "/tmp/session",
+  setConnectorExecutionMetadata() {},
+  toolCallId: "call_test",
+  messages: [],
+  abortSignal: new AbortController().signal
+};
+
+const connectorTileSource = {
+  type: "connector_tool",
+  toolName: "github_search_issues",
+  connector: {
+    connectorId: "github",
+    connectorName: "GitHub",
+    accountLabel: "octo-org",
+    providerToolId: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"
+  },
+  refreshPermission: "manual_refresh_granted_for_read_only",
+  outputMapping: { preferredKind: "table" }
+} as const;
 
 test("create_live_artifact requires confirmation", () => {
   const tools = getLiveArtifactTools();
@@ -143,15 +168,7 @@ test("create_live_artifact returns linkable artifact identifiers and concise pro
         value: "$42"
       }
     }]
-  }, {
-    persistedToolCallId: "tcl_test",
-    sessionId: "ses_test",
-    sessionWorkspacePath: "/tmp/session",
-    setConnectorExecutionMetadata() {},
-    toolCallId: "call_test",
-    messages: [],
-    abortSignal: new AbortController().signal
-  }) as Record<string, unknown>;
+  }, toolExecutionContext) as Record<string, unknown>;
 
   assert.equal(output.artifactId, "art_123");
   assert.equal(output.artifactUrl, "/artifacts/art_123");
@@ -177,4 +194,157 @@ test("create_live_artifact returns linkable artifact identifiers and concise pro
       refreshedAt: "2026-04-28T00:00:00.000Z"
     }]
   });
+});
+
+test("artifact tool schemas validate tile render kinds and source metadata", () => {
+  const tools = getLiveArtifactTools();
+  const createTool = tools.create_live_artifact;
+  const updateTool = tools.update_live_artifact;
+
+  assert.ok(createTool);
+  assert.ok(updateTool);
+  assert.throws(
+    () => (createTool.inputSchema as ParsableSchema).parse({
+      title: "Mismatched tile",
+      tiles: [{
+        title: "Revenue",
+        kind: "markdown",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        }
+      }]
+    }),
+    /Tile kind must match renderJson kind/
+  );
+
+  assert.throws(
+    () => (updateTool.inputSchema as ParsableSchema).parse({
+      artifactId: "art_123"
+    }),
+    /At least one update field is required/
+  );
+
+  assert.throws(
+    () => (createTool.inputSchema as ParsableSchema).parse({
+      title: "Missing connector metadata",
+      tiles: [{
+        title: "Issues",
+        kind: "table",
+        renderJson: {
+          kind: "table",
+          columns: ["Issue"],
+          rows: [["Bug"]]
+        },
+        sourceJson: {
+          type: "connector_tool",
+          toolName: "github_search_issues",
+          input: { query: "is:open" },
+          refreshPermission: "manual_refresh_granted_for_read_only",
+          outputMapping: { preferredKind: "table" }
+        }
+      }]
+    }),
+    /connector_tool sources require connector metadata/
+  );
+});
+
+test("artifact tools sanitize source input before persistence and reject unsafe source payloads", () => {
+  const tools = Object.fromEntries(
+    createLiveArtifactToolDefinitions({
+      chatStorage: {
+        createLiveArtifact(input: { readonly tiles: ReadonlyArray<{ readonly sourceJson?: unknown }> }) {
+          assert.deepEqual(input.tiles[0]?.sourceJson, {
+            ...connectorTileSource,
+            input: {
+              query: "is:open repo:acme/app",
+              filters: { since: "2026-04-01", status: "open" },
+              limit: 10
+            }
+          });
+          return sampleArtifact;
+        }
+      } as never,
+      runId: "run_test",
+      sessionId: "ses_test"
+    }).map((definition) => [definition.metadata.name, definition])
+  );
+  const createTool = tools.create_live_artifact;
+  assert.ok(createTool);
+
+  createTool.execute({
+    title: "Open issues",
+    tiles: [{
+      title: "Issues",
+      kind: "table",
+      renderJson: {
+        kind: "table",
+        columns: ["Issue"],
+        rows: [["Bug"]]
+      },
+      sourceJson: {
+        ...connectorTileSource,
+        input: {
+          query: "  is:open repo:acme/app  ",
+          filters: { since: "2026-04-01", status: "open" },
+          limit: 10
+        }
+      }
+    }]
+  }, toolExecutionContext);
+
+  for (const unsafeInput of [
+    { query: "status:open", access_token: "secret-token" },
+    { query: "status:open", response: { items: [{ id: "issue-1" }] } },
+    { query: "from:customer@example.test", messages: [{ body: "private message" }] }
+  ]) {
+    assert.throws(
+      () => (createTool.inputSchema as ParsableSchema).parse({
+        title: "Unsafe source",
+        tiles: [{
+          title: "Issues",
+          kind: "table",
+          renderJson: {
+            kind: "table",
+            columns: ["Issue"],
+            rows: [["Bug"]]
+          },
+          sourceJson: {
+            ...connectorTileSource,
+            input: unsafeInput
+          }
+        }]
+      }),
+      /credential or token fields|raw provider responses|minimize broad personal data/
+    );
+  }
+});
+
+test("list_live_artifacts is read-only and update approval escalates for refresh-capable tile sources", () => {
+  const tools = getLiveArtifactTools();
+  const listTool = tools.list_live_artifacts;
+  const updateTool = tools.update_live_artifact;
+
+  assert.ok(listTool);
+  assert.ok(updateTool);
+  assert.equal(listTool.metadata.requiresConfirmation, false);
+  assert.equal(listTool.needsApproval, undefined);
+  assert.equal(updateTool.metadata.requiresConfirmation, false);
+  assert.equal(updateTool.needsApproval?.({
+    artifactId: "art_123",
+    tiles: [{
+      title: "Issues",
+      kind: "table",
+      renderJson: {
+        kind: "table",
+        columns: ["Issue"],
+        rows: [["Bug"]]
+      },
+      sourceJson: {
+        ...connectorTileSource,
+        input: { query: "is:open", limit: 10 }
+      }
+    }]
+  }, {} as never), true);
 });

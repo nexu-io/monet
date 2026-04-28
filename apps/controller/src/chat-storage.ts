@@ -10,6 +10,8 @@ import {
   LIVE_ARTIFACT_SCHEMA_VERSION,
   LiveArtifactCreateInputSchema,
   LiveArtifactCreateTileInputSchema,
+  LiveArtifactProvenanceJsonSchema,
+  LiveArtifactRenderJsonSchema,
   LiveArtifactSchema,
   LiveArtifactTileSchema,
   LiveArtifactWithTilesSchema,
@@ -1407,10 +1409,10 @@ export function createChatStorage(options: CreateChatStorageOptions): ChatStorag
         );
 
         for (const tile of input.tiles) {
-          const parsedRenderJson = LiveArtifactCreateTileInputSchema.shape.renderJson.parse(tile.renderJson);
+          const parsedRenderJson = LiveArtifactRenderJsonSchema.parse(tile.renderJson);
           const parsedProvenanceJson = tile.provenanceJson == null
             ? null
-            : LiveArtifactCreateTileInputSchema.shape.provenanceJson.parse(tile.provenanceJson);
+            : LiveArtifactProvenanceJsonSchema.parse(tile.provenanceJson);
 
           if (tile.kind !== parsedRenderJson.kind) {
             throw new ChatStorageResolutionError({

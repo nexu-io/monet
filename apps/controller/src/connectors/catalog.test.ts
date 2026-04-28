@@ -128,4 +128,9 @@ test("connector tool safety classification follows Composio hint and scope rules
     sideEffect: "write",
     approval: "always"
   });
+  assert.equal(requiresConnectorToolApproval(classifyConnectorToolSafety({ safetyHints: ["idempotentHint"] })), true);
+  assert.equal(
+    requiresConnectorToolApproval(classifyConnectorToolSafety({ safetyHints: ["readOnlyHint"], oauthScopes: ["repo:write"] })),
+    true
+  );
 });
