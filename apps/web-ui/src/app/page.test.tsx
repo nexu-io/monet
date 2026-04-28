@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 
 import { LiveArtifactSidePanel } from "./page";
 import type { LiveArtifact } from "../lib/live-artifacts-api";
@@ -40,7 +41,7 @@ vi.mock("../lib/provider-readiness", () => ({ fetchProviderTargets: vi.fn() }));
 vi.mock("@nexu-design/ui-web", async () => {
   const React = await import("react");
   return {
-    Button: ({ children, ...props }: Record<string, unknown>) => React.createElement("button", props, children)
+    Button: ({ children, ...props }: { readonly children?: ReactNode } & Record<string, unknown>) => React.createElement("button", props, children)
   };
 });
 
