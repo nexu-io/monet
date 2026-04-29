@@ -15,7 +15,7 @@ export default function SettingsLayout({ children }: { children?: React.ReactNod
   const { pathname } = useLocation();
   const navigate = useNavigate();
   
-  const activePanel = pathname.includes("/settings/models") ? "models" : "general";
+  const activePanel = settingsPanels.find((panel) => pathname.includes(`/settings/${panel.id}`))?.id ?? "general";
 
   function handleTabChange(nextValue: string) {
     navigate(`/settings/${nextValue}`);

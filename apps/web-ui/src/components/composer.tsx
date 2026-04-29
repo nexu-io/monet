@@ -33,16 +33,11 @@ function getStatusHint(status: ComposerProps["status"], disabledReason?: string)
     return disabledReason;
   }
 
-  switch (status) {
-    case "submitted":
-      return "Sending prompt…";
-    case "streaming":
-      return "Streaming reply…";
-    case "error":
-      return "Last request failed. Edit the prompt and send again to retry.";
-    default:
-      return null;
+  if (status === "error") {
+    return "Last request failed. Edit the prompt and send again to retry.";
   }
+
+  return null;
 }
 
 export function Composer({
@@ -113,7 +108,7 @@ export function Composer({
 
   return (
     <form
-      className="flex flex-col gap-2.5 rounded-xl border border-border-subtle bg-surface-1 p-4 shadow-xs transition-[box-shadow,border-color] duration-[var(--duration-normal)] ease-[var(--ease-standard)] focus-within:border-border-strong focus-within:shadow-sm"
+      className="flex flex-col gap-2 rounded-2xl border border-border-subtle bg-surface-0 p-2 shadow-lg transition-[box-shadow,border-color] duration-[var(--duration-normal)] ease-[var(--ease-standard)] focus-within:border-border-strong focus-within:shadow-xl"
       aria-label="Chat composer"
       onSubmit={handleSubmit}
     >
@@ -122,8 +117,8 @@ export function Composer({
       </label>
       <Textarea
         id="chat-composer-input"
-        className="block max-h-[min(40vh,calc(var(--spacing)*60))] min-h-18 w-full resize-none border-0 bg-transparent px-0 pb-0 pt-1.5 font-sans text-base leading-[1.5] text-text-primary shadow-none outline-none ring-0 placeholder:text-text-placeholder focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
-        rows={3}
+        className="max-h-[min(40vh,calc(var(--spacing)*60))] min-h-[3.5rem] border-0 bg-transparent focus-visible:border-0 focus-visible:ring-0"
+        rows={2}
         placeholder={
           disabledReason ?? "Reply, continue the task, or ask for a new direction…"
         }
@@ -133,8 +128,8 @@ export function Composer({
         disabled={isDisabled}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 max-app:flex-col max-app:items-start">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-text-tertiary">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-2 max-app:flex-col max-app:items-start">
+        <div className="-ml-2 flex flex-wrap items-center gap-2 text-sm text-text-tertiary">
           {readyProviders.length > 0 && onChangeTarget ? (
             <>
               <label className="sr-only" htmlFor="chat-composer-model">
@@ -144,19 +139,21 @@ export function Composer({
                 <Select value={getTargetValue(activeTarget)} onValueChange={handleModelChange} disabled={isDisabled}>
                   <SelectTrigger
                     id="chat-composer-model"
-                    className="h-8 max-w-64 rounded-md border-border-subtle bg-surface-0 px-2 py-1 text-xs font-medium text-text-secondary shadow-xs hover:border-border-hover focus:border-border-hover focus:shadow-focus"
+                    className="inline-flex h-8 w-fit max-w-64 rounded-md border-0 bg-transparent px-2 py-1 text-sm font-medium whitespace-nowrap text-text-secondary shadow-none hover:bg-app-hover focus:border-0 focus:ring-0 focus:shadow-none [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
                     title={isTargetOverridden ? "Custom model selected for this chat" : "Chat model"}
                   >
                     <SelectValue placeholder="Chat model" />
                   </SelectTrigger>
-                  <SelectContent className="max-h-80 w-max max-w-[min(32rem,calc(100vw-2rem))] text-text-primary" align="start" side="top">
+                  <SelectContent className="max-h-80 w-max max-w-[min(32rem,calc(100vw-2rem))] border-border-subtle text-text-primary" align="start" side="top">
                     <SelectGroup>
                       {readyProviders.map((target) => {
                         const value = getTargetValue(target);
 
                         return (
-                          <SelectItem key={value} value={value} className="text-sm">
-                            {target.modelName} ({target.providerDisplayName})
+                          <SelectItem key={value} value={value} textValue={target.modelName ?? undefined} className="text-sm">
+                            <span className="flex items-baseline gap-2">
+                              <span>{target.modelName}</span>
+                            </span>
                           </SelectItem>
                         );
                       })}

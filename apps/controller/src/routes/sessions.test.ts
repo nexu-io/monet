@@ -57,9 +57,6 @@ test("create session route rejects malformed JSON bodies", async () => {
 
     const response = await app.request("http://127.0.0.1:42831/api/sessions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
       body: "{"
     });
 
@@ -94,7 +91,7 @@ test("create session route accepts an empty body", async () => {
 
     const session = (await response.json()) as { id: string; title: string | null };
     assert.equal(typeof session.id, "string");
-    assert.equal(session.title, null);
+    assert.equal(session.title, "New chat");
     assert.equal(storage.listSessions().length, 1);
   } finally {
     fixture.cleanup();

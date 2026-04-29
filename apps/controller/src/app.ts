@@ -1,23 +1,34 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
 import { createChatStorage } from "./chat-storage";
+import { ComposioConnectorProvider } from "./connectors/composio-provider";
+import { createConnectorService } from "./connectors/service";
 import { createRequestId, createLogger } from "./logger";
 import { createLocalAuthMiddleware } from "./middleware/local-auth";
 import { createProviderCredentialRegistry } from "./provider-credentials";
 import { createProviderRuntime } from "./provider-runtime";
 import { getRequestId, requestIdKey } from "./request-context";
 import { registerChatRoutes } from "./routes/chat";
+import { registerConnectorRoutes } from "./routes/connectors";
 import { registerHealthRoutes } from "./routes/health";
+import { registerLiveArtifactRoutes } from "./routes/live-artifacts";
 import { registerProviderRoutes } from "./routes/providers";
 import { registerRunRoutes } from "./routes/runs";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerSessionRoutes } from "./routes/sessions";
 import { registerToolRoutes } from "./routes/tools";
 import { createRunRegistry } from "./run-registry";
+import { createBuiltinToolSource } from "./tools/builtins";
+import { createConnectorToolSource } from "./tools/connectors";
+import { createLiveArtifactToolSource } from "./tools/live-artifacts";
 import { createSessionWorkspaceService } from "./session-workspace-service";
-import { createBuiltinToolDefinitions } from "./tools/builtins";
-import { createToolRegistry } from "./tools/registry";
-import type { AgentRuntimeConfig, OpenAIProviderConfig, OpenRouterProviderConfig } from "./config";
+import { createToolRegistry, type ToolRegistry } from "./tools/registry";
+import type {
+  AgentRuntimeConfig,
+  ConnectorProviderConfig,
+  OpenAIProviderConfig,
+  OpenRouterProviderConfig
+} from "./config";
 
 export interface CreateControllerAppOptions {
   readonly allowedOrigins: readonly string[];
@@ -26,8 +37,10 @@ export interface CreateControllerAppOptions {
   readonly agentRuntime: AgentRuntimeConfig;
   readonly bearerToken: string;
   readonly databasePath: string;
+  readonly connectorProvider: ConnectorProviderConfig;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
+  readonly openrouterApiKey: string | null;
   readonly port: number;
   readonly sessionWorkspaceBaseDirectory: string;
 }
@@ -41,6 +54,7 @@ export type ControllerApp = OpenAPIHono<{ Variables: ControllerAppVariables }>;
 export interface ControllerAppRuntime {
   readonly app: ControllerApp;
   readonly chatStorage: ReturnType<typeof createChatStorage>;
+  readonly toolRegistry: ToolRegistry;
   readonly setPort: (port: number) => void;
 }
 
@@ -84,7 +98,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       timeoutMs: options.openai.timeoutMs
     },
     openrouter: {
-      baseUrl: options.openrouter.baseUrl,
+      baseUrl: options.openrouter.apiUrl,
       defaultModel: options.openrouter.defaultModel,
       timeoutMs: options.openrouter.timeoutMs
     }
@@ -107,7 +121,7 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     });
   const providerCredentials = createProviderCredentialRegistry({
     openai: options.openai,
-    openrouter: options.openrouter
+    openrouterApiKey: options.openrouterApiKey
   });
   const providerRuntime = createProviderRuntime({
     getChatStorage,
@@ -115,6 +129,11 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
     openrouter: options.openrouter,
     providerCredentials
   });
+  const connectorProvider = new ComposioConnectorProvider({
+    config: options.connectorProvider.composio,
+    storage: chatStorage
+  });
+  const connectorService = createConnectorService({ provider: connectorProvider });
   const persistedAllowedDirectories = chatStorage.listAuthorizedDirectories().map((entry) => entry.path);
   const effectiveAllowedToolDirectories =
     options.allowedToolDirectoriesSource === "env"
@@ -125,13 +144,17 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
 
   chatStorage.replaceAuthorizedDirectories(effectiveAllowedToolDirectories);
   const runRegistry = createRunRegistry();
-  const toolRegistry = createToolRegistry(
-    createBuiltinToolDefinitions({
-      allowedDirectories: effectiveAllowedToolDirectories,
-      getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
-      getControllerPort: () => controllerPort
-    })
-  );
+  const toolRegistry = createToolRegistry([], {
+    sources: [
+      createBuiltinToolSource({
+        allowedDirectories: effectiveAllowedToolDirectories,
+        getAllowedDirectories: () => chatStorage.listAuthorizedDirectories().map((entry) => entry.path),
+        getControllerPort: () => controllerPort
+      }),
+      createLiveArtifactToolSource(),
+      createConnectorToolSource({ provider: connectorProvider })
+    ]
+  });
   const recoveredRuns = chatStorage.recoverUnfinishedRuns();
 
   function getChatStorage() {
@@ -207,6 +230,14 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
       {
         name: "Tools",
         description: "In-process tool registry and confirmation endpoints."
+      },
+      {
+        name: "Connectors",
+        description: "External account connectors and connection status endpoints."
+      },
+      {
+        name: "Live Artifacts",
+        description: "Persisted artifact dashboards created from chat output and connector data."
       }
     ]
   });
@@ -273,10 +304,13 @@ export function createControllerApp(options: CreateControllerAppOptions): Contro
   registerProviderRoutes(app, { getChatStorage, providerCredentials, providerRuntime });
   registerSettingsRoutes(app, { getChatStorage });
   registerToolRoutes(app, { toolRegistry, getChatStorage });
+  registerConnectorRoutes(app, { connectorService, getChatStorage });
+  registerLiveArtifactRoutes(app, { getChatStorage, toolRegistry, sessionWorkspaceService });
 
   return {
     app,
     chatStorage,
+    toolRegistry,
     setPort(port) {
       controllerPort = port;
     }

@@ -1,5 +1,110 @@
 import { z } from "@hono/zod-openapi";
 
+import { CONNECTOR_PROVIDER_ERROR_CODES } from "./connectors/errors";
+
+export const ConnectorProviderErrorCodeSchema = z.enum(CONNECTOR_PROVIDER_ERROR_CODES).openapi("ConnectorProviderErrorCode");
+
+export const ConnectorToolPolicySchema = z
+  .object({
+    sideEffect: z.enum(["read", "write", "destructive", "external_send"]).openapi({ example: "read" }),
+    approval: z.enum(["never", "first_use", "always"]).openapi({ example: "never" })
+  })
+  .openapi("ConnectorToolPolicy");
+
+export const ConnectorStatusSchema = z
+  .enum(["unavailable", "not_connected", "connected", "expired"])
+  .openapi("ConnectorStatus");
+
+export const ConnectorCatalogCardSchema = z
+  .object({
+    id: z.enum(["github", "notion", "google_drive"]).openapi({ example: "github" }),
+    displayName: z.string().openapi({ example: "GitHub" }),
+    description: z.string().openapi({ example: "Search repositories, issues, pull requests, commits, and releases." }),
+    category: z.enum(["developer", "productivity", "files"]).openapi({ example: "developer" }),
+    icon: z.string().openapi({ example: "github" }),
+    featuredTools: z.array(z.string()).openapi({ example: ["GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS"] }),
+    enabledByDefault: z.boolean().openapi({ example: true }),
+    minimumApprovalPolicy: ConnectorToolPolicySchema,
+    capabilitySummaries: z.array(z.string()).openapi({ example: ["Search and list repositories."] }),
+    status: ConnectorStatusSchema.openapi({ example: "not_connected" }),
+    connectedAccountLabel: z.string().optional().openapi({ example: "octocat" }),
+    lastErrorCode: ConnectorProviderErrorCodeSchema.optional().openapi({ example: "provider_error" }),
+    lastErrorMessage: z.string().optional().openapi({ example: "Connector provider is not configured." })
+  })
+  .openapi("ConnectorCatalogCard");
+
+export const ConnectorAccountMetadataSchema = z
+  .object({
+    accountLabel: z.string().optional().openapi({ example: "octocat" }),
+    accountId: z.string().optional().openapi({ example: "123456" }),
+    providerConnectionId: z.string().optional().openapi({ example: "conn_123" }),
+    providerConnectorId: z.string().optional().openapi({ example: "GITHUB" }),
+    connectedAt: z.string().datetime().optional().openapi({ example: "2026-04-27T10:00:00.000Z" }),
+    updatedAt: z.string().datetime().optional().openapi({ example: "2026-04-27T10:05:00.000Z" })
+  })
+  .openapi("ConnectorAccountMetadata");
+
+export const ConnectorServiceConnectionSchema = z
+  .object({
+    status: ConnectorStatusSchema.openapi({ example: "connected" }),
+    connected: z.boolean().openapi({ example: true }),
+    connectedAccountLabel: z.string().optional().openapi({ example: "octocat" }),
+    account: ConnectorAccountMetadataSchema.optional(),
+    lastErrorCode: ConnectorProviderErrorCodeSchema.optional().openapi({ example: "connection_expired" }),
+    lastErrorMessage: z.string().optional().openapi({ example: "Connector account credentials have expired." })
+  })
+  .openapi("ConnectorServiceConnection");
+
+export const ConnectorAllowedToolSchema = z
+  .object({
+    providerToolId: z.string().openapi({ example: "GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS" }),
+    displayName: z.string().openapi({ example: "Search issues and pull requests" }),
+    summary: z.string().openapi({ example: "Search issues and pull requests across accessible repositories." }),
+    policy: ConnectorToolPolicySchema
+  })
+  .openapi("ConnectorAllowedTool");
+
+export const ConnectorDetailSchema = ConnectorCatalogCardSchema.extend({
+  providerConnectorId: z.string().openapi({ example: "GITHUB" }),
+  connection: ConnectorServiceConnectionSchema,
+  allowedTools: z.array(ConnectorAllowedToolSchema)
+}).openapi("ConnectorDetail");
+
+export const ListConnectorsResponseSchema = z
+  .object({
+    connectors: z.array(ConnectorCatalogCardSchema)
+  })
+  .openapi("ListConnectorsResponse");
+
+export const GetConnectorResponseSchema = z
+  .object({
+    connector: ConnectorDetailSchema
+  })
+  .openapi("GetConnectorResponse");
+
+export const StartConnectorConnectionRequestSchema = z
+  .object({
+    redirectUrl: z.string().url().optional().openapi({ example: "monet://connectors/callback" })
+  })
+  .openapi("StartConnectorConnectionRequest");
+
+export const StartConnectorConnectionResponseSchema = z
+  .object({
+    status: z.enum(["redirect_required", "connected", "pending"]).openapi({ example: "redirect_required" }),
+    connectorId: z.enum(["github", "notion", "google_drive"]).openapi({ example: "github" }),
+    providerConnectionId: z.string().optional().openapi({ example: "conn_123" }),
+    redirectUrl: z.string().url().optional().openapi({ example: "https://accounts.provider.example/oauth/authorize?..." }),
+    expiresAt: z.string().datetime().optional().openapi({ example: "2026-04-27T10:05:00.000Z" })
+  })
+  .openapi("StartConnectorConnectionResponse");
+
+export const DisconnectConnectorConnectionResponseSchema = z
+  .object({
+    connectorId: z.enum(["github", "notion", "google_drive"]).openapi({ example: "github" }),
+    status: z.literal("not_connected").openapi({ example: "not_connected" })
+  })
+  .openapi("DisconnectConnectorConnectionResponse");
+
 export const ErrorResponseSchema = z
   .object({
     error: z.string().openapi({ example: "unauthorized" }),
@@ -23,7 +128,8 @@ export const SessionSchema = z
     updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" }),
     archivedAt: z.string().datetime().nullable().openapi({ example: null }),
     defaultProviderId: z.string().nullable().openapi({ example: null }),
-    defaultModelId: z.string().nullable().openapi({ example: null })
+    defaultModelId: z.string().nullable().openapi({ example: null }),
+    messageCount: z.number().int().nonnegative().openapi({ example: 0 })
   })
   .openapi("Session");
 
@@ -192,6 +298,36 @@ export const AuthorizedDirectorySchema = z
     updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" })
   })
   .openapi("AuthorizedDirectory");
+
+export const ConnectorProviderComposioSettingsAuthConfigIdsSchema = z
+  .object({
+    github: z.string().trim().min(1).optional().openapi({ example: "github-auth-config-id" }),
+    notion: z.string().trim().min(1).optional().openapi({ example: "notion-auth-config-id" }),
+    google_drive: z.string().trim().min(1).optional().openapi({ example: "google-drive-auth-config-id" })
+  })
+  .partial()
+  .openapi("ConnectorProviderComposioSettingsAuthConfigIds");
+
+export const ConnectorProviderComposioSettingsSchema = z
+  .object({
+    key: z.string().openapi({ example: "connector_provider_composio" }),
+    provider: z.literal("composio").openapi({ example: "composio" }),
+    apiKeyConfigured: z.boolean().openapi({ example: true }),
+    baseUrl: z.string().url().openapi({ example: "https://backend.composio.dev" }),
+    timeoutMs: z.number().int().positive().nullable().openapi({ example: null }),
+    authConfigIds: ConnectorProviderComposioSettingsAuthConfigIdsSchema,
+    updatedAt: z.string().datetime().openapi({ example: "2026-04-23T10:05:00.000Z" })
+  })
+  .openapi("ConnectorProviderComposioSettings");
+
+export const ConnectorProviderComposioSettingsRequestSchema = z
+  .object({
+    apiKey: z.string().trim().nullable().optional().openapi({ example: "abc123" }),
+    baseUrl: z.string().url().optional().openapi({ example: "https://backend.composio.dev" }),
+    timeoutMs: z.number().int().positive().nullable().optional().openapi({ example: 120000 }),
+    authConfigIds: ConnectorProviderComposioSettingsAuthConfigIdsSchema.optional()
+  })
+  .openapi("ConnectorProviderComposioSettingsRequest");
 
 export const ListAuthorizedDirectoriesResponseSchema = z
   .object({

@@ -106,7 +106,8 @@ export function createProviderRuntime(options: {
           const request = syncOpenAICompatibleProviderCatalog({
             provider,
             storage,
-            config: getProviderConfig(provider.type, options)
+            config: getProviderConfig(provider.type, options),
+            apiKey: getProviderApiKey(provider.type, options)
           })
             .then(() => {
               catalogSyncCache.set(provider.id, {
@@ -155,7 +156,9 @@ export function createProviderRuntime(options: {
         if (provider.type === "openai" || provider.type === "openrouter") {
           const providerConfig = getProviderConfig(provider.type, options);
 
-          if (!providerConfig.apiKey) {
+          const providerApiKey = getProviderApiKey(provider.type, options);
+
+          if (!providerApiKey) {
             return buildInvalidProviderValidation(
               provider,
               "missing_credentials",
@@ -226,8 +229,9 @@ export function createProviderRuntime(options: {
       switch (provider.type) {
         case "openai": {
           const providerConfig = getProviderConfig(provider.type, options);
+          const providerApiKey = getProviderApiKey(provider.type, options);
 
-          if (!providerConfig.apiKey) {
+          if (!providerApiKey) {
             throw new ProviderRuntimeError({
               message: "OpenAI API key is not configured.",
               statusCode: 422,
@@ -236,7 +240,7 @@ export function createProviderRuntime(options: {
           }
 
           const openai = createOpenAI({
-            apiKey: providerConfig.apiKey,
+            apiKey: providerApiKey,
             baseURL: resolveProviderBaseUrl(provider, providerConfig),
             fetch: createFetchWithTimeout(provider.timeoutMs ?? providerConfig.timeoutMs)
           });
@@ -245,8 +249,9 @@ export function createProviderRuntime(options: {
         }
         case "openrouter": {
           const providerConfig = getProviderConfig(provider.type, options);
+          const providerApiKey = getProviderApiKey(provider.type, options);
 
-          if (!providerConfig.apiKey) {
+          if (!providerApiKey) {
             throw new ProviderRuntimeError({
               message: "OpenRouter API key is not configured.",
               statusCode: 422,
@@ -256,7 +261,7 @@ export function createProviderRuntime(options: {
 
           const openrouter = createOpenAI({
             name: "openrouter",
-            apiKey: providerConfig.apiKey,
+            apiKey: providerApiKey,
             baseURL: resolveProviderBaseUrl(provider, providerConfig),
             headers: {
               "X-Title": "Monet"
@@ -283,13 +288,14 @@ async function syncOpenAICompatibleProviderCatalog(options: {
   provider: StoredProvider;
   storage: ChatStorage;
   config: OpenAIProviderConfig | OpenRouterProviderConfig;
+  apiKey: string | null;
 }) {
-  if (!options.config.apiKey) {
+  if (!options.apiKey) {
     return;
   }
 
   const models = await fetchOpenAIModels({
-    apiKey: options.config.apiKey,
+    apiKey: options.apiKey,
     baseUrl: resolveProviderBaseUrl(options.provider, options.config),
     timeoutMs: options.provider.timeoutMs ?? options.config.timeoutMs
   });
@@ -338,7 +344,7 @@ async function fetchOpenAIModels(options: { apiKey: string; baseUrl: string; tim
 function getProviderConfig(
   providerType: StoredProvider["type"],
   options: { openai: OpenAIProviderConfig; openrouter: OpenRouterProviderConfig; providerCredentials: ProviderCredentialRegistry }
-) {
+): (OpenAIProviderConfig | OpenRouterProviderConfig) & { apiKey: string | null } {
   if (providerType === "openrouter") {
     return {
       ...options.openrouter,
@@ -352,12 +358,23 @@ function getProviderConfig(
   };
 }
 
+function getProviderApiKey(
+  providerType: StoredProvider["type"],
+  options: { openai: OpenAIProviderConfig; openrouter: OpenRouterProviderConfig; providerCredentials: ProviderCredentialRegistry }
+) {
+  return providerType === "openrouter"
+    ? options.providerCredentials.getApiKey("openrouter")
+    : options.providerCredentials.getApiKey("openai");
+}
+
 function resolveProviderBaseUrl(
   provider: StoredProvider,
   config: OpenAIProviderConfig | OpenRouterProviderConfig
 ) {
   if (provider.type === "openrouter") {
-    return provider.baseUrl ?? config.baseUrl ?? DEFAULT_OPENROUTER_BASE_URL;
+    const openrouterConfig = config as OpenRouterProviderConfig & { apiUrl?: string | null };
+
+    return provider.baseUrl ?? openrouterConfig.baseUrl ?? openrouterConfig.apiUrl ?? DEFAULT_OPENROUTER_BASE_URL;
   }
 
   return provider.baseUrl ?? config.baseUrl ?? DEFAULT_OPENAI_BASE_URL;

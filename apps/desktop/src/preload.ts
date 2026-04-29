@@ -62,6 +62,11 @@ interface OpenPathResult {
   };
 }
 
+interface OpenExternalUrlResult {
+  readonly opened: boolean;
+  readonly error?: string;
+}
+
 const runtimeInfo = ipcRenderer.sendSync("monet:get-runtime-info-sync") as {
   readonly apiBase?: string;
   readonly bearerToken?: string | null;
@@ -168,7 +173,10 @@ contextBridge.exposeInMainWorld("monetDesktop", {
   openPath(payload: { path: string }): Promise<OpenPathResult> {
     return ipcRenderer.invoke("monet:open-path", payload);
   },
-  openWorkspaceDirectory(payload: { sessionId: string }): Promise<OpenPathResult> {
+  openExternalUrl(payload: { url: string }): Promise<OpenExternalUrlResult> {
+    return ipcRenderer.invoke("monet:open-external-url", payload);
+  },
+  openWorkspaceDirectory(payload: { sessionId?: string } | null): Promise<OpenPathResult> {
     return ipcRenderer.invoke("monet:open-workspace-directory", payload);
   },
   saveProviderSecret(payload: { providerType: ProviderType; secret: string }): Promise<ProviderSecretMutationResult> {

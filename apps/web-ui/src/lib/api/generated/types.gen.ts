@@ -23,6 +23,7 @@ export type Session = {
     archivedAt: string | null;
     defaultProviderId: string | null;
     defaultModelId: string | null;
+    messageCount: number;
 };
 
 export type ListSessionsResponse = {
@@ -45,6 +46,7 @@ export type SessionMessage = {
 };
 
 export type SessionDetail = Session & {
+    workspacePath: string | null;
     messages: Array<SessionMessage>;
 };
 
@@ -54,6 +56,11 @@ export type UpdateSessionRequest = {
 
 export type ArchiveSessionResponse = {
     session: Session;
+};
+
+export type OpenWorkspaceDirectoryResponse = {
+    ok: true;
+    workspacePath: string;
 };
 
 export type Provider = {
@@ -141,6 +148,29 @@ export type ReplaceAuthorizedDirectoriesRequest = {
     paths: Array<string>;
 };
 
+export type ConnectorProviderComposioSettingsAuthConfigIds = {
+    github?: string;
+    notion?: string;
+    google_drive?: string;
+};
+
+export type ConnectorProviderComposioSettings = {
+    key: string;
+    provider: 'composio';
+    apiKeyConfigured: boolean;
+    baseUrl: string;
+    timeoutMs: number | null;
+    authConfigIds: ConnectorProviderComposioSettingsAuthConfigIds;
+    updatedAt: string;
+};
+
+export type ConnectorProviderComposioSettingsRequest = {
+    apiKey?: string | null;
+    baseUrl?: string;
+    timeoutMs?: number | null;
+    authConfigIds?: ConnectorProviderComposioSettingsAuthConfigIds;
+};
+
 export type Tool = {
     name: string;
     description: string;
@@ -149,6 +179,455 @@ export type Tool = {
 
 export type ListToolsResponse = {
     tools: Array<Tool>;
+};
+
+export type ConnectorToolPolicy = {
+    sideEffect: 'read' | 'write' | 'destructive' | 'external_send';
+    approval: 'never' | 'first_use' | 'always';
+};
+
+export type ConnectorStatus = 'unavailable' | 'not_connected' | 'connected' | 'expired';
+
+export type ConnectorProviderErrorCode = 'connection_missing' | 'connection_expired' | 'rate_limited' | 'upstream_unavailable' | 'invalid_arguments' | 'forbidden' | 'tool_not_found' | 'provider_error';
+
+export type ConnectorCatalogCard = {
+    id: 'github' | 'notion' | 'google_drive';
+    displayName: string;
+    description: string;
+    category: 'developer' | 'productivity' | 'files';
+    icon: string;
+    featuredTools: Array<string>;
+    enabledByDefault: boolean;
+    minimumApprovalPolicy: ConnectorToolPolicy;
+    capabilitySummaries: Array<string>;
+    status: ConnectorStatus;
+    connectedAccountLabel?: string;
+    lastErrorCode?: ConnectorProviderErrorCode;
+    lastErrorMessage?: string;
+};
+
+export type ListConnectorsResponse = {
+    connectors: Array<ConnectorCatalogCard>;
+};
+
+export type ConnectorAccountMetadata = {
+    accountLabel?: string;
+    accountId?: string;
+    providerConnectionId?: string;
+    providerConnectorId?: string;
+    connectedAt?: string;
+    updatedAt?: string;
+};
+
+export type ConnectorServiceConnection = {
+    status: ConnectorStatus & unknown;
+    connected: boolean;
+    connectedAccountLabel?: string;
+    account?: ConnectorAccountMetadata;
+    lastErrorCode?: ConnectorProviderErrorCode & unknown;
+    lastErrorMessage?: string;
+};
+
+export type ConnectorAllowedTool = {
+    providerToolId: string;
+    displayName: string;
+    summary: string;
+    policy: ConnectorToolPolicy;
+};
+
+export type ConnectorDetail = ConnectorCatalogCard & {
+    providerConnectorId: string;
+    connection: ConnectorServiceConnection;
+    allowedTools: Array<ConnectorAllowedTool>;
+};
+
+export type GetConnectorResponse = {
+    connector: ConnectorDetail;
+};
+
+export type StartConnectorConnectionResponse = {
+    status: 'redirect_required' | 'connected' | 'pending';
+    connectorId: 'github' | 'notion' | 'google_drive';
+    providerConnectionId?: string;
+    redirectUrl?: string;
+    expiresAt?: string;
+};
+
+export type StartConnectorConnectionRequest = {
+    redirectUrl?: string;
+};
+
+export type DisconnectConnectorConnectionResponse = {
+    connectorId: 'github' | 'notion' | 'google_drive';
+    status: 'not_connected';
+};
+
+export type LiveArtifactSourceState = {
+    tileId: string;
+    tileTitle: string;
+    sourceType: 'tool' | 'connector_tool';
+    toolName: string;
+    connectorId: string | null;
+    connectorName: string | null;
+    accountLabel: string | null;
+    providerToolId: string | null;
+    state: 'ok' | 'disconnected' | 'expired' | 'missing_connector' | 'stale_provider_tool';
+    message: string;
+};
+
+export type ListLiveArtifactsResponse = {
+    artifacts: Array<{
+        id: string;
+        schemaVersion: 1;
+        sessionId: string | null;
+        createdByRunId: string | null;
+        createdByToolCallId: string | null;
+        title: string;
+        slug: string;
+        description: string | null;
+        contentType?: 'html_page_v1';
+        currentRevisionId?: string | null;
+        status: 'draft' | 'active' | 'archived';
+        pinned: boolean;
+        refreshStatus: 'idle' | 'refreshing' | 'failed';
+        refreshStartedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+        lastRefreshedAt: string | null;
+        lastRefreshError: string | null;
+        sourceStates?: Array<LiveArtifactSourceState>;
+    }>;
+};
+
+/**
+ * A bounded JSON value for live artifact rendering and sanitized metadata.
+ */
+export type LiveArtifactJsonValue = string | number | boolean | null | Array<LiveArtifactJsonValue> | {
+    [key: string]: LiveArtifactJsonValue;
+};
+
+export type LiveArtifactResponse = {
+    artifact: {
+        id: string;
+        schemaVersion: 1;
+        sessionId: string | null;
+        createdByRunId: string | null;
+        createdByToolCallId: string | null;
+        title: string;
+        slug: string;
+        description: string | null;
+        contentType?: 'html_page_v1';
+        currentRevisionId?: string | null;
+        status: 'draft' | 'active' | 'archived';
+        pinned: boolean;
+        refreshStatus: 'idle' | 'refreshing' | 'failed';
+        refreshStartedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+        lastRefreshedAt: string | null;
+        lastRefreshError: string | null;
+        tiles: Array<{
+            id: string;
+            artifactId: string;
+            schemaVersion: 1;
+            position: number;
+            title: string;
+            kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+            renderJson: {
+                kind: 'markdown';
+                markdown: string;
+            } | {
+                kind: 'metric';
+                label: string;
+                value: string;
+                caption?: string;
+                trend?: 'up' | 'down' | 'flat';
+            } | {
+                kind: 'list';
+                items: Array<{
+                    title: string;
+                    subtitle?: string;
+                    url?: string;
+                }>;
+            } | {
+                kind: 'table';
+                columns: Array<string>;
+                rows: Array<Array<string>>;
+            } | {
+                kind: 'link_card';
+                title: string;
+                url: string;
+                description?: string;
+                sourceLabel?: string;
+            } | {
+                kind: 'json';
+                value: LiveArtifactJsonValue;
+            };
+            provenanceJson: {
+                sources?: Array<{
+                    type: 'static' | 'tool' | 'connector_tool';
+                    label?: string;
+                    toolName?: string;
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    querySummary?: string;
+                    recordCount?: number;
+                    refreshedAt?: string;
+                }>;
+                notes?: Array<string>;
+                generatedAt?: string;
+            } | null;
+            sourceJson: {
+                type: 'tool' | 'connector_tool';
+                toolName: string;
+                input: {
+                    [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                connector?: {
+                    connectorId: string;
+                    connectorName: string;
+                    accountLabel: string | null;
+                    providerToolId: string | null;
+                };
+                refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                outputMapping: {
+                    preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
+                };
+            } | null;
+            refreshStatus: 'idle' | 'refreshing' | 'failed';
+            refreshStartedAt: string | null;
+            lastRefreshedAt: string | null;
+            lastError: string | null;
+            createdAt: string;
+            updatedAt: string;
+        } & {
+            sourceState?: LiveArtifactSourceState;
+        }>;
+        document?: {
+            format: 'html_template_v1';
+            /**
+             * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+             */
+            sanitizedHtml: string;
+            dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                [key: string]: unknown;
+            } | Array<unknown> | null);
+            dataSchemaJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                [key: string]: unknown;
+            } | Array<unknown> | null);
+            sourceJson?: {
+                type: 'tool' | 'connector_tool';
+                toolName: string;
+                input: {
+                    [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                connector?: {
+                    connectorId: string;
+                    connectorName: string;
+                    accountLabel: string | null;
+                    providerToolId: string | null;
+                };
+                refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                outputMapping: {
+                    preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
+                };
+            } | null;
+            sanitizerVersion?: string;
+        } | null;
+        sourceStates?: Array<LiveArtifactSourceState>;
+    };
+};
+
+export type UpdateLiveArtifactRequest = {
+    title?: string;
+    description?: string | null;
+    pinned?: boolean;
+    archived?: boolean;
+    status?: 'archived';
+};
+
+export type LiveArtifactRefreshResponse = {
+    artifact: {
+        id: string;
+        schemaVersion: 1;
+        sessionId: string | null;
+        createdByRunId: string | null;
+        createdByToolCallId: string | null;
+        title: string;
+        slug: string;
+        description: string | null;
+        contentType?: 'html_page_v1';
+        currentRevisionId?: string | null;
+        status: 'draft' | 'active' | 'archived';
+        pinned: boolean;
+        refreshStatus: 'idle' | 'refreshing' | 'failed';
+        refreshStartedAt: string | null;
+        createdAt: string;
+        updatedAt: string;
+        lastRefreshedAt: string | null;
+        lastRefreshError: string | null;
+        tiles: Array<{
+            id: string;
+            artifactId: string;
+            schemaVersion: 1;
+            position: number;
+            title: string;
+            kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+            renderJson: {
+                kind: 'markdown';
+                markdown: string;
+            } | {
+                kind: 'metric';
+                label: string;
+                value: string;
+                caption?: string;
+                trend?: 'up' | 'down' | 'flat';
+            } | {
+                kind: 'list';
+                items: Array<{
+                    title: string;
+                    subtitle?: string;
+                    url?: string;
+                }>;
+            } | {
+                kind: 'table';
+                columns: Array<string>;
+                rows: Array<Array<string>>;
+            } | {
+                kind: 'link_card';
+                title: string;
+                url: string;
+                description?: string;
+                sourceLabel?: string;
+            } | {
+                kind: 'json';
+                value: LiveArtifactJsonValue & (string | number | boolean | {
+                    [key: string]: unknown;
+                } | Array<unknown> | null);
+            };
+            provenanceJson: {
+                sources?: Array<{
+                    type: 'static' | 'tool' | 'connector_tool';
+                    label?: string;
+                    toolName?: string;
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    querySummary?: string;
+                    recordCount?: number;
+                    refreshedAt?: string;
+                }>;
+                notes?: Array<string>;
+                generatedAt?: string;
+            } | null;
+            sourceJson: {
+                type: 'tool' | 'connector_tool';
+                toolName: string;
+                input: {
+                    [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                connector?: {
+                    connectorId: string;
+                    connectorName: string;
+                    accountLabel: string | null;
+                    providerToolId: string | null;
+                };
+                refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                outputMapping: {
+                    preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
+                };
+            } | null;
+            refreshStatus: 'idle' | 'refreshing' | 'failed';
+            refreshStartedAt: string | null;
+            lastRefreshedAt: string | null;
+            lastError: string | null;
+            createdAt: string;
+            updatedAt: string;
+        } & {
+            sourceState?: LiveArtifactSourceState;
+        }>;
+        document?: {
+            format: 'html_template_v1';
+            /**
+             * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+             */
+            sanitizedHtml: string;
+            dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                [key: string]: unknown;
+            } | Array<unknown> | null);
+            dataSchemaJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                [key: string]: unknown;
+            } | Array<unknown> | null);
+            sourceJson?: {
+                type: 'tool' | 'connector_tool';
+                toolName: string;
+                input: {
+                    [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                connector?: {
+                    connectorId: string;
+                    connectorName: string;
+                    accountLabel: string | null;
+                    providerToolId: string | null;
+                };
+                refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                outputMapping: {
+                    preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
+                };
+            } | null;
+            sanitizerVersion?: string;
+        } | null;
+        sourceStates?: Array<LiveArtifactSourceState>;
+    };
+    failures: Array<{
+        tileId: string;
+        tileTitle: string;
+        toolName: string;
+        error: string;
+    }>;
+};
+
+export type LiveArtifactRefreshDisabledResponse = ErrorResponse & {
+    disabled: true;
 };
 
 export type GetApiHealthData = {
@@ -374,6 +853,37 @@ export type PostApiSessionsBySessionIdArchiveResponses = {
 };
 
 export type PostApiSessionsBySessionIdArchiveResponse = PostApiSessionsBySessionIdArchiveResponses[keyof PostApiSessionsBySessionIdArchiveResponses];
+
+export type PostApiSessionsBySessionIdWorkspaceOpenData = {
+    body?: never;
+    path: {
+        sessionId: string;
+    };
+    query?: never;
+    url: '/api/sessions/{sessionId}/workspace/open';
+};
+
+export type PostApiSessionsBySessionIdWorkspaceOpenErrors = {
+    /**
+     * The requested session was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The session workspace directory could not be prepared.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiSessionsBySessionIdWorkspaceOpenError = PostApiSessionsBySessionIdWorkspaceOpenErrors[keyof PostApiSessionsBySessionIdWorkspaceOpenErrors];
+
+export type PostApiSessionsBySessionIdWorkspaceOpenResponses = {
+    /**
+     * Session workspace directory is ready to open.
+     */
+    200: OpenWorkspaceDirectoryResponse;
+};
+
+export type PostApiSessionsBySessionIdWorkspaceOpenResponse = PostApiSessionsBySessionIdWorkspaceOpenResponses[keyof PostApiSessionsBySessionIdWorkspaceOpenResponses];
 
 export type GetApiProvidersData = {
     body?: never;
@@ -807,6 +1317,47 @@ export type PutApiSettingsAuthorizedDirectoriesResponses = {
 
 export type PutApiSettingsAuthorizedDirectoriesResponse = PutApiSettingsAuthorizedDirectoriesResponses[keyof PutApiSettingsAuthorizedDirectoriesResponses];
 
+export type GetApiSettingsConnectorsComposioData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/settings/connectors/composio';
+};
+
+export type GetApiSettingsConnectorsComposioResponses = {
+    /**
+     * Connector provider settings fetched successfully.
+     */
+    200: ConnectorProviderComposioSettings;
+};
+
+export type GetApiSettingsConnectorsComposioResponse = GetApiSettingsConnectorsComposioResponses[keyof GetApiSettingsConnectorsComposioResponses];
+
+export type PutApiSettingsConnectorsComposioData = {
+    body?: ConnectorProviderComposioSettingsRequest;
+    path?: never;
+    query?: never;
+    url: '/api/settings/connectors/composio';
+};
+
+export type PutApiSettingsConnectorsComposioErrors = {
+    /**
+     * The request body was invalid.
+     */
+    400: ErrorResponse;
+};
+
+export type PutApiSettingsConnectorsComposioError = PutApiSettingsConnectorsComposioErrors[keyof PutApiSettingsConnectorsComposioErrors];
+
+export type PutApiSettingsConnectorsComposioResponses = {
+    /**
+     * Connector provider settings updated successfully.
+     */
+    200: ConnectorProviderComposioSettings;
+};
+
+export type PutApiSettingsConnectorsComposioResponse = PutApiSettingsConnectorsComposioResponses[keyof PutApiSettingsConnectorsComposioResponses];
+
 export type GetApiToolsData = {
     body?: never;
     path?: never;
@@ -822,6 +1373,719 @@ export type GetApiToolsResponses = {
 };
 
 export type GetApiToolsResponse = GetApiToolsResponses[keyof GetApiToolsResponses];
+
+export type GetApiConnectorsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/connectors';
+};
+
+export type GetApiConnectorsResponses = {
+    /**
+     * Connectors fetched successfully.
+     */
+    200: ListConnectorsResponse;
+};
+
+export type GetApiConnectorsResponse = GetApiConnectorsResponses[keyof GetApiConnectorsResponses];
+
+export type GetApiConnectorsByConnectorIdData = {
+    body?: never;
+    path: {
+        connectorId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{connectorId}';
+};
+
+export type GetApiConnectorsByConnectorIdErrors = {
+    /**
+     * Invalid connector request.
+     */
+    400: ErrorResponse;
+    /**
+     * Connector credentials have expired.
+     */
+    401: ErrorResponse;
+    /**
+     * Connector provider denied access.
+     */
+    403: ErrorResponse;
+    /**
+     * Connector not found.
+     */
+    404: ErrorResponse;
+    /**
+     * Connector connection is required.
+     */
+    409: ErrorResponse;
+    /**
+     * Connector provider rate limit exceeded.
+     */
+    429: ErrorResponse;
+    /**
+     * Connector provider request failed.
+     */
+    502: ErrorResponse;
+    /**
+     * Connector provider is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type GetApiConnectorsByConnectorIdError = GetApiConnectorsByConnectorIdErrors[keyof GetApiConnectorsByConnectorIdErrors];
+
+export type GetApiConnectorsByConnectorIdResponses = {
+    /**
+     * Connector fetched successfully.
+     */
+    200: GetConnectorResponse;
+};
+
+export type GetApiConnectorsByConnectorIdResponse = GetApiConnectorsByConnectorIdResponses[keyof GetApiConnectorsByConnectorIdResponses];
+
+export type PostApiConnectorsByConnectorIdConnectData = {
+    body?: StartConnectorConnectionRequest;
+    path: {
+        connectorId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{connectorId}/connect';
+};
+
+export type PostApiConnectorsByConnectorIdConnectErrors = {
+    /**
+     * Invalid connector request.
+     */
+    400: ErrorResponse;
+    /**
+     * Connector credentials have expired.
+     */
+    401: ErrorResponse;
+    /**
+     * Connector provider denied access.
+     */
+    403: ErrorResponse;
+    /**
+     * Connector not found.
+     */
+    404: ErrorResponse;
+    /**
+     * Connector connection is required.
+     */
+    409: ErrorResponse;
+    /**
+     * Connector provider rate limit exceeded.
+     */
+    429: ErrorResponse;
+    /**
+     * Connector provider request failed.
+     */
+    502: ErrorResponse;
+    /**
+     * Connector provider is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type PostApiConnectorsByConnectorIdConnectError = PostApiConnectorsByConnectorIdConnectErrors[keyof PostApiConnectorsByConnectorIdConnectErrors];
+
+export type PostApiConnectorsByConnectorIdConnectResponses = {
+    /**
+     * Connector connection flow started successfully.
+     */
+    200: StartConnectorConnectionResponse;
+};
+
+export type PostApiConnectorsByConnectorIdConnectResponse = PostApiConnectorsByConnectorIdConnectResponses[keyof PostApiConnectorsByConnectorIdConnectResponses];
+
+export type DeleteApiConnectorsByConnectorIdConnectionData = {
+    body?: never;
+    path: {
+        connectorId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{connectorId}/connection';
+};
+
+export type DeleteApiConnectorsByConnectorIdConnectionErrors = {
+    /**
+     * Invalid connector request.
+     */
+    400: ErrorResponse;
+    /**
+     * Connector credentials have expired.
+     */
+    401: ErrorResponse;
+    /**
+     * Connector provider denied access.
+     */
+    403: ErrorResponse;
+    /**
+     * Connector not found.
+     */
+    404: ErrorResponse;
+    /**
+     * Connector connection conflict.
+     */
+    409: ErrorResponse;
+    /**
+     * Connector provider rate limit exceeded.
+     */
+    429: ErrorResponse;
+    /**
+     * Connector provider request failed.
+     */
+    502: ErrorResponse;
+    /**
+     * Connector provider is unavailable.
+     */
+    503: ErrorResponse;
+};
+
+export type DeleteApiConnectorsByConnectorIdConnectionError = DeleteApiConnectorsByConnectorIdConnectionErrors[keyof DeleteApiConnectorsByConnectorIdConnectionErrors];
+
+export type DeleteApiConnectorsByConnectorIdConnectionResponses = {
+    /**
+     * Connector disconnected successfully.
+     */
+    200: DisconnectConnectorConnectionResponse;
+};
+
+export type DeleteApiConnectorsByConnectorIdConnectionResponse = DeleteApiConnectorsByConnectorIdConnectionResponses[keyof DeleteApiConnectorsByConnectorIdConnectionResponses];
+
+export type GetApiLiveArtifactsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        includeArchived?: 'true' | 'false';
+        sessionId?: string;
+        limit?: string;
+        offset?: string;
+    };
+    url: '/api/live-artifacts';
+};
+
+export type GetApiLiveArtifactsErrors = {
+    /**
+     * Query parameters are invalid.
+     */
+    400: ErrorResponse;
+};
+
+export type GetApiLiveArtifactsError = GetApiLiveArtifactsErrors[keyof GetApiLiveArtifactsErrors];
+
+export type GetApiLiveArtifactsResponses = {
+    /**
+     * Live artifacts fetched successfully.
+     */
+    200: ListLiveArtifactsResponse;
+};
+
+export type GetApiLiveArtifactsResponse = GetApiLiveArtifactsResponses[keyof GetApiLiveArtifactsResponses];
+
+export type PostApiLiveArtifactsData = {
+    body: {
+        /**
+         * Short title for the HTML live artifact.
+         */
+        title: string;
+        /**
+         * Optional human-readable description.
+         */
+        description?: string | null;
+        sessionId?: string | null;
+        /**
+         * Must be html_page_v1.
+         */
+        contentType?: 'html_page_v1';
+        /**
+         * Required HTML page document. Put markup in sanitizedHtml and dynamic/refreshable values in dataJson. Bind data with {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat. Do not send tiles or renderJson.
+         */
+        document: {
+            format: 'html_template_v1';
+            /**
+             * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+             */
+            sanitizedHtml: string;
+            dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                [key: string]: unknown;
+            } | Array<unknown> | null);
+            dataSchemaJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                [key: string]: unknown;
+            } | Array<unknown> | null);
+            sourceJson?: {
+                type: 'tool' | 'connector_tool';
+                toolName: string;
+                input: {
+                    [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                connector?: {
+                    connectorId: string;
+                    connectorName: string;
+                    accountLabel: string | null;
+                    providerToolId: string | null;
+                };
+                refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                outputMapping: {
+                    preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                    /**
+                     * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                     */
+                    dataPaths?: {
+                        [key: string]: string | Array<string>;
+                    };
+                };
+            } | null;
+            sanitizerVersion?: string;
+        };
+    };
+    path?: never;
+    query?: never;
+    url: '/api/live-artifacts';
+};
+
+export type PostApiLiveArtifactsErrors = {
+    /**
+     * Request body is invalid.
+     */
+    400: ErrorResponse;
+    /**
+     * The live artifact could not be created.
+     */
+    500: ErrorResponse;
+};
+
+export type PostApiLiveArtifactsError = PostApiLiveArtifactsErrors[keyof PostApiLiveArtifactsErrors];
+
+export type PostApiLiveArtifactsResponses = {
+    /**
+     * Live artifact created successfully.
+     */
+    201: LiveArtifactResponse;
+};
+
+export type PostApiLiveArtifactsResponse = PostApiLiveArtifactsResponses[keyof PostApiLiveArtifactsResponses];
+
+export type GetApiLiveArtifactsByArtifactIdData = {
+    body?: never;
+    path: {
+        artifactId: string;
+    };
+    query?: never;
+    url: '/api/live-artifacts/{artifactId}';
+};
+
+export type GetApiLiveArtifactsByArtifactIdErrors = {
+    /**
+     * The requested live artifact was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The live artifact could not be loaded.
+     */
+    500: ErrorResponse;
+};
+
+export type GetApiLiveArtifactsByArtifactIdError = GetApiLiveArtifactsByArtifactIdErrors[keyof GetApiLiveArtifactsByArtifactIdErrors];
+
+export type GetApiLiveArtifactsByArtifactIdResponses = {
+    /**
+     * Live artifact fetched successfully.
+     */
+    200: LiveArtifactResponse & {
+        artifact?: {
+            id: string;
+            schemaVersion: 1;
+            sessionId: string | null;
+            createdByRunId: string | null;
+            createdByToolCallId: string | null;
+            title: string;
+            slug: string;
+            description: string | null;
+            contentType?: 'html_page_v1';
+            currentRevisionId?: string | null;
+            status: 'draft' | 'active' | 'archived';
+            pinned: boolean;
+            refreshStatus: 'idle' | 'refreshing' | 'failed';
+            refreshStartedAt: string | null;
+            createdAt: string;
+            updatedAt: string;
+            lastRefreshedAt: string | null;
+            lastRefreshError: string | null;
+            tiles: Array<{
+                id: string;
+                artifactId: string;
+                schemaVersion: 1;
+                position: number;
+                title: string;
+                kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                renderJson: {
+                    kind: 'markdown';
+                    markdown: string;
+                } | {
+                    kind: 'metric';
+                    label: string;
+                    value: string;
+                    caption?: string;
+                    trend?: 'up' | 'down' | 'flat';
+                } | {
+                    kind: 'list';
+                    items: Array<{
+                        title: string;
+                        subtitle?: string;
+                        url?: string;
+                    }>;
+                } | {
+                    kind: 'table';
+                    columns: Array<string>;
+                    rows: Array<Array<string>>;
+                } | {
+                    kind: 'link_card';
+                    title: string;
+                    url: string;
+                    description?: string;
+                    sourceLabel?: string;
+                } | {
+                    kind: 'json';
+                    value: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                provenanceJson: {
+                    sources?: Array<{
+                        type: 'static' | 'tool' | 'connector_tool';
+                        label?: string;
+                        toolName?: string;
+                        connector?: {
+                            connectorId: string;
+                            connectorName: string;
+                            accountLabel: string | null;
+                            providerToolId: string | null;
+                        };
+                        querySummary?: string;
+                        recordCount?: number;
+                        refreshedAt?: string;
+                    }>;
+                    notes?: Array<string>;
+                    generatedAt?: string;
+                } | null;
+                sourceJson: {
+                    type: 'tool' | 'connector_tool';
+                    toolName: string;
+                    input: {
+                        [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                            [key: string]: unknown;
+                        } | Array<unknown> | null);
+                    };
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                    outputMapping: {
+                        preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
+                    };
+                } | null;
+                refreshStatus: 'idle' | 'refreshing' | 'failed';
+                refreshStartedAt: string | null;
+                lastRefreshedAt: string | null;
+                lastError: string | null;
+                createdAt: string;
+                updatedAt: string;
+            } & {
+                sourceState?: LiveArtifactSourceState;
+            }>;
+            document?: {
+                format: 'html_template_v1';
+                /**
+                 * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+                 */
+                sanitizedHtml: string;
+                dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                    [key: string]: unknown;
+                } | Array<unknown> | null);
+                dataSchemaJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                    [key: string]: unknown;
+                } | Array<unknown> | null);
+                sourceJson?: {
+                    type: 'tool' | 'connector_tool';
+                    toolName: string;
+                    input: {
+                        [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                            [key: string]: unknown;
+                        } | Array<unknown> | null);
+                    };
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                    outputMapping: {
+                        preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
+                    };
+                } | null;
+                sanitizerVersion?: string;
+            } | null;
+            sourceStates?: Array<LiveArtifactSourceState>;
+        };
+    };
+};
+
+export type GetApiLiveArtifactsByArtifactIdResponse = GetApiLiveArtifactsByArtifactIdResponses[keyof GetApiLiveArtifactsByArtifactIdResponses];
+
+export type PatchApiLiveArtifactsByArtifactIdData = {
+    body: UpdateLiveArtifactRequest;
+    path: {
+        artifactId: string;
+    };
+    query?: never;
+    url: '/api/live-artifacts/{artifactId}';
+};
+
+export type PatchApiLiveArtifactsByArtifactIdErrors = {
+    /**
+     * Request body is invalid.
+     */
+    400: ErrorResponse;
+    /**
+     * The requested live artifact was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * The requested update conflicts with artifact state.
+     */
+    409: ErrorResponse;
+    /**
+     * The live artifact could not be updated.
+     */
+    500: ErrorResponse;
+};
+
+export type PatchApiLiveArtifactsByArtifactIdError = PatchApiLiveArtifactsByArtifactIdErrors[keyof PatchApiLiveArtifactsByArtifactIdErrors];
+
+export type PatchApiLiveArtifactsByArtifactIdResponses = {
+    /**
+     * Live artifact updated successfully.
+     */
+    200: LiveArtifactResponse & {
+        artifact?: {
+            id: string;
+            schemaVersion: 1;
+            sessionId: string | null;
+            createdByRunId: string | null;
+            createdByToolCallId: string | null;
+            title: string;
+            slug: string;
+            description: string | null;
+            contentType?: 'html_page_v1';
+            currentRevisionId?: string | null;
+            status: 'draft' | 'active' | 'archived';
+            pinned: boolean;
+            refreshStatus: 'idle' | 'refreshing' | 'failed';
+            refreshStartedAt: string | null;
+            createdAt: string;
+            updatedAt: string;
+            lastRefreshedAt: string | null;
+            lastRefreshError: string | null;
+            tiles: Array<{
+                id: string;
+                artifactId: string;
+                schemaVersion: 1;
+                position: number;
+                title: string;
+                kind: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                renderJson: {
+                    kind: 'markdown';
+                    markdown: string;
+                } | {
+                    kind: 'metric';
+                    label: string;
+                    value: string;
+                    caption?: string;
+                    trend?: 'up' | 'down' | 'flat';
+                } | {
+                    kind: 'list';
+                    items: Array<{
+                        title: string;
+                        subtitle?: string;
+                        url?: string;
+                    }>;
+                } | {
+                    kind: 'table';
+                    columns: Array<string>;
+                    rows: Array<Array<string>>;
+                } | {
+                    kind: 'link_card';
+                    title: string;
+                    url: string;
+                    description?: string;
+                    sourceLabel?: string;
+                } | {
+                    kind: 'json';
+                    value: LiveArtifactJsonValue & (string | number | boolean | {
+                        [key: string]: unknown;
+                    } | Array<unknown> | null);
+                };
+                provenanceJson: {
+                    sources?: Array<{
+                        type: 'static' | 'tool' | 'connector_tool';
+                        label?: string;
+                        toolName?: string;
+                        connector?: {
+                            connectorId: string;
+                            connectorName: string;
+                            accountLabel: string | null;
+                            providerToolId: string | null;
+                        };
+                        querySummary?: string;
+                        recordCount?: number;
+                        refreshedAt?: string;
+                    }>;
+                    notes?: Array<string>;
+                    generatedAt?: string;
+                } | null;
+                sourceJson: {
+                    type: 'tool' | 'connector_tool';
+                    toolName: string;
+                    input: {
+                        [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                            [key: string]: unknown;
+                        } | Array<unknown> | null);
+                    };
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                    outputMapping: {
+                        preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
+                    };
+                } | null;
+                refreshStatus: 'idle' | 'refreshing' | 'failed';
+                refreshStartedAt: string | null;
+                lastRefreshedAt: string | null;
+                lastError: string | null;
+                createdAt: string;
+                updatedAt: string;
+            } & {
+                sourceState?: LiveArtifactSourceState;
+            }>;
+            document?: {
+                format: 'html_template_v1';
+                /**
+                 * HTML template markup. For dynamic or refreshable values, use {{data.foo}}, data-bind, data-bind-attr, data-bind-style, or data-repeat instead of hardcoding connector/tool-derived values.
+                 */
+                sanitizedHtml: string;
+                dataJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                    [key: string]: unknown;
+                } | Array<unknown> | null);
+                dataSchemaJson?: LiveArtifactJsonValue & (string | number | boolean | {
+                    [key: string]: unknown;
+                } | Array<unknown> | null);
+                sourceJson?: {
+                    type: 'tool' | 'connector_tool';
+                    toolName: string;
+                    input: {
+                        [key: string]: LiveArtifactJsonValue & (string | number | boolean | {
+                            [key: string]: unknown;
+                        } | Array<unknown> | null);
+                    };
+                    connector?: {
+                        connectorId: string;
+                        connectorName: string;
+                        accountLabel: string | null;
+                        providerToolId: string | null;
+                    };
+                    refreshPermission: 'manual_refresh_granted_for_read_only' | 'requires_confirmation';
+                    outputMapping: {
+                        preferredKind?: 'markdown' | 'metric' | 'list' | 'table' | 'link_card' | 'json';
+                        /**
+                         * Optional generic refresh mapping from dataJson destination paths to tool output source paths. Example: { stars: 'stargazers_count', owner: 'owner.login', repo: 'name' }. Source path arrays are fallbacks.
+                         */
+                        dataPaths?: {
+                            [key: string]: string | Array<string>;
+                        };
+                    };
+                } | null;
+                sanitizerVersion?: string;
+            } | null;
+            sourceStates?: Array<LiveArtifactSourceState>;
+        };
+    };
+};
+
+export type PatchApiLiveArtifactsByArtifactIdResponse = PatchApiLiveArtifactsByArtifactIdResponses[keyof PatchApiLiveArtifactsByArtifactIdResponses];
+
+export type PostApiLiveArtifactsByArtifactIdRefreshData = {
+    body?: never;
+    path: {
+        artifactId: string;
+    };
+    query?: never;
+    url: '/api/live-artifacts/{artifactId}/refresh';
+};
+
+export type PostApiLiveArtifactsByArtifactIdRefreshErrors = {
+    /**
+     * The live artifact could not be refreshed.
+     */
+    400: ErrorResponse;
+    /**
+     * The requested live artifact was not found.
+     */
+    404: ErrorResponse;
+    /**
+     * A live artifact refresh is already in progress.
+     */
+    409: ErrorResponse;
+    /**
+     * The live artifact refresh failed unexpectedly.
+     */
+    500: ErrorResponse;
+    /**
+     * Live artifact refresh is not enabled in this increment.
+     */
+    501: LiveArtifactRefreshDisabledResponse;
+};
+
+export type PostApiLiveArtifactsByArtifactIdRefreshError = PostApiLiveArtifactsByArtifactIdRefreshErrors[keyof PostApiLiveArtifactsByArtifactIdRefreshErrors];
+
+export type PostApiLiveArtifactsByArtifactIdRefreshResponses = {
+    /**
+     * Live artifact refreshed successfully.
+     */
+    200: LiveArtifactRefreshResponse;
+};
+
+export type PostApiLiveArtifactsByArtifactIdRefreshResponse = PostApiLiveArtifactsByArtifactIdRefreshResponses[keyof PostApiLiveArtifactsByArtifactIdRefreshResponses];
 
 export type ClientOptions = {
     baseUrl: `${string}://apps` | (string & {});

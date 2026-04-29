@@ -17,6 +17,7 @@ import type { Logger } from "./logger";
 import type { ProviderRuntime } from "./provider-runtime";
 import type { RunRegistry } from "./run-registry";
 import type { SessionWorkspaceService } from "./session-workspace-service";
+import { redactSensitiveToolCallText } from "./tool-call-redaction";
 import type { ToolRegistry } from "./tools/registry";
 import { sanitizeUiMessage } from "./ui-message-sanitize";
 
@@ -37,6 +38,17 @@ function toModelMessages(messages: UIMessage[]) {
   return convertToModelMessages(messages.map(({ id: _id, ...message }) => message));
 }
 
+function formatStreamErrorForClient(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : "stream_error";
+  const redacted = redactSensitiveToolCallText(message.trim() || "stream_error");
+
+  return redacted.length > 2_000 ? `${redacted.slice(0, 1_999)}…` : redacted;
+}
+
 export function resolveCurrentRunStep(currentStep: number, stepNumber: number) {
   return Math.max(0, currentStep) + stepNumber + 1;
 }
@@ -54,6 +66,17 @@ export function isExpiredWallClockBudget(wallClockDeadlineAt: number, startedAt:
 
 export function isToolCallBudgetExhausted(observedToolCallCount: number, maxToolCallsPerRun: number) {
   return observedToolCallCount >= maxToolCallsPerRun;
+}
+
+export function resolveStepUsageTokenIncrement(previousStepUsageTokens: number, currentStepUsageTokens: number) {
+  const previous = Math.max(0, previousStepUsageTokens);
+  const current = Math.max(0, currentStepUsageTokens);
+
+  if (current === 0) {
+    return 0;
+  }
+
+  return current >= previous ? current - previous : current;
 }
 
 function isApprovalRequestedToolPart(part: unknown): part is {
@@ -91,14 +114,6 @@ export async function createChatStreamResponse(options: {
     runtimeArea: "tool-runtime"
   });
   const sessionWorkspacePath = await options.sessionWorkspaceService.ensureWorkspace(request.sessionId);
-  const runtimeTools = options.toolRegistry.createRuntimeTools({
-    runId: request.runId,
-    sessionId: request.sessionId,
-    sessionWorkspacePath,
-    chatStorage: options.chatStorage,
-    logger: runtimeLogger
-  });
-
   const startedAt = Date.now();
   const abortController = new AbortController();
   let runFinishReason: RunFinishReason | null = null;
@@ -107,6 +122,7 @@ export async function createChatStreamResponse(options: {
   let observedStepCount = persistedCurrentStep;
   let observedTokenCount = initialUsage.consumedTokens;
   let observedToolCallCount = initialUsage.consumedToolCalls;
+  let observedStepUsageTokenCount = 0;
   let finalizedRun = false;
 
   const abortRun = (reason: RunFinishReason) => {
@@ -130,6 +146,44 @@ export async function createChatStreamResponse(options: {
     abort: abortRun
   });
 
+  const abortRequestHandler = () => {
+    abortRun("request_aborted");
+  };
+
+  if (options.requestSignal.aborted) {
+    abortRequestHandler();
+  } else {
+    options.requestSignal.addEventListener("abort", abortRequestHandler, { once: true });
+  }
+
+  let wallClockTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const cleanupRunResources = () => {
+    unregisterRun();
+
+    if (wallClockTimer) {
+      clearTimeout(wallClockTimer);
+    }
+
+    options.requestSignal.removeEventListener("abort", abortRequestHandler);
+  };
+
+  let runtimeTools: Record<string, unknown>;
+
+  try {
+    runtimeTools = await options.toolRegistry.createRuntimeTools({
+      runId: request.runId,
+      sessionId: request.sessionId,
+      sessionWorkspacePath,
+      chatStorage: options.chatStorage,
+      logger: runtimeLogger,
+      abortSignal: abortController.signal
+    });
+  } catch (error) {
+    cleanupRunResources();
+    throw error;
+  }
+
   runtimeLogger.info("chat.run_started", {
     maxSteps: request.maxSteps,
     maxTokensPerRun: request.maxTokensPerRun,
@@ -146,7 +200,7 @@ export async function createChatStreamResponse(options: {
   try {
     model = await options.providerRuntime.createChatModel(request.providerId, request.modelId);
   } catch (error) {
-    unregisterRun();
+    cleanupRunResources();
     throw error;
   }
 
@@ -161,7 +215,7 @@ export async function createChatStreamResponse(options: {
   if (wallClockBudgetMs === 0 && isExpiredWallClockBudget(wallClockDeadlineAt, startedAt)) {
     abortRun("wall_clock_budget_exceeded");
   }
-  const wallClockTimer =
+  wallClockTimer =
     wallClockBudgetMs > 0
       ? setTimeout(() => {
           abortRun("wall_clock_budget_exceeded");
@@ -175,26 +229,6 @@ export async function createChatStreamResponse(options: {
   if (isToolCallBudgetExhausted(observedToolCallCount, options.runtime.maxToolCallsPerRun)) {
     abortRun("tool_call_budget_exceeded");
   }
-
-  const abortRequestHandler = () => {
-    abortRun("request_aborted");
-  };
-
-  if (options.requestSignal.aborted) {
-    abortRequestHandler();
-  } else {
-    options.requestSignal.addEventListener("abort", abortRequestHandler, { once: true });
-  }
-
-  const cleanupRunResources = () => {
-    unregisterRun();
-
-    if (wallClockTimer) {
-      clearTimeout(wallClockTimer);
-    }
-
-    options.requestSignal.removeEventListener("abort", abortRequestHandler);
-  };
 
   const finalizeRun = (status: "completed" | "failed" | "interrupted" | "awaiting_confirmation", finishReason: string | null) => {
     if (finalizedRun) {
@@ -279,7 +313,9 @@ export async function createChatStreamResponse(options: {
       const currentStep = resolveCurrentRunStep(persistedCurrentStep, stepNumber);
 
       observedStepCount = Math.max(observedStepCount, currentStep);
-      observedTokenCount += countUsageTokens(usage);
+      const stepUsageTokenCount = countUsageTokens(usage);
+      observedTokenCount += resolveStepUsageTokenIncrement(observedStepUsageTokenCount, stepUsageTokenCount);
+      observedStepUsageTokenCount = stepUsageTokenCount;
       observedToolCallCount += toolCalls.length;
 
       options.chatStorage.updateRunProgress({
@@ -378,7 +414,7 @@ export async function createChatStreamResponse(options: {
         return describeRunFinishReason(runFinishReason);
       }
 
-      return "An error occurred.";
+      return formatStreamErrorForClient(error);
     }
   });
 }

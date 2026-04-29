@@ -1,11 +1,12 @@
 import { resolve } from "node:path";
+import type { ConnectorId } from "./connectors/catalog";
 
 const defaultControllerPort = 42831;
 const defaultControllerHost = "127.0.0.1";
 const defaultAllowedOrigins = ["null", "app://monet", "http://127.0.0.1:42832", "http://localhost:42832"] as const;
 const defaultAllowedToolDirectories: readonly string[] = [];
 const defaultAgentMaxStepsPerRun = 8;
-const defaultAgentMaxTokensPerRun = 32_768;
+const defaultAgentMaxTokensPerRun = 524_288;
 const defaultAgentWallClockBudgetMs = 60_000;
 const defaultAgentMaxToolCallsPerRun = 16;
 
@@ -18,9 +19,11 @@ export interface ControllerConfig {
   readonly host: string;
   readonly port: number;
   readonly databasePath: string;
+  readonly connectorProvider: ConnectorProviderConfig;
   readonly sessionWorkspaceBaseDirectory: string;
   readonly openai: OpenAIProviderConfig;
   readonly openrouter: OpenRouterProviderConfig;
+  readonly openrouterApiKey: string | null;
 }
 
 export interface AgentRuntimeConfig {
@@ -38,11 +41,25 @@ export interface OpenAIProviderConfig {
 }
 
 export interface OpenRouterProviderConfig {
-  readonly apiKey: string | null;
-  readonly baseUrl: string | null;
+  readonly apiUrl: string | null;
+  readonly baseUrl?: string | null;
   readonly defaultModel: string;
   readonly timeoutMs: number | null;
 }
+
+export interface ComposioProviderConfig {
+  readonly apiKey: string | null;
+  readonly baseUrl: string;
+  readonly timeoutMs: number | null;
+  readonly authConfigIds: Partial<Record<ConnectorId, string>>;
+}
+
+export interface ConnectorProviderConfig {
+  readonly provider: ConnectorProviderType;
+  readonly composio: ComposioProviderConfig;
+}
+
+export type ConnectorProviderType = "composio";
 
 export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): ControllerConfig {
   const bearerToken = env.MONET_CONTROLLER_BEARER_TOKEN?.trim();
@@ -52,7 +69,6 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
   }
 
   const host = parseHost(env.MONET_CONTROLLER_HOST);
-
   const allowedToolDirectories = parseAllowedToolDirectories(env);
 
   return {
@@ -66,6 +82,15 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       maxToolCallsPerRun: parseIntegerWithDefault(env.MONET_AGENT_MAX_TOOL_CALLS_PER_RUN, defaultAgentMaxToolCallsPerRun)
     },
     bearerToken,
+    connectorProvider: {
+      provider: "composio",
+      composio: {
+        apiKey: null,
+        baseUrl: "https://backend.composio.dev",
+        timeoutMs: null,
+        authConfigIds: {}
+      }
+    },
     host,
     port: parsePort(env.MONET_CONTROLLER_PORT),
     databasePath: resolveDatabasePath(env),
@@ -77,11 +102,12 @@ export function createControllerConfig(env: NodeJS.ProcessEnv = process.env): Co
       timeoutMs: parseInteger(env.MONET_OPENAI_TIMEOUT_MS)
     },
     openrouter: {
-      apiKey: parseOptionalString(env.MONET_OPENROUTER_API_KEY) ?? parseOptionalString(env.OPENROUTER_API_KEY),
+      apiUrl: parseUrl(env.MONET_OPENROUTER_BASE_URL) ?? parseUrl(env.OPENROUTER_BASE_URL),
       baseUrl: parseUrl(env.MONET_OPENROUTER_BASE_URL) ?? parseUrl(env.OPENROUTER_BASE_URL),
       defaultModel: parseOptionalString(env.MONET_OPENROUTER_DEFAULT_MODEL) ?? "openai/gpt-4.1-mini",
       timeoutMs: parseInteger(env.MONET_OPENROUTER_TIMEOUT_MS)
-    }
+    },
+    openrouterApiKey: parseOptionalString(env.MONET_OPENROUTER_API_KEY) ?? parseOptionalString(env.OPENROUTER_API_KEY)
   };
 }
 
@@ -145,7 +171,7 @@ function parseHost(value: string | undefined): string {
   const host = value?.trim() || defaultControllerHost;
 
   if (host !== "127.0.0.1" && host !== "localhost") {
-    throw new Error(`MONET_CONTROLLER_HOST must bind to loopback only, received: ${host}`);
+    throw new Error(`MONET_CONTROLLER_HOST must be bind to loopback only, received: ${host}`);
   }
 
   return host;
@@ -215,4 +241,22 @@ function parseInteger(value: string | undefined): number | null {
 
 function parseIntegerWithDefault(value: string | undefined, fallback: number): number {
   return parseInteger(value) ?? fallback;
+}
+
+function parseBooleanWithDefault(value: string | undefined, fallback: boolean): boolean {
+  const normalized = value?.trim().toLowerCase();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
 }

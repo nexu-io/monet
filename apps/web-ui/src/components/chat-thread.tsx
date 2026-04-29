@@ -12,7 +12,7 @@ import {
   Card,
   TextLink
 } from "@nexu-design/ui-web";
-import { FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
+import { ChevronRight, Component, FilePenLine, FileText, Globe, Wrench, type LucideIcon } from "lucide-react";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
@@ -20,6 +20,10 @@ import { mermaid } from "@streamdown/mermaid";
 import { Streamdown } from "streamdown";
 import "katex/dist/katex.min.css";
 import "streamdown/styles.css";
+
+import githubIconUrl from "../assets/connectors/github.svg";
+import googleDriveIconUrl from "../assets/connectors/google-drive.svg";
+import notionIconUrl from "../assets/connectors/notion.svg";
 
 type ChatMessage = UIMessage;
 const WRITE_FILE_PREVIEW_MAX_LINES = 24;
@@ -60,26 +64,9 @@ const partLabelClassName = "text-xs font-semibold uppercase tracking-[0.08em] te
 const toolSectionClassName = "flex flex-col gap-1.5";
 const toolPreClassName = "m-0 overflow-auto whitespace-pre-wrap rounded-md bg-surface-0 p-2.5 font-mono text-sm text-text-secondary";
 const mutedPartTextClassName = "m-0 leading-[1.5] text-text-muted";
-const toolSummaryClassName = "flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden max-[960px]:flex-col max-[960px]:items-start";
 const markdownClassName = "leading-[1.6] text-text-primary [&_*:first-child]:mt-0 [&_*:last-child]:mb-0 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6 [&_li]:my-1 [&_li>ol]:my-1 [&_li>ul]:my-1";
 const internalToolLineClassName = "flex min-h-8 items-center gap-2 text-sm leading-[1.5] text-text-muted";
 const executingToolLineClassName = "bg-[linear-gradient(90deg,var(--color-text-muted)_0%,var(--color-text-heading)_38%,var(--color-accent)_50%,var(--color-text-heading)_62%,var(--color-text-muted)_100%)] bg-[length:240%_100%] bg-clip-text text-transparent motion-safe:animate-[tool-shimmer_2.2s_ease-in-out_infinite]";
-
-function getToolCardClassName(phase: ReturnType<typeof getToolStateMeta>["phase"]) {
-  switch (phase) {
-    case "awaiting-confirm":
-      return `${partCardClassName} border-[hsl(var(--accent)/0.4)] bg-[hsl(var(--accent)/0.06)]`;
-    case "preparing":
-    case "running":
-      return `${partCardClassName} border-[hsl(var(--warning)/0.35)]`;
-    case "completed":
-      return `${partCardClassName} border-[hsl(var(--success)/0.35)]`;
-    case "failed":
-      return `${partCardClassName} border-[hsl(var(--destructive)/0.4)] bg-[hsl(var(--destructive)/0.05)]`;
-    default:
-      return partCardClassName;
-  }
-}
 
 function formatToolState(state: string) {
   switch (state) {
@@ -121,6 +108,10 @@ function getToolStateMeta(state: string) {
 
 function isTextPart(part: ChatMessagePart): part is TextPart {
   return part.type === "text" && typeof part.text === "string";
+}
+
+function hasVisibleText(value: string) {
+  return value.trim().length > 0;
 }
 
 function getLastTextPartIndex(parts: readonly ChatMessagePart[]) {
@@ -183,7 +174,7 @@ function isToolPart(part: ChatMessagePart): part is ToolPart {
 }
 
 function hasTextContent(message: ChatMessage) {
-  return message.parts.some((part) => isTextPart(part) && part.text.trim().length > 0);
+  return message.parts.some((part) => isTextPart(part) && hasVisibleText(part.text));
 }
 
 function getToolName(part: ToolPart) {
@@ -242,6 +233,50 @@ function getSuccessfulWriteFileOutputPath(part: ToolPart) {
   return getStringField(part.output, "resolvedPath") ?? getStringField(part.output, "path");
 }
 
+function getArtifactDetailPath(part: ToolPart) {
+  const artifact = getRecordField(part.output, "artifact");
+  const artifactUrl = getStringField(part.output, "artifactUrl") ?? getStringField(part.output, "url");
+
+  if (artifactUrl?.startsWith("/artifacts/")) {
+    return artifactUrl;
+  }
+
+  const artifactId = getStringField(part.output, "artifactId") ?? getStringField(artifact, "id");
+
+  return artifactId ? `/artifacts/${encodeURIComponent(artifactId)}` : null;
+}
+
+function getLiveArtifactId(part: ToolPart) {
+  const artifact = getRecordField(part.output, "artifact");
+  const artifactId = getStringField(part.output, "artifactId") ?? getStringField(artifact, "id");
+
+  if (artifactId) {
+    return artifactId;
+  }
+
+  const artifactPath = getArtifactDetailPath(part);
+  const match = artifactPath?.match(/^\/artifacts\/(.+)$/);
+
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function isLiveArtifactCardOpen(part: ToolPart, openArtifactId: string | null | undefined) {
+  const artifactId = getLiveArtifactId(part);
+
+  return Boolean(artifactId && artifactId === openArtifactId);
+}
+
+function getLiveArtifactTitle(part: ToolPart) {
+  const artifact = getRecordField(part.output, "artifact");
+
+  return (
+    getStringField(artifact, "title") ??
+    getStringField(part.output, "title") ??
+    getStringField(part.input, "title") ??
+    "Untitled artifact"
+  );
+}
+
 function getPathDisplayName(path: string) {
   const normalizedPath = path.trim().replace(/[\\/]+$/, "");
 
@@ -250,6 +285,24 @@ function getPathDisplayName(path: string) {
   }
 
   return normalizedPath.split(/[\\/]/).pop() ?? normalizedPath;
+}
+
+function getConnectorIconUrl(toolName: string) {
+  const normalized = toolName.toLowerCase();
+  
+  if (normalized.includes("github")) {
+    return githubIconUrl;
+  }
+  
+  if (normalized.includes("notion")) {
+    return notionIconUrl;
+  }
+  
+  if (normalized.includes("google_drive") || normalized.includes("googledrive") || normalized.includes("gdrive")) {
+    return googleDriveIconUrl;
+  }
+  
+  return null;
 }
 
 function getInternalToolIcon(toolName: string): LucideIcon {
@@ -271,6 +324,28 @@ function isInternalToolName(toolName: string) {
 
 function isExecutingToolState(state: ToolPart["state"]) {
   return state === "input-streaming" || state === "input-available" || state === "running";
+}
+
+function getConnectorToolDescription(part: ToolPart) {
+  if (part.state === "output-error" || part.state === "error") {
+    const errorDetails = getToolErrorDetails(part);
+    return errorDetails ? `Failed: ${errorDetails}` : "Tool failed.";
+  }
+
+  if (part.state === "output-available") {
+    return "Tool completed.";
+  }
+
+  const entries = getToolInputEntries(part.input);
+  if (entries.length > 0) {
+    return entries.map(e => `${e.key}: ${e.value}`).join(", ");
+  }
+
+  if (part.input !== undefined && part.input !== null) {
+    return formatToolInputValue(part.input);
+  }
+
+  return `${formatToolState(part.state)}.`;
 }
 
 function getInternalToolMessage(toolName: string, part: ToolPart) {
@@ -438,14 +513,19 @@ function renderPart(
     readonly openPathLabel: string;
     readonly openingPath: string | null;
     readonly onOpenPath?: (path: string) => void;
+    readonly openArtifactId?: string | null;
+    readonly onOpenArtifact?: (artifactId: string) => void;
   }
 ) {
   if (isTextPart(part)) {
+    if (!hasVisibleText(part.text)) {
+      return null;
+    }
+
     return (
       <Streamdown
         key={`${part.type}-${index}`}
         animated={{ animation: "blurIn", duration: 180, easing: "ease-out", sep: "word", stagger: 0 }}
-        caret={options.isStreamingPart ? "block" : undefined}
         isAnimating={options.isStreamingPart}
         mode={options.isStreamingPart ? "streaming" : "static"}
         plugins={{ code, mermaid, math, cjk }}
@@ -458,6 +538,10 @@ function renderPart(
   }
 
   if (isReasoningPart(part)) {
+    if (!hasVisibleText(part.text)) {
+      return null;
+    }
+
     return (
       <Accordion key={`${part.type}-${index}`} type="single" collapsible className="rounded-lg border border-border-subtle bg-surface-2">
         <AccordionItem value="reasoning" className="border-b-0">
@@ -525,6 +609,7 @@ function renderPart(
     const toolStateMeta = getToolStateMeta(part.state);
     const canApprove =
       part.state === "approval-requested" &&
+      toolName !== "create_live_artifact" &&
       typeof part.toolCallId === "string" &&
       typeof part.approval?.id === "string" &&
       typeof runId === "string" &&
@@ -535,6 +620,51 @@ function renderPart(
     const successfulWriteFilePath = toolName === "write_file" ? getSuccessfulWriteFileOutputPath(part) : null;
     const successfulWriteFileName = successfulWriteFilePath ? getPathDisplayName(successfulWriteFilePath) : null;
     const toolErrorDetails = getToolErrorDetails(part);
+    const connectorIconUrl = getConnectorIconUrl(toolName);
+
+    if (toolName === "create_live_artifact") {
+      const artifactTitle = getLiveArtifactTitle(part);
+      const artifactId = part.state === "output-available" ? getLiveArtifactId(part) : null;
+      const canOpenArtifact = Boolean(artifactId && options.onOpenArtifact);
+      const isOpenArtifact = isLiveArtifactCardOpen(part, options.openArtifactId);
+      const isExecuting = isExecutingToolState(part.state);
+      const cardClassName = `group flex min-h-11 w-full items-center justify-between gap-2.5 rounded-lg border px-3 py-2.5 text-left text-inherit no-underline shadow-xs transition-colors focus-visible:outline-none focus-visible:shadow-focus ${
+        isOpenArtifact
+          ? "border-accent/40 bg-accent/5"
+          : "border-border-subtle bg-surface-1 hover:border-border-strong hover:bg-surface-2"
+      } ${canOpenArtifact ? "cursor-pointer" : "cursor-default"}`;
+      const content = (
+        <>
+          <span className="flex min-w-0 items-center gap-2.5">
+            <Component aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
+            <span className="min-w-0 truncate text-sm font-medium text-text-heading">
+              {part.state === "output-available" ? `Created artifact: ${artifactTitle}` : `${formatToolState(part.state)} artifact: ${artifactTitle}`}
+            </span>
+          </span>
+          {canOpenArtifact ? (
+            <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-text-heading" strokeWidth={1.8} />
+          ) : (
+            <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full" className="shrink-0">{toolStateMeta.label}</Badge>
+          )}
+        </>
+      );
+
+      if (canOpenArtifact) {
+        return (
+          <button key={`${part.type}-${index}`} type="button" className={cardClassName} aria-label={`Open artifact ${artifactTitle}`} aria-pressed={isOpenArtifact} onClick={() => options.onOpenArtifact?.(artifactId!)}>
+            {content}
+          </button>
+        );
+      }
+
+      return (
+        <div key={`${part.type}-${index}`} className={cardClassName} data-tool-phase={toolStateMeta.phase}>
+          {content}
+          {toolErrorDetails ? <span className="min-w-0 truncate text-error" title={toolErrorDetails}>{toolErrorDetails}</span> : null}
+          {isExecuting ? <span className="sr-only">{toolStateMeta.label}</span> : null}
+        </div>
+      );
+    }
 
     if (isInternalToolName(toolName)) {
       const Icon = getInternalToolIcon(toolName);
@@ -607,20 +737,26 @@ function renderPart(
     }
 
     return (
-      <Accordion key={`${part.type}-${index}`} type="single" collapsible className={getToolCardClassName(toolStateMeta.phase)} data-tool-phase={toolStateMeta.phase}>
+      <Accordion key={`${part.type}-${index}`} type="single" collapsible className="flex flex-col" data-tool-phase={toolStateMeta.phase}>
         <AccordionItem value="tool" className="border-b-0">
-          <AccordionTrigger className={toolSummaryClassName}>
-            <div className="flex w-full items-start justify-between gap-3 max-[960px]:flex-col max-[960px]:items-start">
-              <div className="flex flex-col gap-1">
-                <span className={partLabelClassName}>Tool call</span>
-                <strong className={partTitleClassName}>{toolName}</strong>
-                <span className="text-sm text-text-muted">Details collapsed</span>
+          <AccordionTrigger className="flex min-h-8 cursor-pointer items-center justify-between gap-3 px-1 py-1 text-sm hover:no-underline [&>span]:min-w-0">
+            <div className="flex w-full min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                {connectorIconUrl ? (
+                  <img src={connectorIconUrl} alt={`${toolName} icon`} className="size-4 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Wrench aria-hidden="true" className="size-4 shrink-0 text-accent" strokeWidth={1.8} />
+                )}
+                <strong className="truncate font-medium text-text-heading">{toolName}</strong>
+                <span className={`${isExecutingToolState(part.state) ? executingToolLineClassName : "text-text-muted"} min-w-0 truncate`} title={getConnectorToolDescription(part)}>
+                  {getConnectorToolDescription(part)}
+                </span>
               </div>
-              <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full">{toolStateMeta.label}</Badge>
+              <Badge variant={toolStateMeta.badgeVariant} size="sm" radius="full" className="shrink-0">{toolStateMeta.label}</Badge>
             </div>
           </AccordionTrigger>
 
-        <AccordionContent className="mt-3 px-0 pb-0 text-base text-text-secondary">
+        <AccordionContent className="mt-2 px-0 pb-0 text-base text-text-secondary">
         <div className="flex flex-col gap-3">
           {isWriteFileCall ? (
             <>
@@ -734,9 +870,11 @@ export interface ChatThreadProps {
     confirmationToken: string;
     decision: "approved" | "rejected";
   }) => void | Promise<void>;
+  readonly openArtifactId?: string | null;
+  readonly onOpenArtifact?: (artifactId: string) => void;
 }
 
-export function ChatThread({ messages, status, errorText, isArchived, onToolApproval }: ChatThreadProps) {
+export function ChatThread({ messages, status, errorText, isArchived, onToolApproval, openArtifactId, onOpenArtifact }: ChatThreadProps) {
   const rootRef = useRef<HTMLElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const lastLocatedUserMessageIdRef = useRef<string | null>(null);
@@ -928,23 +1066,30 @@ export function ChatThread({ messages, status, errorText, isArchived, onToolAppr
             onToolApproval: handleToolApproval,
             openPathLabel,
             openingPath,
-            onOpenPath: canOpenPaths ? handleOpenPath : undefined
+            onOpenPath: canOpenPaths ? handleOpenPath : undefined,
+            openArtifactId,
+            onOpenArtifact
           })
         );
+        const visibleParts = renderedParts.filter((part) => part !== null);
+
+        if (visibleParts.length === 0) {
+          return null;
+        }
 
         if (message.role === "assistant") {
           return (
             <article key={message.id} className="flex w-full flex-col gap-3" data-message-id={message.id} data-role={message.role}>
-              {renderedParts}
+              {visibleParts}
             </article>
           );
         }
 
         return (
           <article key={message.id} className="flex flex-col gap-2 data-[role=user]:items-end" data-message-id={message.id} data-role={message.role}>
-            <Card className={`rounded-xl border border-border-subtle px-4.5 shadow-xs ${message.role === "user" ? "w-fit max-w-[60%] border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)] py-2 [overflow-wrap:anywhere] max-[960px]:max-w-full" : "w-[min(100%,calc(var(--spacing)*180))] bg-surface-1 py-4 max-[960px]:w-full"}`}>
+            <Card className={`rounded-xl border border-border-subtle px-4.5 shadow-xs ${message.role === "user" ? "w-fit max-w-[75%] border-[hsl(var(--accent)/0.2)] bg-[hsl(var(--accent)/0.08)] py-2 [overflow-wrap:anywhere] max-[960px]:max-w-full" : "w-full bg-surface-1 py-4"}`}>
               <div className="flex flex-col gap-3">
-                {renderedParts}
+                {visibleParts}
               </div>
             </Card>
           </article>

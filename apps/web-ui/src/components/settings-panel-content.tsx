@@ -41,6 +41,11 @@ export const settingsPanels = [
     id: "models",
     title: "Model Settings",
     description: "Provider and model configuration."
+  },
+  {
+    id: "connectors",
+    title: "Connectors",
+    description: "External connector provider configuration."
   }
 ] as const;
 
@@ -68,6 +73,16 @@ type AuthorizedDirectory = {
 };
 type AuthorizedDirectoriesState = AsyncState<AuthorizedDirectory[]>;
 type AppPathsState = AsyncState<DesktopAppPathsSnapshot>;
+type ConnectorId = "github" | "notion" | "google_drive";
+type ConnectorProviderComposioSettings = {
+  readonly provider: "composio";
+  readonly apiKeyConfigured: boolean;
+  readonly baseUrl: string;
+  readonly timeoutMs: number | null;
+  readonly authConfigIds: Partial<Record<ConnectorId, string>>;
+  readonly updatedAt: string;
+};
+type ConnectorProviderSettingsState = AsyncState<ConnectorProviderComposioSettings>;
 
 const initialProvidersState: AsyncState<Provider[]> = {
   loading: true,
@@ -99,6 +114,18 @@ const initialAppPathsState: AppPathsState = {
   error: null
 };
 
+const initialConnectorProviderSettingsState: ConnectorProviderSettingsState = {
+  loading: true,
+  data: null,
+  error: null
+};
+
+const connectorAuthConfigFields = [
+  { id: "github", label: "GitHub auth config ID", placeholder: "github-auth-config-id" },
+  { id: "notion", label: "Notion auth config ID", placeholder: "notion-auth-config-id" },
+  { id: "google_drive", label: "Google Drive auth config ID", placeholder: "google-drive-auth-config-id" }
+] as const satisfies ReadonlyArray<{ readonly id: ConnectorId; readonly label: string; readonly placeholder: string }>;
+
 const browserSecretStorageSnapshot: ProviderSecretStorageSnapshot = {
   available: false,
   message:
@@ -119,9 +146,9 @@ const settingsProviderItemClassName = "flex flex-col gap-2 rounded-xl border bor
 const settingsDirectoryItemClassName = "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-border-subtle bg-surface-1 p-3 shadow-xs max-sm:grid-cols-[auto_minmax(0,1fr)]";
 const settingsDirectoryIconClassName = "inline-flex size-9 items-center justify-center rounded-md bg-accent/10 text-accent";
 const settingsDirectoryPathClassName = "block truncate text-text-heading";
-const settingsThemeOptionsClassName = "grid grid-cols-3 gap-3 max-app:grid-cols-1";
-const settingsThemeOptionClassName = `${settingsItemCardClassName} cursor-pointer transition-colors hover:border-accent/40 data-[active=true]:border-accent/40 data-[active=true]:shadow-focus`;
-const settingsThemeSwatchBaseClassName = "h-12 rounded-md border border-border-subtle";
+const settingsThemeOptionsClassName = "grid grid-cols-1 gap-3 md:grid-cols-3";
+const settingsThemeOptionClassName = `${settingsItemCardClassName} h-full min-w-0 cursor-pointer !items-stretch !justify-start text-left !whitespace-normal transition-colors hover:border-accent/40 data-[active=true]:border-accent/40 data-[active=true]:shadow-focus`;
+const settingsThemeSwatchBaseClassName = "block h-12 w-full rounded-md border border-border-subtle";
 const settingsProviderGridClassName = "grid grid-cols-[320px_minmax(0,1fr)] items-start gap-6 max-app:grid-cols-1";
 const settingsProviderDetailClassName = "flex flex-col gap-3";
 const settingsRowClassName = "flex flex-wrap items-center justify-between gap-2 max-sm:items-start";
@@ -189,6 +216,10 @@ function getProviderDocsUrl(provider: Provider) {
   return provider.type === "openai"
     ? "https://platform.openai.com/api-keys"
     : "https://openrouter.ai/keys";
+}
+
+function getComposioDocsUrl() {
+  return "https://app.composio.dev";
 }
 
 function getPersistedSelectedModelIds(models: readonly ProviderModel[]) {
@@ -617,9 +648,9 @@ function GeneralSettingsPanel() {
                 onClick={() => setTheme(option.value)}
               >
                 <span className={getThemeSwatchClassName(option.value)} aria-hidden="true" />
-                <div className="flex flex-col gap-1">
+                <div className="flex min-w-0 flex-col items-center gap-1 text-center">
                   <strong>{option.label}</strong>
-                  <span className="m-0 leading-[1.5] text-text-muted">{option.detail}</span>
+                  <span className="m-0 block max-w-full !whitespace-normal break-words leading-[1.5] text-text-muted">{option.detail}</span>
                 </div>
               </Button>
             ))}
@@ -632,6 +663,197 @@ function GeneralSettingsPanel() {
         </CardContent>
       </Card>
 
+    </div>
+  );
+}
+
+function ConnectorSettingsPanel() {
+  const [settingsState, setSettingsState] = useState<ConnectorProviderSettingsState>(initialConnectorProviderSettingsState);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [baseUrlDraft, setBaseUrlDraft] = useState("https://backend.composio.dev");
+  const [timeoutMsDraft, setTimeoutMsDraft] = useState("");
+  const [authConfigDraft, setAuthConfigDraft] = useState<Record<ConnectorId, string>>({
+    github: "",
+    notion: "",
+    google_drive: ""
+  });
+  const [saving, setSaving] = useState(false);
+  const [clearingApiKey, setClearingApiKey] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const applySettingsToDraft = useCallback((settings: ConnectorProviderComposioSettings) => {
+    setApiKeyDraft("");
+    setBaseUrlDraft(settings.baseUrl);
+    setTimeoutMsDraft(settings.timeoutMs === null ? "" : String(settings.timeoutMs));
+    setAuthConfigDraft({
+      github: settings.authConfigIds.github ?? "",
+      notion: settings.authConfigIds.notion ?? "",
+      google_drive: settings.authConfigIds.google_drive ?? ""
+    });
+  }, []);
+
+  const loadSettings = useCallback(async () => {
+    setSettingsState((current) => ({ loading: true, data: current.data, error: null }));
+
+    try {
+      const settings = await requestControllerJson<ConnectorProviderComposioSettings>("/api/settings/connectors/composio");
+      setSettingsState({ loading: false, data: settings, error: null });
+      applySettingsToDraft(settings);
+    } catch (error) {
+      setSettingsState({
+        loading: false,
+        data: null,
+        error: error instanceof Error ? error.message : "Unable to load connector settings."
+      });
+    }
+  }, [applySettingsToDraft]);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  async function saveSettings(apiKeyOverride?: string | null) {
+    setSaving(apiKeyOverride === undefined);
+    setClearingApiKey(apiKeyOverride === null);
+    setFeedback(null);
+
+    const timeoutMs = timeoutMsDraft.trim() ? Number.parseInt(timeoutMsDraft.trim(), 10) : null;
+    const body: {
+      apiKey?: string | null;
+      baseUrl: string;
+      timeoutMs: number | null;
+      authConfigIds: Partial<Record<ConnectorId, string>>;
+    } = {
+      baseUrl: baseUrlDraft.trim() || "https://backend.composio.dev",
+      timeoutMs: Number.isInteger(timeoutMs) && timeoutMs !== null && timeoutMs > 0 ? timeoutMs : null,
+      authConfigIds: Object.fromEntries(
+        connectorAuthConfigFields
+          .map((field) => [field.id, authConfigDraft[field.id].trim()] as const)
+          .filter(([, value]) => value.length > 0)
+      ) as Partial<Record<ConnectorId, string>>
+    };
+
+    if (apiKeyOverride !== undefined) {
+      body.apiKey = apiKeyOverride;
+    } else if (apiKeyDraft.trim()) {
+      body.apiKey = apiKeyDraft.trim();
+    }
+
+    try {
+      const settings = await requestControllerJson<ConnectorProviderComposioSettings>("/api/settings/connectors/composio", {
+        method: "PUT",
+        body: JSON.stringify(body)
+      });
+
+      setSettingsState({ loading: false, data: settings, error: null });
+      applySettingsToDraft(settings);
+      const discoveredConnectorCount = Object.keys(settings.authConfigIds).length;
+      setFeedback(
+        apiKeyOverride === null
+          ? "Composio API key cleared."
+          : discoveredConnectorCount > 0
+            ? `Connector provider settings saved. ${discoveredConnectorCount} auth config${discoveredConnectorCount === 1 ? "" : "s"} available.`
+            : "Connector provider settings saved. No matching auth configs were discovered."
+      );
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Unable to save connector provider settings.");
+    } finally {
+      setSaving(false);
+      setClearingApiKey(false);
+    }
+  }
+
+  const apiKeyConfigured = settingsState.data?.apiKeyConfigured ?? false;
+
+  return (
+    <div className={settingsPanelStackClassName}>
+      <Card className="overflow-hidden p-0">
+        <CardHeader className="border-b border-border-subtle bg-surface-1 p-5">
+          <div className={settingsRowClassName}>
+            <div>
+              <CardTitle>Composio provider</CardTitle>
+              <CardDescription>
+                Configure the connector provider used by GitHub, Notion, and Google Drive. These settings are saved in Monet and take effect without restarting.
+              </CardDescription>
+            </div>
+            <Badge variant={apiKeyConfigured ? "accent" : "secondary"}>{apiKeyConfigured ? "API key saved" : "Setup required"}</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 p-5">
+          {settingsState.error ? <p className="m-0 text-sm text-error" role="alert">{settingsState.error}</p> : null}
+          {settingsState.loading ? <p className="m-0 text-sm text-text-muted">Loading connector provider settings…</p> : null}
+
+          <label className={settingsSecretFieldClassName}>
+            <span className="text-sm font-medium text-text-heading">Composio API key</span>
+            <Input
+              className={`${settingsSecretInputClassName} mono`}
+              type="password"
+              value={apiKeyDraft}
+              placeholder={apiKeyConfigured ? "Saved key is hidden. Enter a new key to replace it." : "Enter your Composio API key"}
+              autoComplete="off"
+              onChange={(event) => setApiKeyDraft(event.currentTarget.value)}
+            />
+            <span className="text-xs text-text-muted">Leaving this blank preserves the currently saved key.</span>
+          </label>
+
+          <label className={settingsSecretFieldClassName}>
+            <span className="text-sm font-medium text-text-heading">Composio base URL</span>
+            <Input
+              className={`${settingsSecretInputClassName} mono`}
+              type="url"
+              value={baseUrlDraft}
+              onChange={(event) => setBaseUrlDraft(event.currentTarget.value)}
+            />
+          </label>
+
+          <label className={settingsSecretFieldClassName}>
+            <span className="text-sm font-medium text-text-heading">Request timeout (ms)</span>
+            <Input
+              className={`${settingsSecretInputClassName} mono`}
+              type="number"
+              min="1"
+              value={timeoutMsDraft}
+              placeholder="Default"
+              onChange={(event) => setTimeoutMsDraft(event.currentTarget.value)}
+            />
+          </label>
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="m-0 text-sm font-semibold text-text-heading">Auth config IDs</h3>
+              <p className="m-0 text-sm text-text-muted">
+                Monet auto-discovers matching Composio auth configs from your API key. Paste IDs only to override the detected values.
+              </p>
+            </div>
+            {connectorAuthConfigFields.map((field) => (
+              <label key={field.id} className={settingsSecretFieldClassName}>
+                <span className="text-sm font-medium text-text-heading">{field.label}</span>
+                <Input
+                  className={`${settingsSecretInputClassName} mono`}
+                  type="text"
+                  value={authConfigDraft[field.id]}
+                  placeholder={field.placeholder}
+                  onChange={(event) => setAuthConfigDraft((current) => ({ ...current, [field.id]: event.currentTarget.value }))}
+                />
+              </label>
+            ))}
+          </div>
+
+          {feedback ? <p className="m-0 text-sm text-text-muted" role="status">{feedback}</p> : null}
+
+          <div className={settingsChipRowClassName}>
+            <Button type="button" variant="primary" size="sm" disabled={saving || clearingApiKey} onClick={() => void saveSettings()}>
+              {saving ? "Saving…" : "Save connector settings"}
+            </Button>
+            <Button type="button" variant="secondary" size="sm" disabled={!apiKeyConfigured || saving || clearingApiKey} onClick={() => void saveSettings(null)}>
+              {clearingApiKey ? "Clearing…" : "Clear API key"}
+            </Button>
+            <a className={settingsInlineActionClassName} href={getComposioDocsUrl()} target="_blank" rel="noreferrer">
+              Open Composio
+            </a>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -1842,6 +2064,10 @@ function ModelSettingsPanel() {
 export function SettingsPanelContent({ panelId }: { panelId: SettingsPanelId }) {
   if (panelId === "models") {
     return <ModelSettingsPanel />;
+  }
+
+  if (panelId === "connectors") {
+    return <ConnectorSettingsPanel />;
   }
 
   return <GeneralSettingsPanel />;

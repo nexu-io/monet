@@ -173,12 +173,20 @@ test("chat endpoint rejects archived sessions", async () => {
     },
     body: JSON.stringify({
       sessionId: "ses_archived",
-      messages: []
+      messages: [
+        {
+          id: "msg_user",
+          role: "user",
+          parts: [{ type: "text", text: "Hi" }]
+        }
+      ]
     })
   });
 
+  const bodyText = await response.text();
+
   assert.equal(response.status, 422);
-  assert.deepEqual(await response.json(), {
+  assert.deepEqual(JSON.parse(bodyText), {
     error: "invalid_state",
     message: "Session is archived: ses_archived"
   });

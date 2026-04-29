@@ -7,7 +7,7 @@ import { BlockList, isIP } from "node:net";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "@hono/zod-openapi";
 
-import type { RegisteredToolDefinition } from "./registry";
+import { createStaticToolSource, type RegisteredToolDefinition, type ToolSource } from "./registry";
 
 export interface BuiltinToolsOptions {
   readonly allowedDirectories: readonly string[];
@@ -738,4 +738,8 @@ export function createBuiltinToolDefinitions(
       }
     }
   ];
+}
+
+export function createBuiltinToolSource(options: BuiltinToolsOptions): ToolSource {
+  return createStaticToolSource("builtins", createBuiltinToolDefinitions(options));
 }

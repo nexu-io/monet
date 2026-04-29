@@ -10,7 +10,9 @@ export const idPrefixes = {
   run: "run",
   toolCall: "tcl",
   provider: "pro",
-  providerModel: "mod"
+  providerModel: "mod",
+  connectorConnection: "ccn",
+  connectorOAuthState: "cos"
 } as const;
 
 type IdPrefix = (typeof idPrefixes)[keyof typeof idPrefixes];
@@ -23,6 +25,8 @@ export type RunId = MonetId<typeof idPrefixes.run>;
 export type ToolCallId = MonetId<typeof idPrefixes.toolCall>;
 export type ProviderId = MonetId<typeof idPrefixes.provider>;
 export type ProviderModelId = MonetId<typeof idPrefixes.providerModel>;
+export type ConnectorConnectionId = MonetId<typeof idPrefixes.connectorConnection>;
+export type ConnectorOAuthStateId = MonetId<typeof idPrefixes.connectorOAuthState>;
 
 export type ProviderType = "openai" | "openrouter";
 export type RunStatus = "pending" | "running" | "completed" | "failed" | "interrupted";
@@ -104,6 +108,15 @@ export interface ToolCallRecord {
   approvalDecision: ToolApprovalDecision | null;
   approvalDecidedAt: string | null;
   confirmationTokenHash: string | null;
+  connectorId: string | null;
+  connectorName: string | null;
+  connectorAccountLabel: string | null;
+  connectorToolName: string | null;
+  connectorProviderToolId: string | null;
+  connectorArgumentsSummary: string | null;
+  connectorApprovalPolicyJson: string | null;
+  connectorProviderExecutionId: string | null;
+  connectorProviderExecutionMetadataJson: string | null;
   status: ToolCallStatus;
   errorMessage: string | null;
   startedAt: string;
@@ -133,4 +146,33 @@ export interface ProviderModelRecord {
   capabilitiesJson: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ConnectorConnectionStatus = "connected" | "expired" | "disconnected";
+
+export interface ConnectorConnectionRecord {
+  id: ConnectorConnectionId;
+  userId: string;
+  connectorId: string;
+  provider: string;
+  providerConnectionId: string | null;
+  providerMetadataJson: string | null;
+  accountLabel: string | null;
+  status: ConnectorConnectionStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+}
+
+export interface ConnectorOAuthStateRecord {
+  id: ConnectorOAuthStateId;
+  stateHash: string;
+  userId: string;
+  connectorId: string;
+  provider: string;
+  redirectUrl: string | null;
+  expiresAt: string;
+  consumedAt: string | null;
+  createdAt: string;
 }

@@ -54,6 +54,11 @@ export interface OpenPathResult {
   };
 }
 
+export interface OpenExternalUrlResult {
+  readonly opened: boolean;
+  readonly error?: string;
+}
+
 export type MonetDesktopApi = {
   readonly platform?: NodeJS.Platform;
   readonly clearProviderSecret?: (payload: { providerType: ProviderType }) => Promise<ProviderSecretMutationResult>;
@@ -67,6 +72,7 @@ export type MonetDesktopApi = {
     readonly bearerToken?: string;
   };
   readonly installUpdate?: () => Promise<{ started: boolean }>;
+  readonly openExternalUrl?: (payload: { url: string }) => Promise<OpenExternalUrlResult>;
   readonly openPath?: (payload: { path: string }) => Promise<OpenPathResult>;
   readonly openWorkspaceDirectory?: (payload: { sessionId: string }) => Promise<OpenPathResult>;
   readonly onControllerStateChange?: (listener: (payload: ControllerStatePayload) => void) => () => void;

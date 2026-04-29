@@ -36,7 +36,7 @@ async function main() {
 
   const skipDesktop = process.env.MONET_DEV_SKIP_DESKTOP === "1";
 
-  if (!skipDesktop && (await shouldResetDevSession())) {
+  if (await shouldResetDevSession()) {
     await resetDevSession();
   }
 
@@ -329,8 +329,10 @@ async function isPortReachable(url) {
 async function shouldResetDevSession() {
   const desktopPids = await listMonetDesktopPids();
   const rootDevPids = await listRootDevSessionPids();
+  const controllerPids = await listControllerPids();
+  const webPids = await listWebPids();
 
-  return desktopPids.length > 0 || rootDevPids.length > 0;
+  return desktopPids.length > 0 || rootDevPids.length > 0 || controllerPids.length > 0 || webPids.length > 0;
 }
 
 async function resetDevSession() {
@@ -423,7 +425,7 @@ function parsePidList(stdout) {
 }
 
 function uniquePids(pids) {
-  return [...new Set(pids)];
+  return [...new Set(pids)].filter((pid) => pid !== process.pid);
 }
 
 function sleep(ms) {

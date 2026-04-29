@@ -43,6 +43,16 @@ test("uses explicit tool allowed directories when configured", () => {
   assert.equal(config.allowedToolDirectoriesSource, "env");
 });
 
+test("uses default Composio connector provider config", () => {
+  const config = createControllerConfig(createEnv());
+
+  assert.equal(config.connectorProvider.provider, "composio");
+  assert.equal(config.connectorProvider.composio.apiKey, null);
+  assert.equal(config.connectorProvider.composio.baseUrl, "https://backend.composio.dev");
+  assert.equal(config.connectorProvider.composio.timeoutMs, null);
+  assert.deepEqual(config.connectorProvider.composio.authConfigIds, {});
+});
+
 test("uses explicit session workspace base directory when configured", () => {
   const config = createControllerConfig(
     createEnv({

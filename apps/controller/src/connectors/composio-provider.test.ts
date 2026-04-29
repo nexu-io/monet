@@ -1,0 +1,544 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type { StoredConnectorConnection } from "../chat-storage";
+import type { StoredConnectorProviderComposioSettings } from "../chat-storage";
+import { ComposioConnectorProvider } from "./composio-provider";
+import { ConnectorProviderError } from "./errors";
+
+test("Composio connector provider returns only connected allowlisted tools for a connector", async (t) => {
+  const requests: string[] = [];
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    requests.push(String(input));
+    return jsonResponse({
+      items: [
+        {
+          slug: "GITHUB_SEARCH_REPOSITORIES",
+          name: "Provider search repositories",
+          description: "Provider repository search description.",
+          toolkit: { slug: "github" },
+          tags: ["readOnlyHint"],
+          input_parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
+        },
+        {
+          slug: "GITHUB_CREATE_AN_ISSUE",
+          name: "Create issue",
+          description: "This write-capable tool is not in the curated v1 allowlist.",
+          toolkit: { slug: "GITHUB" },
+          tags: ["destructiveHint"],
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_LIST_PULL_REQUESTS",
+          name: "List pull requests",
+          description: "Wrong toolkit should be ignored.",
+          toolkit: { slug: "NOTION" },
+          tags: ["readOnlyHint"],
+          input_parameters: { type: "object" }
+        }
+      ]
+    });
+  });
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test/",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  const tools = await provider.listTools({ userId: "monet-install-id", connectorId: "github" });
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0], "https://composio.test/api/v3.1/tools?toolkit_slug=github&limit=1000");
+  assert.deepEqual(
+    tools.map((tool) => ({
+      connectorId: tool.connectorId,
+      providerToolId: tool.providerToolId,
+      name: tool.name,
+      displayName: tool.displayName,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      policy: tool.policy
+    })),
+    [
+      {
+        connectorId: "github",
+        providerToolId: "GITHUB_SEARCH_REPOSITORIES",
+        name: "GITHUB_SEARCH_REPOSITORIES",
+        displayName: "Provider search repositories",
+        description: "Provider repository search description.",
+        inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+        policy: { sideEffect: "read", approval: "never" }
+      }
+    ]
+  );
+});
+
+test("Composio connector provider classifies allowlisted tools from safety hints and OAuth scopes", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse({
+      items: [
+        {
+          slug: "GITHUB_SEARCH_REPOSITORIES",
+          name: "Search repositories",
+          description: "Read-only by tag.",
+          toolkit: { slug: "github" },
+          tags: ["readOnlyHint"],
+          scopes: ["repo:read"],
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_LIST_PULL_REQUESTS",
+          name: "List pull requests",
+          description: "Write-like scope must force confirmation.",
+          toolkit: { slug: "github" },
+          tags: ["readOnlyHint"],
+          oauth_scopes: ["pull_request:write"],
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_LIST_COMMITS",
+          name: "List commits",
+          description: "Idempotent is retry-only, not read-only.",
+          toolkit: { slug: "github" },
+          tags: ["idempotentHint"],
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_LIST_RELEASES",
+          name: "List releases",
+          description: "Missing provider tags falls back to the curated catalog policy.",
+          toolkit: { slug: "github" },
+          read_only: true,
+          input_parameters: { type: "object" }
+        },
+        {
+          slug: "GITHUB_GET_A_REPOSITORY",
+          name: "Get repository",
+          description: "Destructive hint requires confirmation.",
+          toolkit: { slug: "github" },
+          metadata: { safetyTags: ["destructiveHint"] },
+          input_parameters: { type: "object" }
+        }
+      ]
+    })
+  );
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test/",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  const tools = await provider.listTools({ userId: "monet-install-id", connectorId: "github" });
+  const policiesByToolId = Object.fromEntries(tools.map((tool) => [tool.providerToolId, tool.policy]));
+
+  assert.deepEqual(policiesByToolId.GITHUB_SEARCH_REPOSITORIES, { sideEffect: "read", approval: "never" });
+  assert.deepEqual(policiesByToolId.GITHUB_LIST_PULL_REQUESTS, { sideEffect: "write", approval: "always" });
+  assert.deepEqual(policiesByToolId.GITHUB_LIST_COMMITS, { sideEffect: "write", approval: "always" });
+  assert.deepEqual(policiesByToolId.GITHUB_LIST_RELEASES, { sideEffect: "read", approval: "never" });
+  assert.deepEqual(policiesByToolId.GITHUB_GET_A_REPOSITORY, { sideEffect: "destructive", approval: "always" });
+});
+
+test("Composio connector provider skips disconnected connectors when listing all tools", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({ items: [] }));
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config", notion: "notion-auth-config", google_drive: "drive-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" }),
+      notion: createStoredConnection({ connectorId: "notion", providerConnectionId: null, status: "disconnected" }),
+      google_drive: createStoredConnection({ connectorId: "google_drive", providerConnectionId: "conn_drive", status: "expired" })
+    })
+  });
+
+  await provider.listTools({ userId: "monet-install-id" });
+
+  assert.equal(fetchMock.mock.callCount(), 1);
+});
+
+test("Composio connector provider returns no tools when Composio is unconfigured", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({ items: [] }));
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: null,
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: {}
+    },
+    storage: createStorage(
+      {
+        github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+      },
+      { apiKey: null, authConfigIds: {} }
+    )
+  });
+
+  assert.deepEqual(await provider.listTools({ userId: "monet-install-id" }), []);
+  assert.deepEqual(await provider.listTools({ userId: "monet-install-id", connectorId: "github" }), []);
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("Composio connector provider reads connection status from local storage without provider calls", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({}));
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: null,
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: {}
+    },
+    storage: createStorage(
+      {
+        github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+      },
+      { apiKey: "saved-composio-api-key", authConfigIds: {} }
+    )
+  });
+
+  assert.deepEqual(await provider.getConnectionStatus({ userId: "monet-install-id", connectorId: "github" }), {
+    connectorId: "github",
+    state: "connected",
+    connected: true,
+    account: {
+      accountLabel: "github-account",
+      providerConnectionId: "conn_github",
+      providerConnectorId: "GITHUB",
+      connectedAt: "2026-04-27T10:00:00.000Z",
+      updatedAt: "2026-04-27T10:00:00.000Z"
+    }
+  });
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("Composio connector provider starts OAuth with Composio link flow", async (t) => {
+  let requestUrl: string | null = null;
+  let requestBody: unknown;
+
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    requestUrl = String(input);
+    requestBody = JSON.parse(String(init?.body));
+
+    return jsonResponse(
+      {
+        connected_account_id: "ca_github",
+        redirect_url: "https://composio.test/connect/ca_github",
+        expires_at: "2026-04-27T10:10:00.000Z"
+      },
+      201
+    );
+  });
+
+  const states: Array<{ stateHash: string; redirectUrl?: string }> = [];
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({}, {}, states)
+  });
+
+  const result = await provider.connect({
+    userId: "monet-install-id",
+    connectorId: "github",
+    state: "oauth-state",
+    redirectUrl: "http://127.0.0.1:42831/connectors/oauth/callback/github?existing=1"
+  });
+
+  assert.equal(requestUrl, "https://composio.test/api/v3.1/connected_accounts/link");
+  assert.deepEqual(requestBody, {
+    auth_config_id: "github-auth-config",
+    user_id: "monet-install-id",
+    connection_data: {
+      state_prefix: "oauth-state"
+    },
+    callback_url: "http://127.0.0.1:42831/connectors/oauth/callback/github?existing=1&state=oauth-state"
+  });
+  assert.equal(states.length, 1);
+  assert.equal(states[0]?.redirectUrl, "http://127.0.0.1:42831/connectors/oauth/callback/github?existing=1");
+  assert.equal(typeof states[0]?.stateHash, "string");
+  assert.deepEqual(
+    {
+      connectorId: result.connectorId,
+      kind: result.kind,
+      providerConnectionId: result.providerConnectionId,
+      redirectUrl: result.redirectUrl
+    },
+    {
+      connectorId: "github",
+      kind: "redirect_required",
+      providerConnectionId: "ca_github",
+      redirectUrl: "https://composio.test/connect/ca_github"
+    }
+  );
+  assert.equal(typeof result.expiresAt, "string");
+});
+
+test("Composio connector provider normalizes HTTP and execution errors", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url.includes("/api/v3.1/tools/execute/")) {
+      return jsonResponse({ successful: false, error: { code: "validation_failed", status: 422 } });
+    }
+
+    return jsonResponse({}, 429);
+  });
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  assert.deepEqual(await provider.getConnectionStatus({ userId: "monet-install-id", connectorId: "github" }), {
+    connectorId: "github",
+    state: "connected",
+    connected: true,
+    account: {
+      accountLabel: "github-account",
+      providerConnectionId: "conn_github",
+      providerConnectorId: "GITHUB",
+      connectedAt: "2026-04-27T10:00:00.000Z",
+      updatedAt: "2026-04-27T10:00:00.000Z"
+    }
+  });
+
+  await assert.rejects(
+    async () => provider.listTools({ userId: "monet-install-id", connectorId: "github" }),
+    (error) => error instanceof ConnectorProviderError && error.code === "rate_limited" && error.statusCode === 429
+  );
+
+  await assert.rejects(
+    async () =>
+      provider.executeTool({
+        userId: "monet-install-id",
+        toolId: "GITHUB_SEARCH_REPOSITORIES",
+        args: { query: "monet" },
+        abortSignal: new AbortController().signal
+      }),
+    (error) => error instanceof ConnectorProviderError && error.code === "invalid_arguments" && error.statusCode === 422
+  );
+});
+
+test("Composio provider-auth 401s are not reported as expired user connections", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => jsonResponse({ message: "invalid api key" }, 401));
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "revoked-composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  await assert.rejects(
+    async () => provider.listTools({ userId: "monet-install-id", connectorId: "github" }),
+    (error) => error instanceof ConnectorProviderError && error.code === "provider_error" && error.statusCode === 401
+  );
+});
+
+test("Composio tools 404s surface tool_not_found instead of connection_missing", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url.includes("/api/v3.1/tools/execute/")) {
+      return jsonResponse({}, 404);
+    }
+
+    return jsonResponse({}, 404);
+  });
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  await assert.rejects(
+    async () => provider.listTools({ userId: "monet-install-id", connectorId: "github" }),
+    (error) => error instanceof ConnectorProviderError && error.code === "tool_not_found" && error.statusCode === 404
+  );
+
+  await assert.rejects(
+    async () =>
+      provider.executeTool({
+        userId: "monet-install-id",
+        toolId: "GITHUB_SEARCH_REPOSITORIES",
+        args: { query: "monet" },
+        abortSignal: new AbortController().signal
+      }),
+    (error) => error instanceof ConnectorProviderError && error.code === "tool_not_found" && error.statusCode === 404
+  );
+});
+
+test("Composio connected account delete 404 remains tolerated as missing connection", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({}, 404));
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: {}
+    },
+    storage: createStorage({
+      github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+    })
+  });
+
+  await assert.doesNotReject(async () => provider.disconnect({ userId: "monet-install-id", connectorId: "github" }));
+  assert.equal(fetchMock.mock.callCount(), 1);
+});
+
+test("Composio disconnect returns without fetch when api key is missing", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => jsonResponse({}, 204));
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: null,
+      baseUrl: "https://composio.test",
+      timeoutMs: null,
+      authConfigIds: {}
+    },
+    storage: createStorage(
+      {
+        github: createStoredConnection({ connectorId: "github", providerConnectionId: "conn_github", status: "connected" })
+      },
+      { apiKey: null, authConfigIds: {} }
+    )
+  });
+
+  await assert.doesNotReject(async () => provider.disconnect({ userId: "monet-install-id", connectorId: "github" }));
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("Composio connector provider surfaces provider error details", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    jsonResponse(
+      {
+        message: "Invalid callback URL.",
+        suggested_fix: "Use a configured redirect URL.",
+        errors: ["callback_url must be a valid URL"]
+      },
+      400
+    )
+  );
+
+  const provider = new ComposioConnectorProvider({
+    config: {
+      apiKey: "composio-api-key",
+      baseUrl: "https://composio.test/",
+      timeoutMs: null,
+      authConfigIds: { github: "github-auth-config" }
+    },
+    storage: createStorage({})
+  });
+
+  await assert.rejects(
+    async () =>
+      provider.connect({
+        userId: "monet-install-id",
+        connectorId: "github",
+        state: "oauth-state",
+        redirectUrl: "http://127.0.0.1:42831/connectors/oauth/callback/github"
+      }),
+    (error) =>
+      error instanceof ConnectorProviderError &&
+      error.code === "invalid_arguments" &&
+      error.statusCode === 400 &&
+      error.message.includes("Invalid callback URL") &&
+      error.message.includes("Use a configured redirect URL")
+  );
+});
+
+function jsonResponse(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
+}
+
+function createStorage(
+  connections: Partial<Record<"github" | "notion" | "google_drive", StoredConnectorConnection>>,
+  settingsOverrides: Partial<Pick<StoredConnectorProviderComposioSettings, "apiKey" | "authConfigIds">> = {},
+  states: Array<{ stateHash: string; redirectUrl?: string }> = []
+) {
+  const composioSettings: StoredConnectorProviderComposioSettings = {
+    key: "connector_provider_composio",
+    apiKey: settingsOverrides.apiKey === undefined ? "composio-api-key" : settingsOverrides.apiKey,
+    baseUrl: "https://composio.test",
+    timeoutMs: null,
+    authConfigIds: settingsOverrides.authConfigIds ?? { github: "github-auth-config", notion: "notion-auth-config", google_drive: "drive-auth-config" },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  return {
+    createConnectorOAuthState(input: { stateHash: string; redirectUrl?: string }) {
+      states.push({ stateHash: input.stateHash, ...(input.redirectUrl ? { redirectUrl: input.redirectUrl } : {}) });
+    },
+    getConnectorConnection(input: { connectorId: "github" | "notion" | "google_drive" }) {
+      return connections[input.connectorId] ?? null;
+    },
+    getConnectorProviderComposioSettings() {
+      return composioSettings;
+    }
+  } as never;
+}
+
+function createStoredConnection(input: {
+  connectorId: "github" | "notion" | "google_drive";
+  providerConnectionId: string | null;
+  status: "connected" | "expired" | "disconnected";
+}): StoredConnectorConnection {
+  return {
+    id: `connection-${input.connectorId}`,
+    userId: "monet-install-id",
+    connectorId: input.connectorId,
+    provider: "composio",
+    providerConnectionId: input.providerConnectionId,
+    providerMetadataJson: JSON.stringify({ providerConnectorId: input.connectorId === "google_drive" ? "GOOGLEDRIVE" : input.connectorId.toUpperCase() }),
+    accountLabel: `${input.connectorId}-account`,
+    status: input.status,
+    createdAt: "2026-04-27T10:00:00.000Z",
+    updatedAt: "2026-04-27T10:00:00.000Z",
+    lastConnectedAt: input.status === "connected" ? "2026-04-27T10:00:00.000Z" : null,
+    lastError: input.status === "expired" ? JSON.stringify({ code: "connection_expired", message: "expired" }) : null
+  };
+}

@@ -9,12 +9,16 @@ import { createChatStorage } from "./chat-storage";
 import { createProviderCredentialRegistry } from "./provider-credentials";
 import { createFetchWithTimeout, createProviderRuntime } from "./provider-runtime";
 
-function createProviderRuntimeFixture(options: Omit<Parameters<typeof createProviderRuntime>[0], "providerCredentials">) {
+type CreateProviderRuntimeFixtureOptions = Omit<Parameters<typeof createProviderRuntime>[0], "providerCredentials"> & {
+  readonly openrouterApiKey?: string | null;
+};
+
+function createProviderRuntimeFixture(options: CreateProviderRuntimeFixtureOptions) {
   return createProviderRuntime({
     ...options,
     providerCredentials: createProviderCredentialRegistry({
       openai: options.openai,
-      openrouter: options.openrouter
+      openrouterApiKey: options.openrouterApiKey ?? null
     })
   });
 }
@@ -104,11 +108,12 @@ test("validateProvider reports missing OpenRouter credentials", async () => {
         timeoutMs: null
       },
       openrouter: {
-        apiKey: null,
+        apiUrl: null,
         baseUrl: null,
         defaultModel: "openai/gpt-4.1-mini",
         timeoutMs: null
-      }
+      },
+      openrouterApiKey: null
     });
 
     const validation = await runtime.validateProvider(provider.id);
@@ -136,11 +141,12 @@ test("syncProviderCatalog loads OpenRouter models via OpenAI-compatible API", as
       timeoutMs: null
     },
     openrouter: {
-      apiKey: "or-test-key",
+      apiUrl: null,
       baseUrl: null,
       defaultModel: "openai/gpt-4.1-mini",
       timeoutMs: null
-    }
+    },
+    openrouterApiKey: "or-test-key"
   });
 
   const originalFetch = globalThis.fetch;

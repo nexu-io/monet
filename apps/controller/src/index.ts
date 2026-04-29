@@ -48,9 +48,11 @@ export function startControllerServer(options: StartControllerServerOptions = {}
     allowedToolDirectoriesSource: config.allowedToolDirectoriesSource,
     agentRuntime: config.agentRuntime,
     bearerToken: config.bearerToken,
+    connectorProvider: config.connectorProvider,
     databasePath: config.databasePath,
     openai: config.openai,
     openrouter: config.openrouter,
+    openrouterApiKey: config.openrouterApiKey,
     port: config.port,
     sessionWorkspaceBaseDirectory: config.sessionWorkspaceBaseDirectory
   });

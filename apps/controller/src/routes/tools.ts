@@ -31,10 +31,10 @@ export function registerToolRoutes(
   app: ControllerApp,
   options: { toolRegistry: ToolRegistry; getChatStorage: () => ChatStorage }
 ) {
-  app.openapi(listToolsRoute, (context) => {
+  app.openapi(listToolsRoute, async (context) => {
     return context.json(
       {
-        tools: Array.from(options.toolRegistry.listTools())
+        tools: Array.from(await options.toolRegistry.listTools())
       },
       200
     );
@@ -50,6 +50,12 @@ export function registerToolRoutes(
     }
 
     try {
+      const run = options.getChatStorage().getRunContext(body.runId);
+
+      if (run.status !== "pending") {
+        return context.json(createErrorResponse("invalid_state", "Run is not awaiting confirmation."), 409);
+      }
+
       options.getChatStorage().confirmToolCall(body);
 
       return context.json({ ok: true as const }, 200);

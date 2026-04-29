@@ -4,9 +4,13 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { themeVariables } from "@nexu-design/tokens";
 
 import "./app/globals.css";
+import ArtifactsPage from "./app/artifacts/page";
+import ArtifactDetailPage from "./app/artifacts/detail";
+import ConnectorsPage from "./app/connectors/page";
 import HomePage from "./app/page";
 import { AppProviders } from "./app/providers";
 import SettingsLayout from "./app/settings/layout";
+import ConnectorsSettingsPage from "./app/settings/connectors/page";
 import GeneralSettingsPage from "./app/settings/general/page";
 import ModelSettingsPage from "./app/settings/models/page";
 
@@ -28,9 +32,13 @@ createRoot(rootElement).render(
         <AppProviders>
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/artifacts" element={<ArtifactsPage />} />
+            <Route path="/artifacts/:artifactId" element={<ArtifactDetailPage />} />
+            <Route path="/connectors" element={<ConnectorsPage />} />
             <Route path="/sessions" element={<Navigate to="/" replace />} />
             <Route path="/settings" element={<SettingsLayout />}>
               <Route index element={<Navigate to="general" replace />} />
+              <Route path="connectors" element={<ConnectorsSettingsPage />} />
               <Route path="general" element={<GeneralSettingsPage />} />
               <Route path="models" element={<ModelSettingsPage />} />
             </Route>

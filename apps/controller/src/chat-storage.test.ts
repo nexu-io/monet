@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, hostname, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -138,6 +138,631 @@ test("storage has no runtime provider/model bootstrap by default", () => {
     const providers = storage.listProviders();
 
     assert.deepEqual(providers, []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact refresh audit persists parent and connector step metadata before execution", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: "Audit test",
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        },
+        sourceJson: {
+          type: "connector_tool",
+          toolName: "stripe_get_balance",
+          input: {
+            account_id: "acct_123",
+            limit: 1
+          },
+          connector: {
+            connectorId: "stripe",
+            connectorName: "Stripe",
+            accountLabel: "Acme Stripe",
+            providerToolId: "stripe.get_balance"
+          },
+          refreshPermission: "manual_refresh_granted_for_read_only",
+          outputMapping: {
+            preferredKind: "metric"
+          }
+        }
+      }]
+    });
+    const tile = artifact.tiles[0];
+    assert.ok(tile);
+
+    const refresh = storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+    const step = storage.startLiveArtifactRefreshStep({
+      refreshId: refresh.id,
+      tileId: tile.id,
+      sourceType: "connector_tool",
+      toolName: "stripe_get_balance",
+      input: {
+        account_id: "acct_123",
+        api_key: "sk_test_secret"
+      },
+      connectorMetadata: {
+        connectorId: "stripe",
+        connectorName: "Stripe",
+        connectorAccountLabel: "Acme Stripe",
+        connectorToolName: "Get balance",
+        connectorProviderToolId: "stripe.get_balance",
+        connectorArgumentsSummary: 'account_id=acct_123, {"api_key":"sk_test_secret"}',
+        connectorApprovalPolicy: {
+          readOnlyHint: true,
+          scopes: ["read"]
+        },
+        approvalBasis: "manual_refresh_granted_for_read_only"
+      }
+    });
+
+    assert.equal(refresh.artifactId, artifact.id);
+    assert.equal(refresh.status, "running");
+    assert.equal(step.refreshId, refresh.id);
+    assert.equal(step.tileId, tile.id);
+    assert.equal(step.sourceType, "connector_tool");
+    assert.equal(step.connectorId, "stripe");
+    assert.equal(step.connectorProviderToolId, "stripe.get_balance");
+    assert.equal(step.status, "pending");
+    assert.equal(step.approvalBasis, "manual_refresh_granted_for_read_only");
+    assert.equal((step.input as { api_key?: string }).api_key, "[redacted]");
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const persistedStep = connection
+        .prepare("SELECT input_json, connector_arguments_summary, connector_approval_policy_json, status FROM live_artifact_refresh_steps WHERE id = ?")
+        .get(step.id) as { input_json: string; connector_arguments_summary: string; connector_approval_policy_json: string; status: string };
+
+      assert.doesNotMatch(persistedStep.input_json, /sk_test_secret/);
+      assert.doesNotMatch(persistedStep.connector_arguments_summary, /sk_test_secret/);
+      assert.deepEqual(JSON.parse(persistedStep.connector_approval_policy_json), {
+        readOnlyHint: true,
+        scopes: ["read"]
+      });
+      assert.equal(persistedStep.status, "pending");
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("starting a live artifact refresh marks artifact and selected tiles as refreshing", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [
+        {
+          title: "Revenue",
+          kind: "metric",
+          renderJson: {
+            kind: "metric",
+            label: "Revenue",
+            value: "$42"
+          }
+        },
+        {
+          title: "Notes",
+          kind: "markdown",
+          renderJson: {
+            kind: "markdown",
+            markdown: "Ready"
+          }
+        }
+      ]
+    });
+
+    const [refreshingTile, idleTile] = artifact.tiles;
+    assert.ok(refreshingTile);
+    assert.ok(idleTile);
+
+    storage.startLiveArtifactRefresh({
+      artifactId: artifact.id,
+      scope: "artifact",
+      tileIdsToRefresh: [refreshingTile.id]
+    });
+
+    const refreshedArtifact = storage.getLiveArtifact(artifact.id);
+    const updatedRefreshingTile = refreshedArtifact.tiles.find((tile) => tile.id === refreshingTile.id);
+    const updatedIdleTile = refreshedArtifact.tiles.find((tile) => tile.id === idleTile.id);
+
+    assert.equal(refreshedArtifact.refreshStatus, "refreshing");
+    assert.ok(refreshedArtifact.refreshStartedAt);
+    assert.equal(refreshedArtifact.lastRefreshError, null);
+
+    assert.ok(updatedRefreshingTile);
+    assert.equal(updatedRefreshingTile.refreshStatus, "refreshing");
+    assert.ok(updatedRefreshingTile.refreshStartedAt);
+    assert.equal(updatedRefreshingTile.lastError, null);
+
+    assert.ok(updatedIdleTile);
+    assert.equal(updatedIdleTile.refreshStatus, "idle");
+    assert.equal(updatedIdleTile.refreshStartedAt, null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("overlapping live artifact refreshes are rejected", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        }
+      }]
+    });
+
+    storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+
+    assert.throws(
+      () => storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" }),
+      (error: unknown) => {
+        assert.ok(error instanceof ChatStorageResolutionError);
+        assert.equal(error.errorCode, "refresh_in_progress");
+        assert.equal(error.statusCode, 409);
+        return true;
+      }
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("completing a live artifact refresh updates exposed refresh state", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        }
+      }]
+    });
+
+    const tileId = artifact.tiles[0]!.id;
+
+    const completedRefresh = storage.startLiveArtifactRefresh({
+      artifactId: artifact.id,
+      scope: "artifact",
+      tileIdsToRefresh: [tileId]
+    });
+    storage.completeLiveArtifactRefresh({ refreshId: completedRefresh.id, status: "completed" });
+
+    const completedArtifact = storage.getLiveArtifact(artifact.id);
+    assert.equal(completedArtifact.refreshStatus, "idle");
+    assert.equal(completedArtifact.refreshStartedAt, null);
+    assert.equal(completedArtifact.lastRefreshError, null);
+    assert.equal(completedArtifact.tiles[0]?.refreshStatus, "idle");
+    assert.equal(completedArtifact.tiles[0]?.refreshStartedAt, null);
+    assert.equal(completedArtifact.tiles[0]?.lastError, null);
+
+    const failedRefresh = storage.startLiveArtifactRefresh({
+      artifactId: artifact.id,
+      scope: "artifact",
+      tileIdsToRefresh: [tileId]
+    });
+    storage.completeLiveArtifactRefresh({
+      refreshId: failedRefresh.id,
+      status: "failed",
+      errorMessage: "provider temporarily unavailable"
+    });
+
+    const failedArtifact = storage.getLiveArtifact(artifact.id);
+    assert.equal(failedArtifact.refreshStatus, "failed");
+    assert.equal(failedArtifact.refreshStartedAt, null);
+    assert.equal(failedArtifact.lastRefreshError, "provider temporarily unavailable");
+    assert.equal(failedArtifact.tiles[0]?.refreshStatus, "failed");
+    assert.equal(failedArtifact.tiles[0]?.refreshStartedAt, null);
+    assert.equal(failedArtifact.tiles[0]?.lastError, "provider temporarily unavailable");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("applying live artifact refresh failures stores per-tile errors", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Partially refreshed artifact",
+      description: null,
+      tiles: [{
+        title: "Revenue",
+        kind: "metric",
+        renderJson: {
+          kind: "metric",
+          label: "Revenue",
+          value: "$42"
+        }
+      }]
+    });
+
+    const tileId = artifact.tiles[0]!.id;
+
+    storage.applyLiveArtifactRefreshResults({
+      artifactId: artifact.id,
+      tiles: [],
+      failedTiles: [{ tileId, errorMessage: "metric provider timed out" }]
+    });
+
+    const refreshedArtifact = storage.getLiveArtifact(artifact.id);
+    assert.equal(refreshedArtifact.refreshStatus, "failed");
+    assert.equal(refreshedArtifact.tiles[0]?.refreshStatus, "failed");
+    assert.equal(refreshedArtifact.tiles[0]?.lastError, "metric provider timed out");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact connector refresh steps require persisted audit metadata", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Summary",
+        kind: "markdown",
+        renderJson: {
+          kind: "markdown",
+          markdown: "Ready"
+        }
+      }]
+    });
+    const refresh = storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+
+    assert.throws(
+      () => storage.startLiveArtifactRefreshStep({
+        refreshId: refresh.id,
+        tileId: artifact.tiles[0]!.id,
+        sourceType: "connector_tool",
+        toolName: "gmail_search",
+        input: {
+          query: "from:example"
+        }
+      }),
+      (error: unknown) => error instanceof ChatStorageResolutionError && error.errorCode === "audit_required"
+    );
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const row = connection
+        .prepare("SELECT COUNT(*) AS count FROM live_artifact_refresh_steps WHERE refresh_id = ?")
+        .get(refresh.id) as { count: number };
+
+      assert.equal(row.count, 0);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("live artifact connector refresh steps reject incomplete audit metadata before execution", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const artifact = storage.createLiveArtifact({
+      title: "Refreshable artifact",
+      description: null,
+      tiles: [{
+        title: "Summary",
+        kind: "markdown",
+        renderJson: {
+          kind: "markdown",
+          markdown: "Ready"
+        }
+      }]
+    });
+    const refresh = storage.startLiveArtifactRefresh({ artifactId: artifact.id, scope: "artifact" });
+
+    assert.throws(
+      () => storage.startLiveArtifactRefreshStep({
+        refreshId: refresh.id,
+        tileId: artifact.tiles[0]!.id,
+        sourceType: "connector_tool",
+        toolName: "gmail_search",
+        input: {
+          query: "from:example"
+        },
+        connectorMetadata: {
+          connectorId: "gmail",
+          connectorName: "Gmail",
+          connectorAccountLabel: "Acme Mail",
+          connectorToolName: "Search email",
+          connectorProviderToolId: "",
+          connectorArgumentsSummary: "query=from:example",
+          connectorApprovalPolicy: null,
+          approvalBasis: "manual_refresh_granted_for_read_only"
+        } as never
+      }),
+      (error: unknown) => error instanceof ChatStorageResolutionError && error.errorCode === "audit_required"
+    );
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      const row = connection
+        .prepare("SELECT COUNT(*) AS count FROM live_artifact_refresh_steps WHERE refresh_id = ?")
+        .get(refresh.id) as { count: number };
+
+      assert.equal(row.count, 0);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("create-time inferred live artifact refresh sources include data path mappings", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [{ id: "msg_user_inferred", role: "user", parts: [{ type: "text", text: "Show repository stars." }] } as any]
+    });
+
+    const connectorToolCallId = storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "github_get_a_repository",
+      input: { owner: "nexu-io", repo: "open-design" },
+      metadata: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        connectorAccountLabel: "octocat",
+        connectorToolName: "Get a repository",
+        connectorProviderToolId: "GITHUB_GET_A_REPOSITORY",
+        connectorArgumentsSummary: "owner=nexu-io repo=open-design",
+        connectorApprovalPolicy: { sideEffect: "read", approval: "never" }
+      }
+    });
+    storage.markToolCallRunning(connectorToolCallId);
+    storage.completeToolCall({ toolCallId: connectorToolCallId, output: { stargazers_count: 325 } });
+
+    storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "create_live_artifact",
+      input: { title: "Stars" }
+    });
+
+    const artifact = storage.createLiveArtifact({
+      title: "Stars",
+      description: null,
+      contentType: "html_page_v1",
+      createdByRunId: prepared.runId,
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><strong data-bind=\"text:data.stargazers_count\">325</strong></main>",
+        dataJson: { stargazers_count: 325 },
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+
+    assert.deepEqual(artifact.document?.sourceJson?.outputMapping, {
+      preferredKind: "json",
+      dataPaths: { stargazers_count: "stargazers_count" }
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("read-time inferred live artifact sources include data path mappings", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorageWithRuntimeData(fixture.databasePath);
+    const prepared = storage.prepareChatRequest({
+      messages: [{ id: "msg_user_legacy_inferred", role: "user", parts: [{ type: "text", text: "Show repository stars." }] } as any]
+    });
+    const connectorToolCallId = storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "github_get_a_repository",
+      input: { owner: "nexu-io", repo: "open-design" },
+      metadata: {
+        connectorId: "github",
+        connectorName: "GitHub",
+        connectorAccountLabel: "octocat",
+        connectorToolName: "Get a repository",
+        connectorProviderToolId: "GITHUB_GET_A_REPOSITORY",
+        connectorArgumentsSummary: "owner=nexu-io repo=open-design",
+        connectorApprovalPolicy: { sideEffect: "read", approval: "never" }
+      }
+    });
+    storage.markToolCallRunning(connectorToolCallId);
+    storage.completeToolCall({ toolCallId: connectorToolCallId, output: { stargazers_count: 325 } });
+    storage.startToolCall({
+      runId: prepared.runId,
+      toolName: "create_live_artifact",
+      input: { title: "Stars" }
+    });
+    const artifact = storage.createLiveArtifact({
+      title: "Legacy static stars",
+      description: null,
+      contentType: "html_page_v1",
+      createdByRunId: prepared.runId,
+      document: {
+        format: "html_template_v1",
+        sanitizedHtml: "<main><strong data-bind=\"text:data.stargazers_count\">325</strong></main>",
+        dataJson: { stargazers_count: 325 },
+        sanitizerVersion: "basic-html-v1"
+      }
+    });
+
+    const connection = new DatabaseSync(fixture.databasePath);
+    try {
+      connection
+        .prepare("UPDATE live_artifact_documents SET source_json = NULL WHERE artifact_id = ?")
+        .run(artifact.id);
+    } finally {
+      connection.close();
+    }
+
+    const legacyArtifact = storage.getLiveArtifact(artifact.id);
+    assert.deepEqual(legacyArtifact.document?.sourceJson?.outputMapping, {
+      preferredKind: "json",
+      dataPaths: { stargazers_count: "stargazers_count" }
+    });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("monet install id is generated once, persisted, and reused as an opaque UUID", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const installId = storage.getMonetInstallId();
+    const repeatedInstallId = storage.getMonetInstallId();
+
+    assert.match(installId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    assert.equal(repeatedInstallId, installId);
+
+    const reopenedStorage = createStorage(fixture.databasePath);
+    assert.equal(reopenedStorage.getMonetInstallId(), installId);
+
+    const connection = new DatabaseSync(fixture.databasePath);
+
+    try {
+      const rows = connection.prepare(`SELECT key, value FROM local_app_settings`).all() as Array<{ key: string; value: string }>;
+
+      assert.deepEqual(
+        rows.map((row) => ({ key: row.key, value: row.value })),
+        [{ key: "monet_install_id", value: installId }]
+      );
+
+      assert.equal(rows.length, 1);
+    } finally {
+      connection.close();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("monet install id does not contain personally identifying machine or account data", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const installId = storage.getMonetInstallId();
+    const normalizedInstallId = installId.toLowerCase();
+    const potentiallyIdentifyingValues = [
+      userInfo().username,
+      hostname(),
+      homedir(),
+      fixture.fixtureDir,
+      fixture.workspaceDir,
+      fixture.secondaryDir
+    ]
+      .flatMap((value) => value.split(/[\\/]/))
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => value.length >= 4 && !/^[a-z]:$/i.test(value));
+
+    assert.match(installId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+
+    for (const value of new Set(potentiallyIdentifyingValues)) {
+      assert.equal(
+        normalizedInstallId.includes(value),
+        false,
+        `monet_install_id should not include personally identifying value: ${value}`
+      );
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("composio provider settings are persisted and reused", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+
+    const updated = storage.replaceConnectorProviderComposioSettings({
+      apiKey: "  secret-api-key  ",
+      baseUrl: "https://composio.custom.test/",
+      timeoutMs: 15000,
+      authConfigIds: {
+        github: "gh-auth-id",
+        notion: "notion-auth-id",
+        google_drive: "drive-auth-id"
+      }
+    });
+
+    const reopened = createStorage(fixture.databasePath);
+    const restored = reopened.getConnectorProviderComposioSettings();
+
+    assert.equal(reopened.getConnectorProviderComposioSettingsPublic().apiKeyConfigured, true);
+    assert.equal(restored.key, "connector_provider_composio");
+    assert.equal(restored.apiKey, "secret-api-key");
+    assert.equal(restored.baseUrl, "https://composio.custom.test");
+    assert.equal(restored.timeoutMs, 15000);
+    assert.deepEqual(restored.authConfigIds, {
+      github: "gh-auth-id",
+      notion: "notion-auth-id",
+      google_drive: "drive-auth-id"
+    });
+    assert.equal(restored.createdAt, updated.createdAt);
+    assert.equal(restored.updatedAt, updated.updatedAt);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing composio provider settings default to sensible defaults", () => {
+  const fixture = createStorageFixture();
+
+  try {
+    const storage = createStorage(fixture.databasePath);
+    const settings = storage.getConnectorProviderComposioSettings();
+
+    assert.equal(settings.key, "connector_provider_composio");
+    assert.equal(settings.apiKey, null);
+    assert.equal(settings.baseUrl, "https://backend.composio.dev");
+    assert.equal(settings.timeoutMs, null);
+    assert.deepEqual(settings.authConfigIds, {});
   } finally {
     fixture.cleanup();
   }
